@@ -1,0 +1,18 @@
+# 敏感配置（含 API key，切勿提交）
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# 临时文件
+tmp/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
