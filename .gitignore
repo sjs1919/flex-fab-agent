@@ -9,6 +9,9 @@ __pycache__/
 venv/
 *.egg-info/
 
+# 向量库持久化（Chroma 本地数据，可由脚本重建，勿提交）
+chroma_db/
+
 # 临时文件
 tmp/
 
