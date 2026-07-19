@@ -15,6 +15,9 @@ chroma_db/
 # 临时文件
 tmp/
 
+# WAIC 2026 分析脚本（仅提交报告和源数据）
+docs/waic2026/*.py
+
 # IDE / OS
 .vscode/
 .idea/
