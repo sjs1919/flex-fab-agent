@@ -1,0 +1,17 @@
+services:
+  stock-monitor:
+    image: stock-monitor:latest
+    container_name: stock-monitor
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - TZ=Asia/Shanghai
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./logs:/app/logs
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
