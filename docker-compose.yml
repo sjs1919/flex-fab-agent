@@ -10,6 +10,7 @@ services:
       - PYTHONUNBUFFERED=1
     volumes:
       - ./logs:/app/logs
+      - ./data:/app/data
     logging:
       driver: json-file
       options:

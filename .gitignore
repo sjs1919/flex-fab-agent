@@ -12,6 +12,9 @@ venv/
 # 向量库持久化（Chroma 本地数据，可由脚本重建，勿提交）
 chroma_db/
 
+# 运行时数据（指数环比 JSON，容器挂载卷内容，勿提交；仅根 data/，不影响 scripts/week*/data/）
+/data/
+
 # 临时文件
 tmp/
 ~$*
