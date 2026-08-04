@@ -25,7 +25,7 @@ from ..graph.state import AgentState
 from ..tools.registry import ToolRegistry
 
 
-def build_single_agent_graph(registry: ToolRegistry):
+def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
     """构建单 Agent 状态图。registry 决定 Agent 可用哪些工具。"""
 
     tools_schema = registry.get_tool_defs()
@@ -143,4 +143,4 @@ def build_single_agent_graph(registry: ToolRegistry):
         "generate_answer": "generate_answer",
     })
     graph.add_edge("generate_answer", END)
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer)

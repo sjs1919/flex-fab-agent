@@ -15,8 +15,10 @@
 import sys
 
 # Windows 控制台默认 GBK 编码，无法输出 emoji 状态符（♻️✅❌），
-# 这里把标准输出/错误重配为 UTF-8，用户无需手动设 PYTHONIOENCODING。
-for _stream in (sys.stdout, sys.stderr):
+# 这里把标准输入/输出/错误重配为 UTF-8，用户无需手动设 PYTHONIOENCODING。
+# stdin 也重配：--chat 多轮模式经 input() 读中文，GBK 解码会产 lone surrogate
+# 致使打印时 utf-8 编码失败（surrogates not allowed）。
+for _stream in (sys.stdin, sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         try:
             _stream.reconfigure(encoding="utf-8")

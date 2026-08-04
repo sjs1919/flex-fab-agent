@@ -2,11 +2,15 @@
 
 用法：
   python -m demo.main "今天先做哪些订单？"     # 单 Agent 模式处理查询
+  python -m demo.main --chat                    # 多轮对话（状态持久化，重启可恢复）
+  python -m demo.main --chat --thread <id>      # 续接指定会话
+  python -m demo.main "..." --thread <id>       # 单次提问但恢复某会话上下文
   python -m demo.main --demo                    # 跑预设场景
   python -m demo.main --check                   # 地基自检（config/LLM/工具）
   python -m demo.main --mode multi "..."        # 多 Agent 模式（Step 3 接入）
 """
 import sys
+import uuid
 
 from .config import available_providers
 from .agents.single_agent import run_single_agent
@@ -48,8 +52,10 @@ def main():
         selfcheck()
         return
 
-    # 解析 --mode
+    # 解析参数
     mode = "single"
+    chat = False
+    thread_id = None
     positional = []
     i = 0
     while i < len(args):
@@ -59,11 +65,21 @@ def main():
         elif args[i] == "--demo":
             mode = "demo"
             i += 1
+        elif args[i] == "--chat":
+            chat = True
+            i += 1
+        elif args[i] == "--thread" and i + 1 < len(args):
+            thread_id = args[i + 1]
+            i += 2
         else:
             positional.append(args[i])
             i += 1
 
     print(f"可用 Provider：{', '.join(p['name'] for p in available_providers())}（自动降级）")
+
+    if chat:
+        _chat(thread_id or f"chat-{uuid.uuid4().hex[:12]}")
+        return
 
     if mode == "demo":
         print(f"\n📋 预设场景（共 {len(DEMO_SCENARIOS)} 个）：\n")
@@ -81,22 +97,53 @@ def main():
 
     query = " ".join(positional)
     if not query:
-        print('\n用法：python -m demo.main "你的问题"  或  --demo  或  --check')
+        print('\n用法：python -m demo.main "你的问题"  或  --chat  或  --demo  或  --check')
+        print('多轮对话：--chat [--thread <会话id>]')
         return
 
     if mode == "multi":
         from .agents.supervisor import run_supervisor
         _run_with_trace(run_supervisor, query)
         return
-    _run_with_trace(run_single_agent, query)
+    _run_with_trace(run_single_agent, query, thread_id=thread_id)
 
 
-def _run_with_trace(fn, query):
-    """每轮查询：重置 tracer -> 执行 -> 打印 trace 摘要（观测层）。"""
+def _run_with_trace(fn, query, thread_id=None):
+    """每轮查询：重置 tracer -> 执行 -> 打印 trace 摘要 -> 导出（观测层）。"""
     tracer.reset()
-    fn(query)
+    if thread_id is not None:
+        fn(query, thread_id=thread_id)
+    else:
+        fn(query)
     print()
     print(tracer.format_text())
+    tracer.flush()
+
+
+def _chat(thread_id: str) -> None:
+    """多轮对话 REPL：同一 thread_id 跨轮共享上下文（checkpointer 持久化）。"""
+    print(f"\n💬 多轮会话 {thread_id}")
+    print("输入问题开始对话（/exit 退出 · /new 新会话 · /switch <id> 切换会话）\n")
+    while True:
+        try:
+            q = input("你> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if not q:
+            continue
+        if q in ("/exit", "/quit"):
+            break
+        if q == "/new":
+            thread_id = f"chat-{uuid.uuid4().hex[:12]}"
+            print(f"\n💬 新会话 {thread_id}\n")
+            continue
+        if q.startswith("/switch "):
+            thread_id = q.split(" ", 1)[1].strip()
+            print(f"\n💬 切换到会话 {thread_id}\n")
+            continue
+        _run_with_trace(run_single_agent, q, thread_id=thread_id)
+        print()
 
 
 if __name__ == "__main__":
