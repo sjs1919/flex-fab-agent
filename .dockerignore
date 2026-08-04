@@ -1,0 +1,13 @@
+.git
+**/__pycache__
+**/*.pyc
+demo/data/chroma_db/
+demo/data/checkpoints.db
+demo/data/checkpoints.db-journal
+demo/data/cache_db/
+.env
+.env.*
+tmp/
+.claude/
+venv/
+.venv/
