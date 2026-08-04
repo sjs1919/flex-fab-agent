@@ -15,9 +15,9 @@ import os
 
 import chromadb
 
-from ..config import DATA_DIR
+from ..config import RUNTIME_DIR
 
-_DB_DIR = DATA_DIR / "cache_db"
+_DB_DIR = RUNTIME_DIR / "cache_db"
 _COLLECTION_NAME = "semantic_cache"
 _collection = None
 

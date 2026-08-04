@@ -17,6 +17,11 @@ load_dotenv(PROJECT_ROOT / ".env")
 # 数据目录（demo/data/）-- 工具层和 RAG 层都从这里读
 DATA_DIR = Path(__file__).resolve().parent / "data"
 
+# 运行时数据目录：checkpoints.db / cache_db / chroma_db 落此处。
+# 默认同 DATA_DIR（宿主跑行为不变）；容器内设 DEMO_RUNTIME_DIR 指向挂载卷，
+# 与 bake 进镜像的业务数据（csv/contracts）分离，卷持久化跨容器重建。
+RUNTIME_DIR = Path(os.getenv("DEMO_RUNTIME_DIR", str(DATA_DIR)))
+
 
 def _is_real_key(key: str) -> bool:
     """判断 key 是否为真实配置（非空、非占位符 'your-...'）。"""

@@ -41,8 +41,8 @@ def build_checkpointer():
     # sqlite 默认：落盘，重启可恢复
     from langgraph.checkpoint.sqlite import SqliteSaver
 
-    from ..config import DATA_DIR
+    from ..config import RUNTIME_DIR
 
-    conn = sqlite3.connect(str(DATA_DIR / "checkpoints.db"), check_same_thread=False)
+    conn = sqlite3.connect(str(RUNTIME_DIR / "checkpoints.db"), check_same_thread=False)
     _CHECKPOINTER = SqliteSaver(conn)
     return _CHECKPOINTER

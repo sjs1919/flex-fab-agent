@@ -13,9 +13,9 @@ from pathlib import Path
 
 import chromadb
 
-from ..config import DATA_DIR
+from ..config import DATA_DIR, RUNTIME_DIR
 
-DB_DIR = DATA_DIR / "chroma_db"
+DB_DIR = RUNTIME_DIR / "chroma_db"
 CONTRACTS_DIR = DATA_DIR / "contracts"
 DELAY_RECORD = DATA_DIR / "历史延期记录.txt"
 COLLECTION_NAME = "kb_contracts_delay"
