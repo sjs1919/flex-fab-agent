@@ -3,21 +3,36 @@
 记录：主体(谁) / 操作(做了什么) / 目标(对谁) / 参数 / 结果摘要 / 时间戳 / Trace ID。
 Trace ID 串联全链路：一个用户请求对应一个 Trace ID，所有日志都带它，
 出问题按 Trace ID 查即可还原完整调用链。
+
+持久化：默认写入 {RUNTIME_DIR}/audit.jsonl（JSONL 格式，一行一条记录）。
+设 AUDIT_LOG=none 可切回纯内存模式（测试/调试用）。
 """
 import json
+import os
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Any
+
+
+def _resolve_log_path() -> Path | None:
+    """解析审计日志持久化路径。"""
+    mode = os.getenv("AUDIT_LOG", "").lower()
+    if mode == "none":
+        return None
+    from ..config import RUNTIME_DIR
+    custom = os.getenv("AUDIT_LOG_PATH", "")
+    return Path(custom) if custom else RUNTIME_DIR / "audit.jsonl"
 
 
 class AuditLogger:
     """结构化审计日志记录器。"""
 
     def __init__(self, log_path: str | None = None):
-        # 缺口#6：log_path 当前仅内存，未落盘；后续可写 JSONL 到 log_path
         self._trace_id = uuid.uuid4().hex[:12]
         self._entries: list[dict[str, Any]] = []
-        self._log_path = log_path
+        # 优先使用传入路径，其次环境变量，最后默认 RUNTIME_DIR/audit.jsonl
+        self._log_path = log_path or str(_resolve_log_path()) if _resolve_log_path() else None
 
     @property
     def trace_id(self) -> str:
@@ -39,7 +54,20 @@ class AuditLogger:
         }
         self._entries.append(entry)
         print(f"[审计] [{self._trace_id}] {action} -> {target} ({level})")
+        # 持久化写入：每条记录即时追加到 JSONL 文件
+        self._persist(entry)
         return entry_id
+
+    def _persist(self, entry: dict[str, Any]) -> None:
+        """追加一条记录到 JSONL 文件。"""
+        if not self._log_path:
+            return
+        try:
+            Path(self._log_path).parent.mkdir(parents=True, exist_ok=True)
+            with open(self._log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except OSError as e:
+            print(f"[审计] 写入失败: {e}")
 
     def get_report(self) -> str:
         """生成审计报告。"""
