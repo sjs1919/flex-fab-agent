@@ -23,7 +23,7 @@ from pydantic import BaseModel
 from .agents.single_agent import _get_app, run_single_agent
 from .cache import semantic_cache
 from .config import available_providers
-from .observability import tracer
+from .observability import tracer, cost_tracker
 from .tools.registry import build_default_registry
 
 app = FastAPI(title="demo 排产助手 API", version="0.1.0")
@@ -67,9 +67,13 @@ def health() -> dict:
 def ask(req: AskRequest) -> AskResponse:
     """单次或多轮提问。带 thread_id 即多轮（checkpointer 恢复历史）。"""
     tracer.reset()
+    cost_tracker.reset()
     result = run_single_agent(req.query, registry=_registry, thread_id=req.thread_id)
     trace = tracer.get_summary()
+    cost = cost_tracker.get_summary()
     tracer.flush()
+    # 成本摘要输出到 stdout（docker logs 可见）
+    print(cost_tracker.format_text())
     return AskResponse(
         answer=result.get("final_answer", ""),
         tool_results=result.get("tool_results", []),

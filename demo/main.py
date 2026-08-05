@@ -15,7 +15,7 @@ import uuid
 from .config import available_providers
 from .agents.single_agent import run_single_agent
 from .tools.registry import build_default_registry
-from .observability import tracer
+from .observability import tracer, cost_tracker
 
 DEMO_SCENARIOS = [
     "今天先做哪些订单？帮我综合考虑交期紧迫度、客户等级、材料库存和设备负载情况，给出优先级排序。",
@@ -109,14 +109,16 @@ def main():
 
 
 def _run_with_trace(fn, query, thread_id=None):
-    """每轮查询：重置 tracer -> 执行 -> 打印 trace 摘要 -> 导出（观测层）。"""
+    """每轮查询：重置 tracer + cost -> 执行 -> 打印 trace + 费用摘要 -> 导出（观测层）。"""
     tracer.reset()
+    cost_tracker.reset()
     if thread_id is not None:
         fn(query, thread_id=thread_id)
     else:
         fn(query)
     print()
     print(tracer.format_text())
+    print(cost_tracker.format_text())
     tracer.flush()
 
 
