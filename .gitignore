@@ -12,6 +12,9 @@ venv/
 # 向量库持久化（Chroma 本地数据，可由脚本重建，勿提交）
 chroma_db/
 
+# SQLite 缓存数据库（运行时生成，勿提交）
+*.db
+
 # LangGraph checkpointer 落盘的会话状态（运行时生成，勿提交）
 checkpoints.db
 checkpoints.db-journal

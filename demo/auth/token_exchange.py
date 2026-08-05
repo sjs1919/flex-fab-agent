@@ -7,11 +7,17 @@
   - 子 Token 权限 ≤ 父 Token（防权限升级）
   - 子 Token 5 分钟过期（最小权限，泄漏影响有限）
   - source="token_exchange" 标记来源，审计可追溯
+  - 持久化：SQLite 存储（重启不丢），由 TOKEN_STORE 环境变量控制（sqlite 默认 / memory）
 """
+import json
+import os
+import sqlite3
 import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Literal
+
+from ..config import RUNTIME_DIR
 
 RoleType = Literal["admin", "scheduler", "reviewer", "operator", "viewer"]
 
@@ -50,12 +56,107 @@ class Token:
         return tool_name in self.permissions
 
 
+class TokenStore:
+    """Token 持久化存储抽象。"""
+
+    def save(self, token: Token) -> None:
+        raise NotImplementedError
+
+    def get(self, token_id: str) -> Token | None:
+        raise NotImplementedError
+
+    def delete(self, token_id: str) -> None:
+        raise NotImplementedError
+
+    def delete_all(self) -> int:
+        raise NotImplementedError
+
+
+class MemoryTokenStore(TokenStore):
+    """内存存储（进程重启丢失）。"""
+
+    def __init__(self):
+        self._tokens: dict[str, Token] = {}
+
+    def save(self, token: Token) -> None:
+        self._tokens[token.token_id] = token
+
+    def get(self, token_id: str) -> Token | None:
+        return self._tokens.get(token_id)
+
+    def delete(self, token_id: str) -> None:
+        self._tokens.pop(token_id, None)
+
+    def delete_all(self) -> int:
+        count = len(self._tokens)
+        self._tokens.clear()
+        return count
+
+
+class SqliteTokenStore(TokenStore):
+    """SQLite 持久化存储（重启不丢）。过期 Token 读时自动清理。"""
+
+    def __init__(self, db_path: str):
+        self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS tokens ("
+            "  token_id TEXT PRIMARY KEY,"
+            "  subject TEXT, role TEXT, permissions TEXT, source TEXT,"
+            "  parent_trace TEXT, issued_at REAL, expires_at REAL"
+            ")"
+        )
+        self._conn.commit()
+
+    def save(self, token: Token) -> None:
+        self._conn.execute(
+            "INSERT OR REPLACE INTO tokens VALUES (?,?,?,?,?,?,?,?)",
+            (token.token_id, token.subject, token.role,
+             json.dumps(token.permissions), token.source,
+             token.parent_trace, token.issued_at, token.expires_at),
+        )
+        self._conn.commit()
+
+    def get(self, token_id: str) -> Token | None:
+        row = self._conn.execute(
+            "SELECT * FROM tokens WHERE token_id=?", (token_id,)
+        ).fetchone()
+        if not row:
+            return None
+        token = Token(
+            subject=row[1], role=row[2], permissions=json.loads(row[3]),
+            source=row[4], parent_trace=row[5], issued_at=row[6],
+            expires_at=row[7], token_id=row[0],
+        )
+        if token.is_expired():
+            self.delete(token_id)
+            return None
+        return token
+
+    def delete(self, token_id: str) -> None:
+        self._conn.execute("DELETE FROM tokens WHERE token_id=?", (token_id,))
+        self._conn.commit()
+
+    def delete_all(self) -> int:
+        count = self._conn.execute("SELECT COUNT(*) FROM tokens").fetchone()[0]
+        self._conn.execute("DELETE FROM tokens")
+        self._conn.commit()
+        return count
+
+
+def _build_token_store() -> TokenStore:
+    """按 TOKEN_STORE 环境变量构建存储后端（默认 sqlite）。"""
+    mode = os.getenv("TOKEN_STORE", "sqlite").lower()
+    if mode == "memory":
+        return MemoryTokenStore()
+    db_path = str(RUNTIME_DIR / "tokens.db")
+    return SqliteTokenStore(db_path)
+
+
 class STS:
     """Security Token Service - Token 签发与交换。"""
 
     def __init__(self) -> None:
-        # 内存存储（缺口#5：重启丢失，后续可换 SQLite 持久化）
-        self._issued_tokens: dict[str, Token] = {}
+        self._store = _build_token_store()
 
     def issue_user_token(self, user_id: str, role: RoleType, ttl: int = 3600) -> str:
         """签发用户 Token（1 小时有效）。"""
@@ -64,13 +165,13 @@ class STS:
             permissions=ROLE_PERMISSIONS.get(role, []),
             source="user", expires_at=time.time() + ttl,
         )
-        self._issued_tokens[token.token_id] = token
+        self._store.save(token)
         return token.token_id
 
     def exchange(self, parent_token_id: str, requested_role: RoleType,
                  target_trace: str = "") -> tuple[str | None, str]:
         """Token Exchange：父 Token -> 受限子 Token（5 分钟有效）。"""
-        parent = self._issued_tokens.get(parent_token_id)
+        parent = self._store.get(parent_token_id)
         if not parent:
             return None, "父 Token 不存在"
         if parent.is_expired():
@@ -91,18 +192,16 @@ class STS:
             parent_trace=parent.parent_trace or parent.token_id,
             expires_at=time.time() + 300,
         )
-        self._issued_tokens[child.token_id] = child
+        self._store.save(child)
         return child.token_id, "ok"
 
     def get_token(self, token_id: str) -> Token | None:
-        return self._issued_tokens.get(token_id)
+        return self._store.get(token_id)
 
     def revoke(self, token_id: str) -> None:
-        if token_id in self._issued_tokens:
-            del self._issued_tokens[token_id]
-            print(f"[鉴权] Token {token_id[:8]}... 已吊销")
+        self._store.delete(token_id)
+        print(f"[鉴权] Token {token_id[:8]}... 已吊销")
 
     def revoke_all(self) -> None:
-        count = len(self._issued_tokens)
-        self._issued_tokens.clear()
+        count = self._store.delete_all()
         print(f"[鉴权] 已吊销 {count} 个 Token（通用注销）")
