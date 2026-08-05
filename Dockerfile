@@ -3,8 +3,9 @@ FROM python:3.11-slim
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
-# CPU torch 先装（独立层缓存；sentence-transformers 依赖 torch，先装 CPU 版避免被拉 CUDA 版）
-RUN pip install torch --index-url https://download.pytorch.org/whl/cpu
+# pip 全局清华源（含 torch CPU 版），避免 PyPI 和 download.pytorch.org 国内卡顿
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+RUN pip install torch
 
 WORKDIR /app
 

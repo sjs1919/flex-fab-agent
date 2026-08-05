@@ -8,14 +8,16 @@ services:
       - .env
     environment:
       - DEMO_RUNTIME_DIR=/data/runtime
+      # HuggingFace 国内镜像，加速模型下载（sentence-transformers / reranker）
+      - HF_ENDPOINT=https://hf-mirror.com
     volumes:
       # 运行时产物（checkpoints.db / cache_db / chroma_db）持久化，跨容器重建保留
       - demo-runtime:/data/runtime
       # 宿主模型缓存 -> 容器：reranker(~1.1GB) + onnx embedding，免容器内联网下载
       # 路径不对就改这里或设 HF_CACHE_HOST / CHROMA_CACHE_HOST 环境变量
       # 不挂载：非 RAG 问正常，RAG 问报 reranker 加载错
-      - ${HF_CACHE_HOST:-C:/Users/wenext/.cache/huggingface}:/root/.cache/huggingface
-      - ${CHROMA_CACHE_HOST:-C:/Users/wenext/.cache/chroma}:/root/.cache/chroma
+      - ${HF_CACHE_HOST:-/home/wenext/.cache/huggingface}:/root/.cache/huggingface
+      - ${CHROMA_CACHE_HOST:-/home/wenext/.cache/chroma}:/root/.cache/chroma
 
 volumes:
   demo-runtime:
