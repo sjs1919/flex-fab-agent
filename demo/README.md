@@ -85,10 +85,11 @@ demo/
 ├── config.py              # 统一 .env 加载 + 单一 PROVIDERS 列表（主备 fallback）
 │
 ├── core/                  # 基座层
-│   └── llm_client.py      #   call_llm(messages, tools) + 主备降级 + trust_env=False 绕死代理
+│   └── llm_client.py      #   call_llm(messages, tools) + 主备降级 + 连接池 + L1 精确缓存
 │
-├── cache/                 # 语义缓存层（#6）
-│   └── semantic_cache.py  #   Chroma cosine collection，相似问题命中跳过 LLM，仅无上下文时启用
+├── cache/                 # 缓存层（两级缓存减少 LLM API 调用）
+│   ├── llm_cache.py       #   L1 精确缓存（SQLite，相同 prompt 命中 <1ms，0 token）
+│   └── semantic_cache.py  #   L2 语义缓存（Chroma cosine，近义改写命中 ~50ms）
 │
 ├── tools/                 # 工具层（MCP 架构）
 │   ├── data.py            #   CSV 数据加载（orders/inventory/machines/customers）
@@ -357,3 +358,8 @@ CACHE_THRESHOLD=0.10 python -m demo.main "今天有哪些紧急订单？"
 - [x] 语义缓存：无关问题不误命中（distance>阈值判 miss），trace 记 `cache:lookup(result=hit/miss + distance)`
 - [x] Windows GBK 兼容：无需手动设编码环境变量
 - [x] README 含功能/调用建议/目录/架构图/差距表
+- [x] **成本监控（#1）**：LLM 调用自动计费，预算熔断，费用摘要含进度条
+- [x] **Token 持久化（#2）**：SQLite 默认存储 + `TOKEN_STORE=memory` 切回内存
+- [x] **审计持久化（#3）**：JSONL 即时落盘 + `AUDIT_LOG=none` 禁用
+- [x] **L1 精确缓存**：SQLite 存储，相同 prompt 命中 <1ms，0 token 消耗
+- [x] **LLM 连接池**：provider 级 httpx 连接池，keep-alive 60s，复用 TCP 连接
