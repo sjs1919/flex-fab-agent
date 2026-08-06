@@ -53,10 +53,10 @@ def main():
         return
 
     # 解析参数
-    mode = "single"
-    chat = False
-    thread_id = None
-    positional = []
+    mode = "single"       # 执行模式：single(默认) / multi(--mode multi，多 Agent) / demo(--demo，预设场景)
+    chat = False          # 是否进多轮对话 REPL（--chat 触发，优先级最高，进了即 return）
+    thread_id = None      # 会话 ID：--thread <id> 续接历史上下文；None=独立单次查询（可命中语义缓存）
+    positional = []       # 位置参数桶：收集非 flag token，末尾 join 成查询文本
     i = 0
     while i < len(args):
         if args[i] == "--mode" and i + 1 < len(args):
