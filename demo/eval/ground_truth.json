@@ -1,0 +1,111 @@
+{
+  "version": "1.0",
+  "created": "2026-08-07",
+  "cases": [
+    {
+      "id": "eval_001",
+      "scenario": "排产优先级",
+      "query": "今天先做哪些订单？",
+      "expected_tools": ["query_orders", "query_inventory", "query_machine_load"],
+      "expected_order_ids": ["ORD003"],
+      "checks": {
+        "must_contain": ["ORD003", "深圳精密"],
+        "must_not_contain": ["无法确定", "没有数据"],
+        "min_tools_called": 2
+      }
+    },
+    {
+      "id": "eval_002",
+      "scenario": "紧急订单识别",
+      "query": "有哪些紧急订单？",
+      "expected_tools": ["query_orders"],
+      "checks": {
+        "must_contain": ["紧急"],
+        "must_not_contain": ["没有问题", "没有紧急订单"],
+        "min_tools_called": 1
+      }
+    },
+    {
+      "id": "eval_003",
+      "scenario": "单订单详情",
+      "query": "ORD001 能按时交付吗？",
+      "expected_tools": ["get_order_detail", "get_production_status", "query_inventory"],
+      "checks": {
+        "must_contain": ["ORD001"],
+        "must_not_contain": ["无法确定"],
+        "min_tools_called": 2
+      }
+    },
+    {
+      "id": "eval_004",
+      "scenario": "客户信用评估",
+      "query": "东莞模具厂订单总体情况？信用如何？",
+      "expected_tools": ["query_customer", "query_orders"],
+      "checks": {
+        "must_contain": ["东莞"],
+        "min_tools_called": 2
+      }
+    },
+    {
+      "id": "eval_005",
+      "scenario": "材料库存影响",
+      "query": "PEEK 材料库存够吗？会影响哪些订单？",
+      "expected_tools": ["query_inventory", "query_orders"],
+      "checks": {
+        "must_contain": ["PEEK"],
+        "min_tools_called": 2
+      }
+    },
+    {
+      "id": "eval_006",
+      "scenario": "合同条款RAG",
+      "query": "广州航天合同有什么特殊条款？",
+      "expected_tools": ["search_knowledge_base"],
+      "checks": {
+        "must_contain": ["广州航天"],
+        "min_tools_called": 1
+      }
+    },
+    {
+      "id": "eval_007",
+      "scenario": "设备瓶颈",
+      "query": "哪些设备是瓶颈？",
+      "expected_tools": ["query_machine_load"],
+      "checks": {
+        "must_contain": ["设备", "负载"],
+        "must_not_contain": ["没有设备数据"],
+        "min_tools_called": 1
+      }
+    },
+    {
+      "id": "eval_008",
+      "scenario": "深圳精密专项",
+      "query": "深圳精密有哪些在生产的订单？",
+      "expected_tools": ["query_orders"],
+      "checks": {
+        "must_contain": ["深圳", "ORD"],
+        "min_tools_called": 1
+      }
+    },
+    {
+      "id": "eval_009",
+      "scenario": "多条件综合",
+      "query": "A级客户的紧急订单，交期在最近3天内的，按优先级排序",
+      "expected_tools": ["query_orders", "query_customer", "query_machine_load"],
+      "checks": {
+        "must_not_contain": ["无法处理", "不支持"],
+        "min_tools_called": 2
+      }
+    },
+    {
+      "id": "eval_010",
+      "scenario": "延期记录查询",
+      "query": "历史上有哪些订单延期了？原因是什么？",
+      "expected_tools": ["search_knowledge_base"],
+      "checks": {
+        "must_contain": ["延期"],
+        "min_tools_called": 1
+      }
+    }
+  ]
+}

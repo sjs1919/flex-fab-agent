@@ -1,6 +1,7 @@
-# demo -- 多 Agent 排产助手（week1-4 工程化整合版）
+# demo -- 多 Agent 排产助手（week1-5 工程化整合版）
 
-> [AI:Claude] 架构设计 + 实现。本 demo 把 week1-week4 的单文件脚本整合为一个按 Agent 行业推荐工程化思维组织的分层项目，对应 Harness（编排-权限-观测）三层架构。
+> [AI:Claude] 架构设计 + 实现。本 demo 把 week1-week5 的单文件脚本整合为一个按 Agent 行业推荐工程化思维组织的分层项目，对应 Harness（编排-权限-观测）三层架构。
+> R1-R8 缺陷修复已完成（2026-08-07），详见 `docs/week5/8大缺陷-可执行代码改造方案.md`。
 
 ## 1. 这个 demo 能做什么
 
@@ -92,10 +93,13 @@ demo/
 │   └── semantic_cache.py  #   L2 语义缓存（Chroma cosine，近义改写命中 ~50ms）
 │
 ├── tools/                 # 工具层（MCP 架构）
-│   ├── data.py            #   CSV 数据加载（orders/inventory/machines/customers）
-│   ├── order_tools.py     #   订单工具：query_orders/get_order_detail/get_production_status
-│   ├── resource_tools.py  #   资源工具：query_inventory/query_machine_load/query_customer
+│   ├── data.py            #   CSV 数据加载 + R8 租户过滤
+│   ├── order_tools.py     #   订单工具：query_orders（R7 多字段筛选/排序/limit）
+│   ├── resource_tools.py  #   资源工具：query_inventory（R7 筛选/排序）+ query_customer（R7）
 │   ├── registry.py        #   ToolRegistry：O(1) 查找 + 参数白名单 + RBAC 强制 + tracer 接入
+│   │                      #     + R1 sandbox 集成 + R5 MCP 路由 + R8 tenant_id 自动注入
+│   ├── sandbox.py         #   工具沙箱（R1：超时控制 + 指数退避重试）
+│   ├── mcp_client.py      #   MCP Client（R5：stdio 子进程通信）
 │   └── mcp_servers.py     #   FastMCP server 构建（展示 MCP 协议，非运行必需）
 │
 ├── rag/                   # 合同知识库混合检索
@@ -105,9 +109,24 @@ demo/
 ├── prompts/
 │   └── system_prompts.py  # 各 Agent 系统提示词（单 Agent / 评审 / 生产 / 主管）
 │
+├── guardrails/            # 输出护栏（R2 缺陷修复）
+│   ├── __init__.py        #   run_guardrails() 统一入口
+│   ├── rules.py           #   护栏规则定义（越权/敏感/缺失段落）
+│   └── content_filter.py  #   内容过滤器（regex + 降级策略）
+│
+├── eval/                  # Agent 评估（R6 缺陷修复）
+│   ├── __init__.py
+│   ├── ground_truth.json  #   10 组排产场景 ground truth Q&A
+│   ├── metrics.py         #   评估指标（工具准确率/完整性/综合评分）
+│   └── runner.py          #   评估运行器（python -m demo.eval.runner）
+│
 ├── graph/                 # LangGraph 编排层
-│   ├── state.py           #   AgentState（TypedDict：messages/tool_results/iteration/final_answer）
-│   └── single_agent_graph.py  # 单 Agent 状态图：分析→选工具执行→评估→生成答案（5 轮安全阀）
+│   ├── state.py           #   AgentState（TypedDict：messages/tool_results/iteration/final_answer
+│   │                      #     + R3 新增 evaluation_notes/needs_retry/needs_more/ready_for_answer
+│   │                      #     + R4 新增 compression_count/compressed_summary）
+│   ├── single_agent_graph.py  # 单 Agent 状态图：分析→选工具执行→评估→生成答案（5 轮安全阀）
+│   │                      #     + R2 集成 guardrails + R3 evaluate_results 不再 noop + R4 上下文压缩
+│   └── context_compressor.py  # 上下文压缩器（R4 缺陷修复：summarization buffer）
 │   └── checkpointer.py    #   状态持久化：sqlite/memory/none，多轮对话 + 重启恢复（#1/#7）
 │
 ├── agents/                # Agent 层
@@ -168,6 +187,18 @@ demo/
 
 **第七层 · 观测（怎么知道 Agent 干了什么）**
 18. `observability/tracer.py` — `Span` 和 `Tracer` 怎么用 contextmanager 记录每个 LLM/工具调用的耗时和 token。关注：OTel 的同构最小实现，week5 换 backend 不动业务代码。
+
+**第八层 · 工具安全（工具挂了怎么兜底）** 🆕 R1
+19. `tools/sandbox.py` — `run_with_retry` 怎么用 threading.Timer 做超时控制 + 指数退避重试。关注：返回三元组 (result, success, retries)，上层 registry 不感知重试细节。
+
+**第九层 · 输出安全（LLM 输出了不该输出的内容怎么办）** 🆕 R2
+20. `guardrails/` — `run_guardrails` 怎么在 `generate_answer` 前做输出校验。关注：三种 severity（block/warn/sanitize），护栏拦截后怎么让 LLM 修正重试。
+
+**第十层 · 上下文压缩（长对话 token 成本怎么控制）** 🆕 R4
+21. `graph/context_compressor.py` — `compress_messages` 怎么把早期消息转成摘要。关注：保留 system + 最近 N 条，中间用 LLM 摘要替代——summarization buffer 是 LangGraph 推荐模式。
+
+**第十一层 · 评估（怎么量化 Agent 好不好）** 🆕 R6
+22. `eval/` — `ground_truth.json` 定义 10 组排产场景，`metrics.py` 算工具准确率/完整性/综合评分，`runner.py` 遍历跑批。关注：回归基线检查——至少 7/10 通过才算合格。
 
 **读代码时带这三个问题：**
 - 这一层解决什么问题？（避免「为设计而设计」）
@@ -241,16 +272,18 @@ demo/
 
 | # | 维度 | 现状（demo） | 行业推荐 | 差距 | 优化策略 |
 |---|------|------------|---------|------|---------|
-| 1 | **编排层** | LangGraph 状态图 + SqliteSaver 检查点，5 轮安全阀，多轮/重启可恢复 | 状态持久化（checkpoint）+ 中断恢复 + 人机协同（human-in-the-loop） | 已支持多轮与重启恢复；缺中断恢复演示、human-in-the-loop | 长任务加 `interrupt_before` 等人工确认；演示崩溃续跑 |
-| 2 | **权限层** | STS 内存签发，RBAC 5 角色，令牌 5min TTL | OAuth2/OIDC + JWT + DB 存储 + 刷新令牌 + 权限细粒度（ABAC） | 内存令牌重启即失；角色权限粗粒度；无刷新机制 | 令牌落 Redis（TTL 自动过期）；JWT 签名 + refresh token；RBAC→ABAC（按资源属性判权限） |
-| 3 | **观测层** | Tracer + 可插拔导出（console/otel/OTLP），延迟批量导出，OTel 同构 | OpenTelemetry / Langfuse，异步导出 + 采样 + 分布式 trace | 已支持导出与 OTel trace；缺采样、异步导出、成本看板 | LangGraph `config.callbacks` 自动埋点；加采样 + token 成本聚合；OTLP 接常驻 collector |
-| 4 | **工具层** | 同进程函数 + MCP server 展示（非真隔离） | MCP 工具独立进程/容器运行 + 动态发现 + 沙箱 | 工具与 Agent 同进程，故障耦合；MCP 仅展示未真用 | 工具拆 MCP 子进程（stdio/SSE），Agent 通过协议调用；加工具执行超时与资源限制 |
-| 5 | **RAG** | 本地 Chroma + 离线 reranker，4 文档 10 chunk | 向量库服务（Milvus/Pinecone）+ 增量索引 + 多租户 + 混合检索调参 | 数据量小、无增量更新、单租户；reranker 首载慢 | 换独立向量库服务；加文档增量入库 pipeline；reranker 常驻服务化；检索参数（top_k/RRF k）可调 |
-| 6 | **LLM 调用** | 主备 fallback + 语义缓存（Chroma cosine，相似问题跳过 LLM） | 智能路由（按任务选模型）+ 成本控制 + 语义缓存 | 无路由策略；缺智能路由、成本上限、强中文 embedding | 缓存换 bge-large-zh + Redis；按任务复杂度路由（简单→小模型，复杂→大模型）；设日 token 预算 |
-| 7 | **状态管理** | SqliteSaver 持久化会话 + 多轮上下文（thread_id 续接） | 持久化会话 + 断点续跑 + 多轮上下文压缩 | 已支持多轮与重启恢复；缺长上下文摘要压缩 | 超长上下文用摘要压缩（summarization buffer）；会话过期清理 |
-| 8 | **数据层** | 本地 CSV 只读 | 数据库/API + 实时同步 + 读写分离 | 数据静态、无写入；无并发控制 | 工具改查真实业务库（MySQL/API）；加连接池；写操作加乐观锁 |
-| 9 | **审计** | 文件 audit_logger，trace_id 贯穿 | 结构化日志（JSON）+ SIEM 接入 + 不可篡改 | 文本日志、无防篡改、无集中查询 | 改 JSON 结构化日志；接 ELK/Loki；关键审计写 WORM 存储（只追加） |
-| 10 | **部署** | 本地 `python -m` | 容器化 + API 网关 + 水平扩展 + 健康检查 | 单机脚本、无网关、无扩缩容 | Dockerfile + FastAPI 网关；K8s 部署 + HPA；加 `/health` + `/metrics` |
+| 1 | **编排层** | LangGraph 状态图 + SqliteSaver 检查点，5 轮安全阀，多轮/重启可恢复 + evaluate_results 步骤校验 + summarization buffer 上下文压缩 ✅R3,R4 | 状态持久化（checkpoint）+ 中断恢复 + 人机协同（human-in-the-loop） | 已支持多轮与重启恢复 + 步骤校验 + 上下文压缩；缺中断恢复演示、human-in-the-loop | 长任务加 `interrupt_before` 等人工确认；演示崩溃续跑 |
+| 2 | **权限层** | STS + RBAC 5 角色 + Token SQLite 持久化 + tenant_id 多租户 + FORCE_TENANT 强制模式 ✅R8 | OAuth2/OIDC + JWT + DB 存储 + 刷新令牌 + 权限细粒度（ABAC） | 有租户隔离基础；缺 JWT 签名、refresh token、ABAC | 令牌落 Redis（TTL 自动过期）；JWT 签名 + refresh token；RBAC→ABAC |
+| 3 | **观测层** | Tracer + 可插拔导出 + OTel 同构 + CostTracker 预算熔断 | OpenTelemetry / Langfuse，异步导出 + 采样 + 分布式 trace | 已支持导出与 OTel trace + 成本；缺采样、异步导出、成本看板 | LangGraph `config.callbacks` 自动埋点；加采样 + OTLP 接常驻 collector |
+| 4 | **工具层** | 同进程函数 + sandbox 超时/重试 ✅R1 + MCP client 子进程通信能力 ✅R5 | MCP 工具独立进程/容器运行 + 动态发现 + 沙箱 | 有沙箱（超时+重试）+ MCP client；默认仍走 local fast path | 默认切 MCP_MODE=mcp；加工具执行资源限制（cgroup） |
+| 5 | **RAG** | 本地 Chroma + 离线 reranker + query_orders 多字段 AND 筛选/排序/limit ✅R7 | 向量库服务 + 增量索引 + 多租户 + NL2SQL | 有结构化筛选；缺增量索引、多租户 RAG | 独立向量库服务；文档增量入库；reranker 常驻服务化 |
+| 6 | **LLM 调用** | 主备 fallback + 两级缓存（L1 SQLite + L2 Chroma cosine）+ 成本熔断 | 智能路由（按任务选模型）+ 成本控制 + 语义缓存 | 有完整缓存+成本；缺智能路由、强中文 embedding | 缓存换 bge-large-zh + Redis；按任务复杂度路由 |
+| 7 | **状态管理** | SqliteSaver 持久化 + 多轮 + 重启恢复 + 上下文压缩 ✅R4 | 持久化会话 + 断点续跑 + 多轮上下文压缩 | 已支持全链路；缺长上下文自动压缩的触发日志 | 会话过期清理；压缩次数统计面板 |
+| 8 | **数据层** | 本地 CSV 只读 + tenant_id 租户过滤 ✅R8 | 数据库/API + 实时同步 + 读写分离 | 有租户过滤基础；数据静态、无写入 | 工具改查真实业务库（MySQL/API）；加连接池 |
+| 9 | **审计** | JSONL 持久化 + trace_id 贯穿 + AUDIT_LOG 可切换 | 结构化日志（JSON）+ SIEM 接入 + 不可篡改 | JSONL 已结构化；缺集中查询、防篡改 | 接 ELK/Loki；关键审计写 WORM 存储 |
+| 10 | **部署** | Dockerfile + FastAPI 网关 + compose + 健康检查 | 容器化 + API 网关 + 水平扩展 + 健康检查 | 代码完成，Docker 环境待验收 | 启动 Docker Desktop → build → up → 验收 |
+| 11 | **护栏** 🆕 | guardrails 模块：越权指令/敏感信息检测 + 缺失段落检查 + block/warn/off 模式 ✅R2 | Guardrails AI / NeMo Guardrails + JSON Schema 校验 + 有害内容分类 | 有规则引擎；缺小模型有害内容分类器、RAIL 规范 | 调研 Guardrails AI 的 RAIL 规范 |
+| 12 | **评估** 🆕 | eval 模块：10 组 ground truth + 3 维指标 + runner + 回归基线 ✅R6 | RAGAS + Langfuse + 持续评估 pipeline + 轨迹评估 | 有基础评估；缺 CI 集成、轨迹评估（trajectory eval） | 接入 CI pipeline；加 trajectory evaluation |
 
 **优先级建议**（按性价比）：
 1. ~~**先补观测层导出**（#3）~~ ✅ 已完成（2026-08-04）：Tracer 接可插拔导出 backend（console/otel/otlp），见 §10
@@ -363,3 +396,38 @@ CACHE_THRESHOLD=0.10 python -m demo.main "今天有哪些紧急订单？"
 - [x] **审计持久化（#3）**：JSONL 即时落盘 + `AUDIT_LOG=none` 禁用
 - [x] **L1 精确缓存**：SQLite 存储，相同 prompt 命中 <1ms，0 token 消耗
 - [x] **LLM 连接池**：provider 级 httpx 连接池，keep-alive 60s，复用 TCP 连接
+- [x] **R1 工具沙箱**：`tools/sandbox.py`，超时控制 + 指数退避重试（TOOL_TIMEOUT/TOOL_MAX_RETRIES）
+- [x] **R2 输出护栏**：`guardrails/` 模块，越权指令/敏感信息检测 + 缺失段落检查 + block/warn/off 模式
+- [x] **R3 步骤校验**：`evaluate_results` 不再 noop，检查工具结果质量 + 数据完整性
+- [x] **R4 上下文压缩**：`graph/context_compressor.py`，summarization buffer 自动摘要
+- [x] **R5 MCP 进程隔离**：`tools/mcp_client.py`，MCP_MODE=mcp 走子进程通信
+- [x] **R6 Agent 评估**：`eval/` 模块，10 组 ground truth + 3 指标 + runner
+- [x] **R7 结构化筛选**：`query_orders` 支持 8 字段 AND 组合筛选 + 排序 + limit
+- [x] **R8 多租户隔离**：Token + tenant_id，数据层租户过滤，FORCE_TENANT 强制模式
+
+## 13. 新增环境变量
+
+R1-R8 改造新增的环境变量：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `TOOL_TIMEOUT` | `10` | 单次工具调用超时秒数（R1） |
+| `TOOL_MAX_RETRIES` | `3` | 最大重试次数（R1） |
+| `GUARDRAILS_MODE` | `warn` | 护栏模式：block/warn/off（R2） |
+| `CONTEXT_MAX_CHARS` | `8000` | 触发上下文压缩的字符阈值（R4） |
+| `CONTEXT_KEEP_RECENT` | `6` | 压缩后保留的最近消息数（R4） |
+| `MCP_MODE` | `local` | 工具调用模式：local/mcp（R5） |
+| `FORCE_TENANT` | `false` | 强制租户隔离（R8） |
+
+## 14. 运行评估
+
+```bash
+# 跑全部 10 个 case（单 Agent 模式）
+python -m demo.eval.runner
+
+# 跑单个 case
+python -m demo.eval.runner --case eval_001
+
+# 多 Agent 模式
+python -m demo.eval.runner --mode multi
+```

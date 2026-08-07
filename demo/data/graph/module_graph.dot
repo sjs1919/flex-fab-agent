@@ -1,0 +1,56 @@
+digraph demo_modules {
+  rankdir=LR;
+  node [shape=box, style=filled, fillcolor=lightyellow];
+
+  // Module nodes
+  "demo" [label="main.py / api.py
+(入口层)
+(2 live / 9 funcs)"];
+  "demo\agents" [label="demo\agents
+(2 live / 16 funcs)"];
+  "demo\auth" [label="demo\auth
+(7 live / 30 funcs)"];
+  "demo\cache" [label="cache/
+(缓存层)
+(2 live / 11 funcs)"];
+  "demo\core" [label="core/
+(LLM 基座)
+(4 live / 6 funcs)"];
+  "demo\graph" [label="graph/
+(编排层)
+(2 live / 7 funcs)"];
+  "demo\observability" [label="observability/
+(观测层)
+(7 live / 27 funcs)"];
+  "demo\rag" [label="demo\rag
+(12 live / 12 funcs)"];
+  "demo\tools" [label="demo\tools
+(7 live / 26 funcs)"];
+
+  "demo" -> "demo\agents";
+  "demo" -> "demo\auth";
+  "demo" -> "demo\core";
+  "demo" -> "demo\observability";
+  "demo" -> "demo\tools";
+  "demo\agents" -> "demo\auth";
+  "demo\agents" -> "demo\core";
+  "demo\agents" -> "demo\graph";
+  "demo\agents" -> "demo\observability";
+  "demo\agents" -> "demo\tools";
+  "demo\auth" -> "demo\cache";
+  "demo\auth" -> "demo\tools";
+  "demo\cache" -> "demo\tools";
+  "demo\core" -> "demo";
+  "demo\core" -> "demo\auth";
+  "demo\core" -> "demo\observability";
+  "demo\graph" -> "demo\auth";
+  "demo\graph" -> "demo\core";
+  "demo\graph" -> "demo\tools";
+  "demo\observability" -> "demo\agents";
+  "demo\observability" -> "demo\auth";
+  "demo\observability" -> "demo\cache";
+  "demo\rag" -> "demo\auth";
+  "demo\tools" -> "demo\auth";
+  "demo\tools" -> "demo\observability";
+  "demo\tools" -> "demo\rag";
+}
