@@ -34,11 +34,12 @@ ROLE_PERMISSIONS: dict[RoleType, list[str]] = {
 
 @dataclass
 class Token:
-    """JWT Token 的简化表示。"""
+    """JWT Token 的简化表示。R8：新增 tenant_id 字段。"""
     subject: str                # 用户/Agent 身份
     role: RoleType
     permissions: list[str]
     source: str                 # "user" | "token_exchange"
+    tenant_id: str = ""         # R8 新增：租户 ID
     parent_trace: str = ""
     issued_at: float = field(default_factory=time.time)
     expires_at: float = 0.0
@@ -102,17 +103,19 @@ class SqliteTokenStore(TokenStore):
             "CREATE TABLE IF NOT EXISTS tokens ("
             "  token_id TEXT PRIMARY KEY,"
             "  subject TEXT, role TEXT, permissions TEXT, source TEXT,"
-            "  parent_trace TEXT, issued_at REAL, expires_at REAL"
+            "  parent_trace TEXT, issued_at REAL, expires_at REAL,"
+            "  tenant_id TEXT DEFAULT ''"  # R8 新增
             ")"
         )
         self._conn.commit()
 
     def save(self, token: Token) -> None:
         self._conn.execute(
-            "INSERT OR REPLACE INTO tokens VALUES (?,?,?,?,?,?,?,?)",
+            "INSERT OR REPLACE INTO tokens VALUES (?,?,?,?,?,?,?,?,?)",
             (token.token_id, token.subject, token.role,
              json.dumps(token.permissions), token.source,
-             token.parent_trace, token.issued_at, token.expires_at),
+             token.parent_trace, token.issued_at, token.expires_at,
+             token.tenant_id),  # R8 新增
         )
         self._conn.commit()
 
@@ -126,6 +129,7 @@ class SqliteTokenStore(TokenStore):
             subject=row[1], role=row[2], permissions=json.loads(row[3]),
             source=row[4], parent_trace=row[5], issued_at=row[6],
             expires_at=row[7], token_id=row[0],
+            tenant_id=row[8] if len(row) > 8 else "",  # R8 兼容旧表无此列
         )
         if token.is_expired():
             self.delete(token_id)
@@ -158,12 +162,16 @@ class STS:
     def __init__(self) -> None:
         self._store = _build_token_store()
 
-    def issue_user_token(self, user_id: str, role: RoleType, ttl: int = 3600) -> str:
-        """签发用户 Token（1 小时有效）。"""
+    def issue_user_token(self, user_id: str, role: RoleType,
+                         tenant_id: str = "",    # R8 新增
+                         ttl: int = 3600) -> str:
+        """签发用户 Token（1 小时有效）。R8：支持 tenant_id。"""
         token = Token(
             subject=user_id, role=role,
             permissions=ROLE_PERMISSIONS.get(role, []),
-            source="user", expires_at=time.time() + ttl,
+            source="user",
+            tenant_id=tenant_id,  # R8 新增
+            expires_at=time.time() + ttl,
         )
         self._store.save(token)
         return token.token_id
@@ -189,6 +197,7 @@ class STS:
             role=requested_role,
             permissions=child_perms,
             source="token_exchange",
+            tenant_id=parent.tenant_id,  # R8：子 Token 继承父 Token 的租户
             parent_trace=parent.parent_trace or parent.token_id,
             expires_at=time.time() + 300,
         )
