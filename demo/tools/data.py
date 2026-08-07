@@ -9,6 +9,9 @@
   inventory.csv 材料库存（10 种）
   machines.csv  设备（8 台）
   customers.csv 客户（5 个，含等级/信用/延期率/折扣率/行业）
+
+R8 缺陷修复（2026-08-07）：load_* 函数支持 tenant_id 过滤。
+  默认 tenant_id="" 返回全部数据（向后兼容）。
 """
 import csv
 from typing import Any
@@ -25,24 +28,36 @@ def _read_csv(filename: str) -> list[dict[str, str]]:
         return list(csv.DictReader(f))
 
 
-def load_orders() -> list[dict[str, str]]:
-    """加载订单数据（15 条）。"""
-    return _read_csv("orders.csv")
+def load_orders(tenant_id: str = "") -> list[dict[str, str]]:
+    """加载订单数据（15 条）。tenant_id 非空时只返回该租户的数据（R8）。"""
+    orders = _read_csv("orders.csv")
+    if not tenant_id:
+        return orders
+    return [o for o in orders if o.get("tenant_id", "") == tenant_id]
 
 
-def load_inventory() -> list[dict[str, str]]:
+def load_inventory(tenant_id: str = "") -> list[dict[str, str]]:
     """加载库存数据（10 种材料）。"""
-    return _read_csv("inventory.csv")
+    items = _read_csv("inventory.csv")
+    if not tenant_id:
+        return items
+    return [i for i in items if i.get("tenant_id", "") == tenant_id]
 
 
-def load_machines() -> list[dict[str, str]]:
+def load_machines(tenant_id: str = "") -> list[dict[str, str]]:
     """加载设备数据（8 台）。"""
-    return _read_csv("machines.csv")
+    machines = _read_csv("machines.csv")
+    if not tenant_id:
+        return machines
+    return [m for m in machines if m.get("tenant_id", "") == tenant_id]
 
 
-def load_customers() -> list[dict[str, str]]:
+def load_customers(tenant_id: str = "") -> list[dict[str, str]]:
     """加载客户数据（5 个）。"""
-    return _read_csv("customers.csv")
+    customers = _read_csv("customers.csv")
+    if not tenant_id:
+        return customers
+    return [c for c in customers if c.get("tenant_id", "") == tenant_id]
 
 
 def format_table(rows: list[dict], columns: list[str] | None = None) -> str:

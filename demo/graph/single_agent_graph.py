@@ -14,6 +14,10 @@
   - 工具来源：原硬编码 TOOLS dict -> ToolRegistry（O(1) 查找 + 参数白名单）
   - LLM 调用：原本地 call_llm -> core.llm_client.call_llm（统一主备）
   - 节点通过闭包绑定 registry，build_single_agent_graph(registry) 工厂构造
+
+R2 缺陷修复（2026-08-07）：generate_answer 集成 guardrails 输出护栏
+R3 缺陷修复（2026-08-07）：evaluate_results 实现工具结果质量校验
+R4 缺陷修复（2026-08-07）：select_and_execute 前自动检查上下文压缩
 """
 import json
 from typing import Any
@@ -37,7 +41,17 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
         return state
 
     def select_and_execute(state: AgentState) -> AgentState:
-        """Agent 核心决策 + 执行：LLM 决策调哪些工具 -> 执行 -> 注入结果。"""
+        """Agent 核心决策 + 执行：LLM 决策调哪些工具 -> 执行 -> 注入结果。
+
+        R4：LLM 调用前自动检查上下文压缩。
+        """
+        # ---- R4 上下文压缩 ----
+        from ..graph.context_compressor import compress_messages, should_compress
+        if should_compress(state["messages"]):
+            state["messages"] = compress_messages(state["messages"], call_llm)
+            state["compression_count"] = state.get("compression_count", 0) + 1
+
+        # ---- 原有逻辑 ----
         response = call_llm(state["messages"], tools_schema)
         msg = response.choices[0].message
 
@@ -83,17 +97,69 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
         return state
 
     def evaluate_results(state: AgentState) -> AgentState:
-        """评估数据是否足够（当前 noop，由 should_continue 条件边决定）。"""
+        """校验已收集的工具数据质量（R3 缺陷修复，不再是 noop）。
+
+        检查：
+          1. 每条 tool_result 非空且不以 ❌ 开头（工具执行错误）
+          2. 已收集到至少一条订单数据和一条资源数据（排产场景的最低要求）
+          3. 如果 LLM 没有调任何工具 -> 提醒 Agent 至少查一次
+        """
+        results = state.get("tool_results", [])
+        iteration = state.get("iteration", 0)
+
+        # 第一轮还没调工具 -> 跳过校验
+        if iteration == 0:
+            state["evaluation_notes"] = "首轮，等待 Agent 决策"
+            return state
+
+        # 检查每条结果质量
+        bad_results = []
+        for tr in results:
+            r = tr.get("result", "")
+            if not r or r.startswith("❌"):
+                bad_results.append(tr.get("tool", "?"))
+
+        if bad_results:
+            state["evaluation_notes"] = f"以下工具返回空或错误: {', '.join(bad_results)}"
+            state["needs_retry"] = True
+            return state
+
+        # 检查数据完整性（排产场景至少需要订单 + 某类资源数据）
+        tool_names = {tr.get("tool", "") for tr in results}
+        has_order = any(t in tool_names for t in ["query_orders", "get_order_detail"])
+        has_resource = any(t in tool_names for t in ["query_inventory", "query_machine_load", "query_customer"])
+
+        if not has_order:
+            state["evaluation_notes"] = "尚未查询订单数据，建议先查订单"
+            state["needs_more"] = True
+        elif not has_resource:
+            state["evaluation_notes"] = "已查订单，建议补充查询库存或设备数据"
+            state["needs_more"] = True
+        else:
+            state["evaluation_notes"] = "数据已充足，可以生成排产建议"
+            state["ready_for_answer"] = True
+
         return state
 
     def should_continue(state: AgentState) -> str:
-        """条件边：判断是否继续调工具。
+        """条件边：判断是否继续调工具（R3 增强：加入 evaluate_results 的标记）。
 
-        三种情况：① 迭代≥5 强制结束（防死循环）；② 末条是 tool 结果 -> 继续；
-                  ③ 末条是 assistant 文本（无 tool_calls）-> 生成最终答案。
+        四种情况：
+          ① 迭代≥5 强制结束（防死循环）
+          ② evaluate_results 标记了 needs_retry -> 继续（重试失败的调用）
+          ③ evaluate_results 标记了 needs_more -> 继续（补充更多数据）
+          ④ 末条是 tool 结果 -> 继续
+          ⑤ 末条是 assistant 文本（无 tool_calls）-> 生成最终答案
         """
         if state["iteration"] >= 5:
             return "generate_answer"
+
+        # R3：evaluate_results 的智能判断
+        if state.get("needs_retry") and state["iteration"] < 4:
+            return "select_and_execute"
+        if state.get("needs_more") and state["iteration"] < 4:
+            return "select_and_execute"
+
         last_msg = state["messages"][-1] if state["messages"] else {}
         if last_msg.get("role") == "tool":
             return "select_and_execute"
@@ -102,7 +168,10 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
         return "generate_answer"
 
     def generate_answer(state: AgentState) -> AgentState:
-        """综合所有数据生成最终调度建议。"""
+        """综合所有数据生成最终调度建议（R2：集成 guardrails 输出护栏）。
+
+        R2：LLM 输出经 guardrails pipeline 校验，阻断则重试最多 2 次。
+        """
         last_msg = state["messages"][-1] if state["messages"] else {}
         # 上一条已是最终回复 -> 直接复用
         if last_msg.get("role") == "assistant" and last_msg.get("content") and not last_msg.get("tool_calls"):
@@ -117,14 +186,40 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
                         "2. 今日优先排产订单（按优先级排序，列出订单号和原因）\n"
                         "3. 可以延后的订单及原因\n用中文回答，格式清晰。"),
         }
-        try:
-            response = call_llm(state["messages"] + [summary_prompt])
-            answer = response.choices[0].message.content or ""
-        except Exception as e:
-            # 兜底：LLM 失败时返回原始工具数据
-            answer = f"调度建议生成失败：{e}\n\n已收集的工具数据：\n"
-            for tr in state["tool_results"]:
-                answer += f"\n--- {tr['tool']} ---\n{tr['result'][:300]}"
+
+        # ---- R2 护栏集成：最多重试 2 次 ----
+        from ..guardrails import run_guardrails
+
+        MAX_RETRIES = 2
+        for retry in range(MAX_RETRIES + 1):
+            try:
+                response = call_llm(state["messages"] + [summary_prompt])
+                answer = response.choices[0].message.content or ""
+            except Exception as e:
+                # 兜底：LLM 失败时返回原始工具数据
+                answer = f"调度建议生成失败：{e}\n\n已收集的工具数据：\n"
+                for tr in state["tool_results"]:
+                    answer += f"\n--- {tr['tool']} ---\n{tr['result'][:300]}"
+                break  # LLM 调用失败，跳过护栏直接返回兜底
+
+            # 护栏检查
+            gr = run_guardrails(answer, context={"mode": "scheduling"})
+            if gr.is_valid:
+                answer = gr.text
+                break
+            else:
+                if retry < MAX_RETRIES:
+                    print(f"  ⚠️  [护栏拦截] {gr.blocked_by}，第 {retry + 1} 次重试...")
+                    # 在 prompt 中追加护栏反馈，让 LLM 修正
+                    state["messages"].append({
+                        "role": "system",
+                        "content": f"上次输出被护栏拦截: {gr.blocked_by}。请修改后重新输出。"
+                    })
+                else:
+                    # 多次重试仍不通过 -> 降级返回安全版本
+                    answer = (f"抱歉，生成排产建议时遇到问题（{gr.blocked_by}）。\n"
+                              "请稍后重试或联系管理员。")
+
         state["final_answer"] = answer
         state["messages"].append({"role": "assistant", "content": answer})
         return state
