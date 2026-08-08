@@ -49,6 +49,11 @@ def compute_all_metrics(case: dict, answer: str, actual_tools: list[str]) -> dic
         case.get("expected_tools", []), actual_tools,
     )
 
+    # 校验 min_tools_called（R6 硬伤修复：此前字段被忽略）
+    min_tools = checks.get("min_tools_called", 0)
+    if min_tools and len(actual_tools) < min_tools:
+        tool_score = 0.0
+
     # 检查是否包含预期订单号
     expected_orders = case.get("expected_order_ids", [])
     if expected_orders:
@@ -66,5 +71,6 @@ def compute_all_metrics(case: dict, answer: str, actual_tools: list[str]) -> dic
         "completeness_score": round(completeness_score, 3),
         "completeness_details": completeness,
         "order_accuracy": round(order_hit, 3),
+        "min_tools_called": min_tools,  # 新增：记录约束
         "overall_score": round((tool_score * 0.3 + completeness_score * 0.5 + order_hit * 0.2), 3),
     }
