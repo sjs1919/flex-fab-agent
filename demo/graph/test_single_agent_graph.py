@@ -132,3 +132,72 @@ def test_graph_no_tool_calls_generates_direct_answer(monkeypatch):
         "final_answer": "",
     })
     assert result["final_answer"] == "直接回答，无需工具"
+
+
+def test_pure_text_round_increments_iteration(monkeypatch):
+    """纯文本轮（LLM 返回文本不调工具）也应递增 iteration。
+
+    坑 22：select_and_execute 的 `if not msg.tool_calls: return state` 不递增
+    iteration -> iteration 卡死 -> needs_more 永真 -> 死循环。
+    修复后纯文本轮也要 +1，保证安全阀生效。
+    """
+    from demo.graph import single_agent_graph as sag
+    _disable_compression(monkeypatch)
+
+    # 构造：LLM 一直返回纯文本，evaluate 会设 needs_more，应靠 iteration 递增终止
+    responses = iter([
+        FakeResponse(content="数据不足，无法回答"),  # 纯文本轮 1
+        FakeResponse(content="数据不足，无法回答"),  # 纯文本轮 2
+        FakeResponse(content="数据不足，无法回答"),  # 纯文本轮 3
+        FakeResponse(content="数据不足，无法回答"),  # 纯文本轮 4
+        FakeResponse(content="数据不足，无法回答"),  # 纯文本轮 5
+        FakeResponse(content="兜底答案"),  # 第 6 次（iteration>=5 强制结束）
+    ])
+
+    def fake_call_llm(messages, tools=None, **kwargs):
+        return next(responses)
+
+    monkeypatch.setattr(sag, "call_llm", fake_call_llm)
+
+    app = build_single_agent_graph(FakeRegistry(), checkpointer=None)
+    result = app.invoke({
+        "messages": [{"role": "user", "content": "q"}],
+        "tool_results": [],
+        "iteration": 0,
+        "final_answer": "",
+    })
+
+    # 纯文本轮递增后，iteration 会推进（needs_more 在 iteration>=4 失效 -> 生成答案），
+    # 而非卡死在 0（坑 22 修复前 iteration 永远不涨）
+    assert result["iteration"] >= 1, f"纯文本轮应递增 iteration，实际 {result['iteration']}"
+    # 有最终答案（非死循环）
+    assert result["final_answer"] != ""
+
+
+def test_evaluate_loop_detection_breaks_cycle(monkeypatch):
+    """同一工具结果重复出现 >=N 次 -> evaluate 检测循环并强制结束（方案3）。
+
+    坑 22：RAG 场景 LLM 反复调同一 search_knowledge_base，数据永远不足，
+    needs_more 永真 -> 死循环。方案 3 在 evaluate 检测同一 tool 重复调用
+    过多时，清 needs_more 并置 ready_for_answer，强制生成答案。
+    """
+    from demo.graph import single_agent_graph as sag
+    _disable_compression(monkeypatch)
+
+    # LLM 永远调同一工具（query_orders），evaluate 会检测到重复
+    def fake_call_llm(messages, tools=None, **kwargs):
+        return FakeResponse(tool_calls=_make_tool_call("query_orders"))
+
+    monkeypatch.setattr(sag, "call_llm", fake_call_llm)
+
+    app = build_single_agent_graph(FakeRegistry(), checkpointer=None)
+    result = app.invoke({
+        "messages": [{"role": "user", "content": "q"}],
+        "tool_results": [],
+        "iteration": 0,
+        "final_answer": "",
+    })
+
+    # 循环检测触发：needs_more 被清除（不再死循环），有最终答案
+    assert result["needs_more"] is not True, "循环检测应清除 needs_more"
+    assert result["final_answer"] != "", "循环检测后应有最终答案"

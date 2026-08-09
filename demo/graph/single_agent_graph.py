@@ -58,6 +58,9 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
         # LLM 未调工具 -> 直接返回文本
         if not msg.tool_calls:
             state["messages"].append({"role": "assistant", "content": msg.content or ""})
+            # 坑 22：纯文本轮也必须递增 iteration，否则 iteration 卡死、
+            # needs_more 永真 -> should_continue 死循环（真实 RAG 场景暴露）
+            state["iteration"] += 1
             return state
 
         # 执行每个 tool_call
@@ -107,9 +110,30 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
         results = state.get("tool_results", [])
         iteration = state.get("iteration", 0)
 
-        # 第一轮还没调工具 -> 跳过校验
-        if iteration == 0:
-            state["evaluation_notes"] = "首轮，等待 Agent 决策"
+        # 第一轮还没调工具 / 纯文本轮（LLM 直接作答、无工具结果）-> 跳过数据完整性校验。
+        # 坑 22 修复：纯文本轮也递增 iteration 后，不能再依赖 iteration==0 跳过，
+        # 否则纯文本答案被误判「数据不足」多绕一轮（StopIteration）。
+        if iteration == 0 or not results:
+            state["evaluation_notes"] = "首轮或纯文本作答，等待/直接输出"
+            return state
+
+        # 方案 3：循环检测——同一工具重复调用过多说明 LLM 在打转
+        # （坑 22：RAG 场景反复查同一数据，数据永远不足 -> needs_more 永真 -> 死循环）。
+        # 检测到循环 -> 基于已有数据拼兜底答案，强制结束。
+        LOOP_THRESHOLD = 3  # 同一工具连续出现 >=3 次判定循环
+        from collections import Counter
+        tool_seq = [tr.get("tool", "") for tr in results]
+        most_common = Counter(tool_seq).most_common(1)
+        if most_common and most_common[0][1] >= LOOP_THRESHOLD:
+            state["evaluation_notes"] = (f"检测到循环：工具 {most_common[0][0]} "
+                                         f"重复调用 {most_common[0][1]} 次，停止检索，基于已有数据作答")
+            state["needs_more"] = False
+            state["needs_retry"] = False
+            state["ready_for_answer"] = True
+            # 直接拼已有 tool 结果作答案，避免再调 LLM（LLM 可能仍返回 tool_call）
+            parts = [f"{tr.get('tool')}: {tr.get('result', '')[:200]}" for tr in results]
+            state["final_answer"] = "基于已收集数据的汇总（检测到重复检索，停止继续查询）：\n" + "\n".join(parts)
+            state["messages"].append({"role": "assistant", "content": state["final_answer"]})
             return state
 
         # 检查每条结果质量
@@ -159,6 +183,9 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
             return "generate_answer"
 
         # R3：evaluate_results 的智能判断
+        # ready_for_answer（数据充足或检测到循环）-> 直接生成答案，不再走 tool 结果分支
+        if state.get("ready_for_answer"):
+            return "generate_answer"
         if state.get("needs_retry") and state["iteration"] < 4:
             return "select_and_execute"
         if state.get("needs_more") and state["iteration"] < 4:
