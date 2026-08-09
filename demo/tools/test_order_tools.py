@@ -20,16 +20,27 @@ def test_query_orders_by_customer():
     assert "广州航天" not in result
 
 
-def test_query_orders_customer_level_no_column():
-    """customer_level 是 R7 预留参数，orders.csv 无该列 -> 过滤全空返回未找到。"""
-    result = query_orders(customer_level="S")
-    assert "未找到" in result
+def test_query_orders_customer_level():
+    """customer_level 过滤（R7，2026-08-09 补列后生效）：A 级客户是深圳精密五金。"""
+    result = query_orders(customer_level="A")
+    assert "共 5 条订单" in result
+    assert "ORD001" in result
+    assert "ORD002" not in result  # ORD002 是 B 级（东莞模具厂）
 
 
-def test_query_orders_process_no_column():
-    """process 参数类似：orders.csv 无工艺列 -> 全过滤。"""
+def test_query_orders_process():
+    """process 过滤（R7，2026-08-09 补列后生效）：3D打印 工艺。"""
     result = query_orders(process="3D打印")
-    assert "未找到" in result
+    assert "共 4 条订单" in result
+    assert "ORD003" in result
+    assert "ORD001" not in result  # ORD001 是 CNC
+
+
+def test_query_orders_sort_level():
+    """sort_by=level：S 级客户应排在 A 级前。"""
+    result = query_orders(sort_by="level", limit=2)
+    lines = result.splitlines()
+    assert "ORD003" in lines[4]  # 第一条是 S 级（广州航天）
 
 
 def test_query_orders_due_before():

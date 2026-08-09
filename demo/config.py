@@ -31,6 +31,9 @@ def _is_real_key(key: str) -> bool:
 # Provider 注册表：列表顺序即 fallback 顺序，第一个成功即返回。
 # 三家均为 OpenAI 兼容协议，代码层只差 base_url + api_key + model。
 # 新增 provider 只需在此追加一项，全项目自动支持。
+# 主备切换：设 PRIMARY_PROVIDER 环境变量（如 "DeepSeek"）可把指定 provider
+# 提到列表最前，无需改代码。火山豆包配额恢复后 unset 即可回到默认顺序。
+PRIMARY_PROVIDER = os.getenv("PRIMARY_PROVIDER", "")
 PROVIDERS = [
     {
         "name": "火山豆包(coding)",
@@ -57,6 +60,12 @@ PROVIDERS = [
         "note": "备用2 · 会员过期暂禁用 · 续费改 KIMI_ENABLED=true",
     },
 ]
+
+if PRIMARY_PROVIDER:
+    for i, p in enumerate(PROVIDERS):
+        if p["name"] == PRIMARY_PROVIDER and i != 0:
+            PROVIDERS.insert(0, PROVIDERS.pop(i))
+            break
 
 
 def available_providers() -> list[dict]:

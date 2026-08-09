@@ -53,6 +53,57 @@ def build_compression_prompt(messages_to_compress: list[dict]) -> list[dict]:
     ]
 
 
+def _sanitize_tool_messages(messages: list[dict]) -> list[dict]:
+    """丢弃孤儿 tool 消息（无对应 assistant tool_calls 前置）。
+
+    背景：压缩按位置切片保留最近 N 条，若切片起点落在 tool 消息上，
+    它对应的 assistant(tool_calls) 已被摘要替代。OpenAI API 要求
+    "role 'tool' must be a response to a preceding message with 'tool_calls'"，
+    孤儿 tool 消息会直接 400。
+    """
+    seen_tool_call_ids: set[str] = set()
+    result: list[dict] = []
+    for m in messages:
+        if m.get("role") == "tool":
+            # 该 tool 消息的 assistant 前置必须仍在消息流里
+            if m.get("tool_call_id") not in seen_tool_call_ids:
+                continue
+        elif m.get("role") == "assistant" and m.get("tool_calls"):
+            seen_tool_call_ids.update(tc.get("id") for tc in m["tool_calls"])
+        result.append(m)
+    return result
+
+
+def _truncate_large_messages(messages: list[dict], budget: int) -> list[dict]:
+    """把 messages 中超长 content 的消息截断为占位，保证总字数降到预算内。
+
+    背景：压缩后仍超阈值时，recent 里可能留着超大 tool 结果（如完整库存表）。
+    这些消息的 assistant tool_calls 前置在 recent 内不能丢，唯一能降字数的是
+    截断 content。保留 role/tool_call_id 结构（避免破坏 OpenAI 消息顺序约束），
+    content 超长部分替换为占位引用。
+    """
+    result = []
+    total = 0
+    for m in messages:
+        content = str(m.get("content", ""))
+        if total + len(content) <= budget:
+            result.append(m)
+            total += len(content)
+        elif m.get("role") == "tool":
+            # tool 结果超预算 -> 截断为占位（保留结构防 400）
+            result.append({**m, "content": "[结果已截断，详见历史摘要]"})
+            total += len("[结果已截断，详见历史摘要]")
+        elif m.get("role") == "system":
+            # 系统消息不截断（摘要本身）—— 预算不足时保留前 1/2
+            result.append({**m, "content": content[: max(1, budget // 2)]})
+            total += max(1, budget // 2)
+        else:
+            # 其他消息超预算 -> 截断
+            result.append({**m, "content": content[: max(1, budget // 2)]})
+            total += max(1, budget // 2)
+    return result
+
+
 def compress_messages(messages: list[dict], llm_call) -> list[dict]:
     """压缩 messages：保留 system + 最近消息，中间部分用摘要替代。
 
@@ -97,6 +148,15 @@ def compress_messages(messages: list[dict], llm_call) -> list[dict]:
     compressed = list(system_msgs) + [
         {"role": "system", "content": summary_text},
     ] + list(recent)
+
+    # 净化：丢弃孤儿 tool 消息（其 assistant tool_calls 已被摘要替代）
+    compressed = _sanitize_tool_messages(compressed)
+
+    # 5. 幂等校验：压缩后仍超阈值说明 recent 里大消息主导（如超大 tool 结果），
+    #    截断这些消息保证收敛，避免下次 select 又触发压缩导致摘要无限叠加
+    if estimate_chars(compressed) > MAX_CHARS:
+        print(f"  📦 [上下文压缩] 压缩后仍超阈值，截断 recent 大消息保证收敛...")
+        compressed = _truncate_large_messages(compressed, MAX_CHARS)
 
     old_chars = estimate_chars(other_msgs)
     new_chars = estimate_chars(compressed)
