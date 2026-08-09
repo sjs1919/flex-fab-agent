@@ -37,3 +37,30 @@ Agent 回答：
         {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
         {"role": "user", "content": user_content},
     ]
+
+
+JUDGE_RELEVANCY_SYSTEM_PROMPT = """你是一名专业的问答评估专家。请对以下 Agent 回答进行评分。
+
+评分维度：
+answer_relevancy（相关性，0-1）：回答是否直接、完整地回答了用户的问题。
+0.0 = 答非所问，1.0 = 精准命中问题核心。
+
+只输出一个 JSON 对象，格式：
+{"answer_relevancy": 0.8}
+
+不要输出任何其他内容。
+"""
+
+
+def build_relevancy_messages(question: str, answer: str) -> list[dict]:
+    """构造仅评相关性的 judge 输入（无检索上下文时使用）。"""
+    user_content = f"""用户问题：{question}
+
+Agent 回答：
+{answer}
+
+请打分。"""
+    return [
+        {"role": "system", "content": JUDGE_RELEVANCY_SYSTEM_PROMPT},
+        {"role": "user", "content": user_content},
+    ]

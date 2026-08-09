@@ -10,7 +10,7 @@ import re
 from typing import Any
 
 from ..core.llm_client import call_llm
-from .judge_prompt import build_judge_messages
+from .judge_prompt import build_judge_messages, build_relevancy_messages
 
 # search_knowledge_base 工具名（RAG 检索上下文来源）
 _CONTEXT_TOOLS = {"search_knowledge_base"}
@@ -45,7 +45,7 @@ def parse_judge_response(raw: str) -> dict[str, float]:
         return {"faithfulness": 0.0, "answer_relevancy": 0.0}
 
 
-def judge_semantic_quality(question: str, context: str, answer: str) -> dict[str, float]:
+def judge_semantic_quality(question: str, context: str, answer: str) -> dict[str, Any]:
     """对单个 case 的答案做 LLM-as-Judge 语义打分。
 
     Args:
@@ -54,20 +54,55 @@ def judge_semantic_quality(question: str, context: str, answer: str) -> dict[str
         answer: Agent 生成的最终答案
 
     Returns:
-        {"faithfulness": float, "answer_relevancy": float}
+        {"faithfulness": float, "faithfulness_evaluated": bool,
+         "answer_relevancy": float, "has_context": bool}
+
+    语义层自适应（2026-08-09 改造）：
+      - 有 context：faithfulness + answer_relevancy 都评（faithfulness_evaluated=True）
+      - 无 context：faithfulness 无法评估（标记未评估，不计权），
+        answer_relevancy 用真实 judge 独立打分（不再用关键词启发式）
     """
     if not context:
-        # 无检索上下文时，faithfulness 无法评估 -> 给 0，relevancy 仍可评
-        return {"faithfulness": 0.0, "answer_relevancy": _judge_relevancy_only(question, answer)}
+        # 无检索上下文：faithfulness 无法评估 -> 标记未评估；relevancy 走真实 judge
+        messages = build_relevancy_messages(question, answer)
+        try:
+            response = call_llm(messages, max_tokens=200, temperature=0.0)
+            raw = response.choices[0].message.content or ""
+            parsed = parse_judge_response(raw)
+            return {
+                "faithfulness": 0.0,
+                "faithfulness_evaluated": False,
+                "answer_relevancy": parsed.get("answer_relevancy", 0.0),
+                "has_context": False,
+            }
+        except Exception as e:
+            print(f"  ⚠️  [judge] LLM 打分失败，降级关键词启发式: {type(e).__name__}")
+            return {
+                "faithfulness": 0.0,
+                "faithfulness_evaluated": False,
+                "answer_relevancy": _judge_relevancy_only(question, answer),
+                "has_context": False,
+            }
 
     messages = build_judge_messages(question, context, answer)
     try:
         response = call_llm(messages, max_tokens=200, temperature=0.0)
         raw = response.choices[0].message.content or ""
-        return parse_judge_response(raw)
+        parsed = parse_judge_response(raw)
+        return {
+            "faithfulness": parsed.get("faithfulness", 0.0),
+            "faithfulness_evaluated": True,
+            "answer_relevancy": parsed.get("answer_relevancy", 0.0),
+            "has_context": True,
+        }
     except Exception as e:
         print(f"  ⚠️  [judge] LLM 打分失败，降级 0 分: {type(e).__name__}")
-        return {"faithfulness": 0.0, "answer_relevancy": 0.0}
+        return {
+            "faithfulness": 0.0,
+            "faithfulness_evaluated": False,
+            "answer_relevancy": 0.0,
+            "has_context": True,
+        }
 
 
 def _judge_relevancy_only(question: str, answer: str) -> float:

@@ -49,7 +49,10 @@ def test_judge_semantic_quality_calls_llm(monkeypatch):
 
     monkeypatch.setattr(judge_mod, "call_llm", fake_call_llm)
     result = judge_semantic_quality("问题", "上下文", "回答")
-    assert result == {"faithfulness": 0.9, "answer_relevancy": 0.8}
+    assert result["faithfulness"] == 0.9
+    assert result["answer_relevancy"] == 0.8
+    assert result["has_context"] is True
+    assert result["faithfulness_evaluated"] is True
 
 
 def test_judge_semantic_quality_llm_failure(monkeypatch):
@@ -61,7 +64,8 @@ def test_judge_semantic_quality_llm_failure(monkeypatch):
 
     monkeypatch.setattr(judge_mod, "call_llm", boom)
     result = judge_semantic_quality("问题", "上下文", "回答")
-    assert result == {"faithfulness": 0.0, "answer_relevancy": 0.0}
+    assert result["faithfulness"] == 0.0
+    assert result["answer_relevancy"] == 0.0
 
 
 def test_extract_context_extracts_from_tool_result():
@@ -80,3 +84,22 @@ def test_extract_context_empty():
     tool_results = [{"tool": "query_orders", "result": "订单数据"}]
     ctx = _extract_context(tool_results)
     assert ctx == ""
+
+
+def test_judge_no_context_uses_real_judge_for_relevancy(monkeypatch):
+    """无 context 时：faithfulness 标记未评估，relevancy 用真实 judge 而非关键词启发式。"""
+    from demo.eval import judge as judge_mod
+
+    def fake_call_llm(messages, **kwargs):
+        # 无 context 的 prompt 用 relevancy-only 版本，不含检索上下文
+        from demo.eval.judge_prompt import JUDGE_RELEVANCY_SYSTEM_PROMPT
+        assert messages[0]["content"] == JUDGE_RELEVANCY_SYSTEM_PROMPT
+        return FakeResponse(json.dumps({"answer_relevancy": 0.8}))
+
+    monkeypatch.setattr(judge_mod, "call_llm", fake_call_llm)
+    result = judge_semantic_quality("问题", "", "高质量回答")
+    # has_context=False，faithfulness 标记为未评估
+    assert result["has_context"] is False
+    assert result["faithfulness_evaluated"] is False
+    # relevancy 来自真实 judge（mock 返回 0.8）
+    assert result["answer_relevancy"] == 0.8
