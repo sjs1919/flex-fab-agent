@@ -98,4 +98,56 @@ def test_evaluate_single_case_judge_skippable(monkeypatch):
         "checks": {"min_tools_called": 1},
     }
     result = _evaluate_single_case(case, mode="single", use_judge=False)
-    assert result["semantic"] == {"faithfulness": 0.0, "answer_relevancy": 0.0}
+    assert result["semantic"] == {"faithfulness": 0.0, "answer_relevancy": 0.0,
+                                  "faithfulness_evaluated": False, "has_context": False}
+
+
+def test_evaluate_single_case_no_context_uses_only_relevancy(monkeypatch):
+    """无 context 的 case：语义分只用 answer_relevancy，不用 faithfulness 拖累。
+
+    验证聚合逻辑：has_context=False 时 semantic_score = relevancy（而非 (0+rel)/2）。
+    """
+    from demo.eval import runner as runner_mod
+
+    def fake_run_single_agent(query, **kwargs):
+        return {
+            "final_answer": "东莞模具厂订单总体良好，信用78分",
+            "tool_results": [
+                {"tool": "query_customer", "arguments": {}, "result": "东莞模具 C002 信用78"},
+            ],
+        }
+
+    monkeypatch.setattr(runner_mod, "run_single_agent", fake_run_single_agent)
+
+    class FakeTracer:
+        trace_id = "t3"
+        def reset(self): pass
+        def get_summary(self): return _fake_trace_with_tool_calls()
+        def flush(self): pass
+    class FakeCost:
+        def reset(self): pass
+        def get_summary(self): return {"total_tokens": 0, "total_cost": 0}
+    monkeypatch.setattr(runner_mod, "tracer", FakeTracer())
+    monkeypatch.setattr(runner_mod, "cost_tracker", FakeCost())
+
+    # 无 context：faithfulness 未评估，relevancy 0.8
+    monkeypatch.setattr(runner_mod, "judge_semantic_quality",
+                        lambda q, c, a: {"faithfulness": 0.0, "faithfulness_evaluated": False,
+                                         "answer_relevancy": 0.8, "has_context": False})
+
+    case = {
+        "id": "eval_nc", "scenario": "无context", "query": "东莞客户信用？",
+        "expected_tools": ["query_customer"],
+        "checks": {"must_contain": ["东莞"], "min_tools_called": 1},
+    }
+    result = _evaluate_single_case(case, mode="single", use_judge=True)
+    # 无 context：语义分只用 relevancy（0.8），而非 (0+0.8)/2 = 0.4
+    assert result["semantic"]["answer_relevancy"] == 0.8
+    assert result["semantic"]["faithfulness_evaluated"] is False
+    assert result["semantic"]["has_context"] is False
+    # 聚合验证：overall 的语义贡献 = 0.8*0.2（而非 0.4*0.2）
+    # 工具层/轨迹层固定，反推语义贡献
+    tool_contrib = result["tool"]["overall_score"] * 0.5
+    traj_contrib = result["trajectory"]["trajectory_score"] * 0.3
+    sem_contrib = result["overall_score"] - tool_contrib - traj_contrib
+    assert abs(sem_contrib - 0.8 * 0.2) < 1e-6, f"语义贡献应为 0.16，实际 {sem_contrib}"

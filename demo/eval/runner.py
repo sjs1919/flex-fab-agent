@@ -67,16 +67,23 @@ def _evaluate_single_case(case: dict, mode: str = "single", use_judge: bool = Tr
     trajectory_layer = compute_trajectory_score(trajectory)
 
     # ---- 第 3 层：语义层（LLM-as-Judge）----
-    semantic_layer = {"faithfulness": 0.0, "answer_relevancy": 0.0}
+    semantic_layer = {"faithfulness": 0.0, "answer_relevancy": 0.0,
+                      "faithfulness_evaluated": False, "has_context": False}
     if use_judge:
         context = _extract_context(tool_results)
         semantic_layer = judge_semantic_quality(case["query"], context, answer)
+
+    # ---- 语义分自适应（2026-08-09）：有 context 用两指标均值，无 context 只用 relevancy ----
+    if semantic_layer.get("has_context"):
+        semantic_score = (semantic_layer["faithfulness"] + semantic_layer["answer_relevancy"]) / 2
+    else:
+        semantic_score = semantic_layer["answer_relevancy"]
 
     # ---- 聚合 ----
     overall = round(
         tool_layer["overall_score"] * 0.5
         + trajectory_layer["trajectory_score"] * 0.3
-        + (semantic_layer["faithfulness"] + semantic_layer["answer_relevancy"]) / 2 * 0.2,
+        + semantic_score * 0.2,
         3,
     )
 
