@@ -10,6 +10,13 @@ def _fmt(v: float) -> str:
     return f"{v:.2f}"
 
 
+def _semantic_score(sem: dict) -> float:
+    """语义分自适应（与 runner 一致）：有 context 用两指标均值，无 context 只用 relevancy。"""
+    if sem.get("has_context"):
+        return (sem["faithfulness"] + sem["answer_relevancy"]) / 2
+    return sem["answer_relevancy"]
+
+
 def _score_bar(value: float) -> str:
     """内联样式进度条。"""
     pct = int(max(0.0, min(1.0, value)) * 100)
@@ -24,7 +31,7 @@ def render_html_report(results: list[dict], summary: dict | None = None) -> str:
 
     rows = []
     for r in results:
-        sem = (r["semantic"]["faithfulness"] + r["semantic"]["answer_relevancy"]) / 2
+        sem = _semantic_score(r["semantic"])
         loop_flag = "🔴" if r["trajectory"].get("loop_detected") else "✅"
         rows.append(f"""
         <tr class="{'fail' if not r['pass'] else ''}">

@@ -1,5 +1,7 @@
 """HTML 报告生成测试。"""
-from demo.eval.report import render_html_report, save_report
+import pytest
+
+from demo.eval.report import render_html_report, save_report, _semantic_score
 
 
 def _sample_results():
@@ -9,7 +11,8 @@ def _sample_results():
             "overall_score": 0.85, "pass": True,
             "tool": {"overall_score": 0.9},
             "trajectory": {"trajectory_score": 0.8, "loop_detected": False},
-            "semantic": {"faithfulness": 0.9, "answer_relevancy": 0.8},
+            "semantic": {"faithfulness": 0.9, "answer_relevancy": 0.8,
+                         "has_context": True, "faithfulness_evaluated": True},
             "elapsed_s": 3.2, "answer_preview": "ORD003 今天优先排产",
         },
         {
@@ -17,7 +20,8 @@ def _sample_results():
             "overall_score": 0.45, "pass": False,
             "tool": {"overall_score": 0.5},
             "trajectory": {"trajectory_score": 0.3, "loop_detected": True},
-            "semantic": {"faithfulness": 0.4, "answer_relevancy": 0.6},
+            "semantic": {"faithfulness": 0.4, "answer_relevancy": 0.6,
+                         "has_context": False, "faithfulness_evaluated": False},
             "elapsed_s": 5.1, "answer_preview": "暂无紧急订单",
         },
     ]
@@ -59,3 +63,18 @@ def test_save_report_writes_file(tmp_path):
     assert path.exists()
     content = path.read_text(encoding="utf-8")
     assert "eval_001" in content
+
+
+def test_semantic_score_adaptive():
+    """语义分自适应：有 context 用两指标均值，无 context 只用 relevancy（与 runner 一致）。"""
+    # 有 context： (0.9+0.8)/2 = 0.85
+    assert _semantic_score({"has_context": True, "faithfulness": 0.9, "answer_relevancy": 0.8}) == pytest.approx(0.85)
+    # 无 context：只用 relevancy = 0.6（不用 faithfulness 0.4 拖低）
+    assert _semantic_score({"has_context": False, "faithfulness": 0.4, "answer_relevancy": 0.6}) == pytest.approx(0.6)
+
+
+def test_render_html_report_adaptive_semantic_column():
+    """报告语义列按 has_context 自适应：eval_002（无 context）显示 relevancy 而非两指标均值。"""
+    html = render_html_report(_sample_results())
+    # eval_002 无 context：语义列 = 0.60（relevancy），而非 (0.4+0.6)/2 = 0.50
+    assert "0.60" in html
