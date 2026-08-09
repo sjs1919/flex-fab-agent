@@ -114,11 +114,23 @@ demo/
 │   ├── rules.py           #   护栏规则定义（越权/敏感/缺失段落）
 │   └── content_filter.py  #   内容过滤器（regex + 降级策略）
 │
-├── eval/                  # Agent 评估（R6 缺陷修复）
+├── eval/                  # Agent 评估（R6 + 三层升级 2026-08-09）
 │   ├── __init__.py
 │   ├── ground_truth.json  #   10 组排产场景 ground truth Q&A
-│   ├── metrics.py         #   评估指标（工具准确率/完整性/综合评分）
-│   └── runner.py          #   评估运行器（python -m demo.eval.runner）
+│   ├── metrics.py         #   工具层指标（工具F1/完整性/订单召回/min_tools_called）
+│   ├── trajectory.py      #   轨迹层指标（路径效率/重试质量/循环检测）
+│   ├── trajectory_capture.py # 从 tracer + tool_results 重建工具调用序列
+│   ├── judge.py           #   语义层：自研 LLM-as-Judge（faithfulness/relevancy）
+│   ├── judge_prompt.py    #   Judge 系统提示词（JSON 输出）
+│   ├── report.py          #   单页 HTML 可视化报告
+│   ├── runner.py          #   评估运行器（python -m demo.eval.runner）
+│   └── test_*.py          #   各层单元测试
+│
+├── backtest/              # 回测模块（2026-08-09 新增）
+│   ├── __init__.py
+│   ├── scenarios.py       #   5 个历史延期复盘场景（bt_001~005）+ 覆盖度评分
+│   ├── runner.py          #   回测运行器（Agent 复盘历史事件 vs 人工结论）
+│   └── test_backtest.py   #   回测单元测试
 │
 ├── graph/                 # LangGraph 编排层
 │   ├── state.py           #   AgentState（TypedDict：messages/tool_results/iteration/final_answer
@@ -197,8 +209,18 @@ demo/
 **第十层 · 上下文压缩（长对话 token 成本怎么控制）** 🆕 R4
 21. `graph/context_compressor.py` — `compress_messages` 怎么把早期消息转成摘要。关注：保留 system + 最近 N 条，中间用 LLM 摘要替代——summarization buffer 是 LangGraph 推荐模式。
 
-**第十一层 · 评估（怎么量化 Agent 好不好）** 🆕 R6
-22. `eval/` — `ground_truth.json` 定义 10 组排产场景，`metrics.py` 算工具准确率/完整性/综合评分，`runner.py` 遍历跑批。关注：回归基线检查——至少 7/10 通过才算合格。
+**第十一层 · 评估（怎么量化 Agent 好不好）** 🆕 R6 + 三层升级
+22. `eval/` — `ground_truth.json` 定义 10 组排产场景。**三层指标**：
+    - **工具层**（`metrics.py`）：工具 F1 + 完整性 + 订单召回 + min_tools_called（该调几个工具没调够直接判 0）
+    - **轨迹层**（`trajectory.py` + `trajectory_capture.py`）：路径效率（冗余调用扣分）+ 重试质量（重试/失败扣分）+ 循环检测
+    - **语义层**（`judge.py` + `judge_prompt.py`）：自研 LLM-as-Judge 打分 faithfulness / answer_relevancy，不依赖 ragas（已停滞）
+    - 聚合：`overall = 工具×0.5 + 轨迹×0.3 + 语义×0.2`，case ≥0.6 算 pass，回归基线 ≥7/10
+    - `report.py` 单页 HTML 可视化三层指标 + 循环标记
+    - 回测（`backtest/`）：让 Agent 复盘 5 个历史延期案例，按人工复盘结论覆盖度评分
+    - 关注：三层聚合权重为什么这么定；judge 无上下文时如何降级。
+
+**第十一层·续 · 一键自动化测试** 🆕 2026-08-09
+23. `run_all_tests.py` + `test_demo.sh` — pytest 全量（mock LLM 零成本）→ 可选 `--eval` 三层评估（真实 LLM）→ 可选 `--report` HTML 报告。关注：测试脚本作为 CI 入口的基础。
 
 **读代码时带这三个问题：**
 - 这一层解决什么问题？（避免「为设计而设计」）
@@ -419,10 +441,10 @@ R1-R8 改造新增的环境变量：
 | `MCP_MODE` | `local` | 工具调用模式：local/mcp（R5） |
 | `FORCE_TENANT` | `false` | 强制租户隔离（R8） |
 
-## 14. 运行评估
+## 14. 运行评估（三层：工具 / 轨迹 / 语义）
 
 ```bash
-# 跑全部 10 个 case（单 Agent 模式）
+# 跑全部 10 个 case（单 Agent 模式，含 LLM-as-Judge）
 python -m demo.eval.runner
 
 # 跑单个 case
@@ -430,4 +452,118 @@ python -m demo.eval.runner --case eval_001
 
 # 多 Agent 模式
 python -m demo.eval.runner --mode multi
+
+# 跳过 LLM-as-Judge（评估提速/省钱，语义层降级为关键词启发式）
+python -m demo.eval.runner --no-judge
+
+# 生成单页 HTML 可视化报告（demo/eval/reports/）
+python -m demo.eval.runner --report
 ```
+
+## 15. 运行回测（历史延期复盘）
+
+```bash
+# 跑全部 5 个历史延期复盘场景（需真实 LLM）
+python -m demo.backtest.runner
+```
+
+## 16. 一键自动化测试（CI 入口）
+
+```bash
+# 全量单测 + 集成测试（mock LLM，零成本）——128 passed
+python run_all_tests.py
+
+# 全量单测 + 三层评估（真实 LLM，需 .env key）
+python run_all_tests.py --eval
+
+# 全量单测 + 三层评估 + 生成 HTML 报告
+python run_all_tests.py --report
+
+# 评估时跳过 LLM-as-Judge（省钱/提速）
+python run_all_tests.py --no-judge
+```
+
+> 等价的 shell 脚本：`./test_demo.sh`
+
+---
+
+## 17. 行业差距与评估结论（2026-08-09）
+
+> 完整报告：`docs/week6/demo-制造业智能体缺失评估报告-2026-08-09.md`
+> 评估方式：CodeGraph 全模块静态分析 + 真实运行验证（`--check` + pytest 128 passed）+ 2026 制造业智能体行业实践调研。
+> 评审团：CLAUDE.md 9 角色（开发者/测试者/架构/安全/DBA/前端架构/前端开发/代码走读/法律合规）+ AI 专家 + 技术专家。
+
+### 17.1 成熟度评分（对照行业基线）
+
+| 维度 | 现状 | 行业基线 | 主要差距 |
+|------|------|---------|---------|
+| 编排层 | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 缺 human-in-the-loop、动态约束、子任务并行 |
+| 工具层 | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 缺真实业务源、IoT/APS 集成 |
+| **评估体系** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 三层评估已超行业均值，缺 CI 持续化 |
+| 数据层 | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | CSV 快照 vs 实时 DB/MES/ERP |
+| 安全 | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 缺 API 限流、密钥管理、JWT 签名 |
+| 可观测性 | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 有 trace/成本/审计，缺自动告警、采样、看板 |
+| 制造业业务 | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 缺 APS 排产算法、IoT 数据、排产变更闭环 |
+
+### 17.2 差距清单（按优先级）
+
+**P0（制造业主线，必须补）**
+
+| # | 缺失 | 说明 |
+|---|------|------|
+| M1 | **排产约束求解** | 用 OR-Tools / 启发式做交期-产能-物料约束排产，而非纯 LLM 文本建议 |
+| M2 | **实时数据源抽象** | DataSource 接口，CSV→MySQL/MES/IoT 可插拔，支持增量更新 |
+| M3 | **human-in-the-loop** | LangGraph `interrupt_before` 关键排产决策人工确认 |
+| M4 | **结构化排产结果** | `final_answer` 之外输出 JSON 排产表（订单/优先级/时间/原因），供数值验证 |
+
+**P1（生产化加固）**
+
+| # | 缺失 | 说明 |
+|---|------|------|
+| M5 | **API 限流** | 网关层 rate limit，防打爆预算 |
+| M6 | **Token 签名 + refresh** | JWT 签名防伪造；refresh token 续期 |
+| M7 | **评估接 CI** | 每次 commit 自动跑 eval，回归基线门槛 |
+| M8 | **自动告警 + 采样** | provider 失败率阈值告警；高 QPS 采样导出 |
+| M9 | **排产可视化看板** | Web 界面展示排产表/设备负载/风险标记 |
+
+**P2（纵深完善）**
+
+| # | 缺失 | 说明 |
+|---|------|------|
+| M10 | **Prompt 版本管理 / A/B** | `prompts/` 版本化 + 分流 |
+| M11 | **Langfuse 看板** | 观测 + 评估一体，替代 console 导出 |
+| M12 | **评估闭环** | 低分场景自动归档 → 反哺 prompt/参数 |
+| M13 | **多环境隔离** | dev/staging/prod 配置分离 |
+
+### 17.3 下一步建议（按性价比）
+
+`M4 结构化排产结果 → M1 约束求解 → M7 CI 持续评估 → M2 数据源抽象 → M3 human-in-the-loop`
+
+---
+
+## 18. 相关文档链接（2026-08-08 ~ 08-09 评估改造）
+
+> 本 demo 的评估体系改造（三层评估 + 回测）与制造业智能体缺失评估的完整过程记录，见以下文档。
+
+### 评估报告 / 现状分析
+
+| 文档 | 说明 |
+|------|------|
+| [制造业智能体缺失评估报告](../docs/week6/demo-制造业智能体缺失评估报告-2026-08-09.md) | 完整缺失评估：行业基线 + 11 位评审团 + M1-M13 差距 |
+| [Agent 评估行业实践与 demo 现状分析](../docs/courses/Agent评估行业实践与demo现状分析-2026-08-08.md) | 2026 行业评估范式 + ragas 停滞分析，为何弃 ragas 自研 |
+
+### 改造计划 / 实现过程
+
+| 文档 | 说明 |
+|------|------|
+| [三层评估体系实现计划](../docs/superpowers/plans/2026-08-08-ragas升级-三层评估体系.md) | 改造前的完整实现计划（TDD + writing-plans） |
+| [评估改造实现过程定位](../docs/week6/demo-评估改造实现过程定位-2026-08-09.md) | 实现实录：16 个坑复盘 + 根因归属 + 修测试/修代码分类 |
+| [8 大缺陷可执行改造方案](../docs/week5/8大缺陷-可执行代码改造方案.md) | R1-R8 缺陷修复方案（评估体系改造的源头） |
+
+### Session 记录
+
+| 文档 | 说明 |
+|------|------|
+| [session 08-08 行业现状分析](../job-portfolio/sessions/session-2026-08-08-Agent评估体系现状与行业实践分析.md) | 评估体系现状梳理 + 行业实践调研 |
+| [session 08-09 三层评估实现](../job-portfolio/sessions/session-2026-08-09-demo三层评估体系实现+全量测试+回测.md) | 三层评估 + 全量测试 + 回测实现 |
+| [session 08-09 缺失评估报告](../job-portfolio/sessions/session-2026-08-09-demo制造业智能体缺失评估报告.md) | 制造业智能体缺失评估 + 11 位评审团 |
