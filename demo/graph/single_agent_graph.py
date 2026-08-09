@@ -138,6 +138,10 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
         else:
             state["evaluation_notes"] = "数据已充足，可以生成排产建议"
             state["ready_for_answer"] = True
+            # 数据充足时必须清掉前一轮的 needs_more/needs_retry 标记，
+            # 否则 should_continue 会因残留的 needs_more 多绕一轮甚至死循环
+            state["needs_more"] = False
+            state["needs_retry"] = False
 
         return state
 
