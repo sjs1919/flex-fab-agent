@@ -56,7 +56,7 @@ def render_html_report(results: list[dict], summary: dict | None = None) -> str:
             <div><strong>综合评分</strong><br>{_fmt(avg)}</div>
             <div><strong>工具层均值</strong><br>{_fmt(summary.get('avg_tool', 0))}</div>
             <div><strong>轨迹层均值</strong><br>{_fmt(summary.get('avg_traj', 0))}</div>
-            <div><strong>语义层均值</strong><br>{_fmt(summary.get('avg_sem', 0))}</div>
+            <div><strong>语义层均值</strong><br>{_fmt(summary.get('avg_sem') or 0)}</div>
         </div>"""
 
     return f"""<!DOCTYPE html>
