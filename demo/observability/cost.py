@@ -95,7 +95,7 @@ class CostTracker:
 
         with self._lock:
             self._entries.append(entry)
-            total = self.total_cost
+            total = round(sum(e.cost_total for e in self._entries), 6)
 
         # 预算预警
         if BUDGET_LIMIT > 0:
