@@ -151,3 +151,32 @@ def test_evaluate_single_case_no_context_uses_only_relevancy(monkeypatch):
     traj_contrib = result["trajectory"]["trajectory_score"] * 0.3
     sem_contrib = result["overall_score"] - tool_contrib - traj_contrib
     assert abs(sem_contrib - 0.8 * 0.2) < 1e-6, f"语义贡献应为 0.16，实际 {sem_contrib}"
+
+
+def test_print_summary_layer_health(monkeypatch, capsys):
+    """print_summary 输出分层健康度：工具/轨迹/语义各设阈值，语义层仅统计有 context case。"""
+    from demo.eval import runner as runner_mod
+
+    results = [
+        {"pass": True, "overall_score": 0.7,
+         "tool": {"overall_score": 0.8},
+         "trajectory": {"trajectory_score": 0.7},
+         "semantic": {"has_context": True, "faithfulness": 0.8, "answer_relevancy": 0.9},
+         "token_usage": {"total_cost": 0.1}, "elapsed_s": 1.0},
+        {"pass": True, "overall_score": 0.7,
+         "tool": {"overall_score": 0.7},
+         "trajectory": {"trajectory_score": 0.7},
+         "semantic": {"has_context": False, "faithfulness": 0.0, "answer_relevancy": 0.6},
+         "token_usage": {"total_cost": 0.1}, "elapsed_s": 1.0},
+    ]
+    summary = runner_mod.print_summary(results)
+    captured = capsys.readouterr().out
+    # 分层健康度输出
+    assert "分层健康度" in captured
+    assert "工具层" in captured
+    assert "轨迹层" in captured
+    assert "语义层" in captured
+    # 语义层只统计有 context 的 case（1 个）
+    assert summary["layer_health"]["semantic"]["n_context"] == 1
+    # 综合门禁仍在
+    assert summary["passed"] == 2
