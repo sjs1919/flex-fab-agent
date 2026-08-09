@@ -126,6 +126,11 @@ def compress_messages(messages: list[dict], llm_call) -> list[dict]:
     old = other_msgs[:-KEEP_RECENT] if len(other_msgs) > KEEP_RECENT else []
 
     if not old:
+        # 消息数没超过保留窗口（如单条 RAG tool 结果巨大），但仍超预算：
+        # 直接截断 recent 里的大消息保证收敛，不能原样返回（否则上下文持续膨胀）
+        if estimate_chars(other_msgs) > MAX_CHARS:
+            print(f"  📦 [上下文压缩] 消息数少但单条超预算，截断 recent 大消息...")
+            return _sanitize_tool_messages(_truncate_large_messages(messages, MAX_CHARS))
         return messages
 
     # 3. 对早期消息分批做摘要（每 COMPRESS_CHUNK_SIZE 条一批）

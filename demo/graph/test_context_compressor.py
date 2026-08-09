@@ -148,3 +148,29 @@ def test_compress_messages_idempotent(monkeypatch):
     assert estimate_chars(result) <= context_compressor.MAX_CHARS, (
         f"压缩后仍超阈值 {estimate_chars(result)} > {context_compressor.MAX_CHARS}"
     )
+
+
+def test_compress_messages_few_msgs_large_tool_result(monkeypatch):
+    """消息数少但单条 tool 结果超预算：即使 old 为空也要截断，不能原样返回。
+
+    背景：RAG case 消息数 ≤ KEEP_RECENT，old 为空直接 return messages，
+    但 recent 里单条 tool 结果巨大（如完整检索结果）-> 上下文持续膨胀，
+    LLM 输入爆炸。old 为空时若仍超预算，应截断 recent 大消息收敛。
+    """
+    from demo.graph import context_compressor
+    monkeypatch.setattr(context_compressor, "MAX_CHARS", 1000)
+    monkeypatch.setattr(context_compressor, "KEEP_RECENT", 6)
+
+    # 只有 3 条消息（≤ KEEP_RECENT），但 tool 结果 5000 字符
+    msgs = [
+        _msg("system", "sys"),
+        {"role": "assistant", "content": None, "tool_calls": [
+            {"id": "c1", "type": "function",
+             "function": {"name": "search_knowledge_base", "arguments": "{}"}}]},
+        {"role": "tool", "content": "|" * 5000, "tool_call_id": "c1"},
+    ]
+    result = compress_messages(msgs, lambda *a, **k: None)
+    # 必须截断：总字数降到阈值内（而非原样返回 5000 字符）
+    assert estimate_chars(result) <= context_compressor.MAX_CHARS, (
+        f"old 为空但单条超预算未截断: {estimate_chars(result)} > {context_compressor.MAX_CHARS}"
+    )
