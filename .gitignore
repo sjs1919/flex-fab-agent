@@ -48,3 +48,6 @@ docs/waic2026/*.py
 .vscode/
 .idea/
 .DS_Store
+
+# Claude Code 本地计划缓存（工具生成，勿提交）
+.claude/
