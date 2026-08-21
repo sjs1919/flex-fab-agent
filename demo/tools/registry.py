@@ -95,6 +95,10 @@ class ToolRegistry:
         R1：执行前经 sandbox.run_with_retry 包裹（超时 + 指数退避重试）。
         R5：mode="mcp" 时走 MCP 协议子进程调用。
         R8：自动注入 tenant_id（如有 Token 且工具接受此参数）。
+        B5（2026-08-21 确认入案）：工具注册带 read_only 标记——写工具
+          （run_scheduling/approve_schedule）强制 token 非空 + RBAC 校验（缺省拒绝），
+          只读工具参数白名单不含写副作用。此处理论依据见 tools/sandbox.py 顶部
+          docstring："轻量工具治理 vs 进程隔离沙箱"的差距（防越权，非防不可信代码）。
         """
         if name not in self._handlers:
             return f"❌ 未知工具: '{name}'。可用: {', '.join(self.list_all())}"
