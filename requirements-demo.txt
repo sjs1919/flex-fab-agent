@@ -17,3 +17,10 @@ opentelemetry-sdk>=1.20
 opentelemetry-exporter-otlp>=1.20
 fastapi>=0.100
 uvicorn[standard]>=0.20
+# M1 数据层（v2 重构方案 A1/C4/D3）
+pymysql>=1.1
+DBUtils>=3.0
+# M2 求解器（CP-SAT）
+ortools>=9.8
+# 运行依赖（M1 起 Redis 密码认证）
+redis>=5.0
