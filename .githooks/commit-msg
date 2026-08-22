@@ -1,0 +1,10 @@
+#!/bin/sh
+# 校验 commit message：<type>(<scope>): <subject>（scope 可省）
+first_line=$(head -1 "$1")
+if printf '%s' "$first_line" | grep -Eq '^(feat|fix|docs|refactor|test|chore|style|perf)(\([^)]+\))?: .+'; then
+  exit 0
+fi
+echo "commit message 格式错误：$first_line" >&2
+echo "  要求：<type>(<scope>): <subject>，type ∈ feat|fix|docs|refactor|test|chore|style|perf" >&2
+echo "  示例：feat(auth): 新增邮箱激活" >&2
+exit 1

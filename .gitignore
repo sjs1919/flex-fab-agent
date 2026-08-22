@@ -49,5 +49,13 @@ docs/waic2026/*.py
 .idea/
 .DS_Store
 
-# Claude Code 本地计划缓存（工具生成，勿提交）
-.claude/
+# Claude Code 本地缓存（工具生成，勿提交；保留 settings.json 与 hooks/ 供模板启用）
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+
+# 模板补充忽略（project-standards .gitignore 对齐）
+logs/
+*.log
+dist/
+coverage*
