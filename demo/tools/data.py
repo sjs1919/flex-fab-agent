@@ -14,9 +14,91 @@ R8 缺陷修复（2026-08-07）：load_* 函数支持 tenant_id 过滤。
   默认 tenant_id="" 返回全部数据（向后兼容）。
 """
 import csv
-from typing import Any
+import logging
+import urllib.parse
+from contextlib import contextmanager
+from typing import Any, Iterator
 
-from ..config import DATA_DIR
+from dbutils.pooled_db import PooledDB
+import pymysql
+
+from ..config import DATA_DIR, get_data_source, get_mysql_dsn
+
+logger = logging.getLogger(__name__)
+
+# ---- M1 T2.1 连接池（R-D3 核心）----
+# 池为模块级单例，三并发入口（模拟器线程 / API / agent 工具）共用。
+# 业务代码统一走 get_connection()，禁止裸 pymysql.connect。
+_pool: PooledDB | None = None
+
+
+def _get_pool() -> PooledDB:
+    global _pool
+    if _pool is None:
+        parsed = urllib.parse.urlparse(get_mysql_dsn().replace("mysql+pymysql://", "mysql://"))
+        _pool = PooledDB(
+            creator=pymysql,
+            mincached=5,
+            maxcached=10,
+            maxconnections=30,
+            blocking=True,
+            reset=True,  # 归还前 rollback 未提交事务，避免半开事务污染
+            host=parsed.hostname,
+            port=parsed.port or 3306,
+            user=parsed.username,
+            password=parsed.password,
+            database=parsed.path.lstrip("/"),
+            charset="utf8mb4",
+        )
+    return _pool
+
+
+def get_connection() -> pymysql.connections.Connection:
+    """从连接池取一个连接。用完必须 close() 归还到池。"""
+    return _get_pool().connection()
+
+
+@contextmanager
+def transaction() -> Iterator[pymysql.connections.Connection]:
+    """事务原子提交 contextmanager（R-D3，模拟器 tick 多写基础）。
+
+    用法：
+        with transaction() as conn:
+            # 多写（批次→设备→状态日志）
+        正常退出自动 commit；异常 rollback 后向上抛（无半写）。
+    """
+    conn = get_connection()
+    try:
+        yield conn
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _read_rows(query: str, params: tuple = (), filename: str = "") -> list[dict]:
+    """按数据源分流读取行（v2 A1 核心）。
+
+    - mysql：参数化查询（防 SQL 注入），返回 list[dict]，key=列名
+    - csv：`_read_csv(filename)` 兜底；mysql 缺连接串/不可用时自动降级 csv
+      并打 warning（验收清单第 1 条：缺连接串时提示 + 降级）。
+    """
+    if get_data_source() == "mysql":
+        try:
+            conn = get_connection()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(query, params)
+                    cols = [d[0] for d in cur.description] if cur.description else []
+                    return [dict(zip(cols, row)) for row in cur.fetchall()]
+            finally:
+                conn.close()
+        except (RuntimeError, pymysql.err.Error) as e:
+            logger.warning("MySQL 数据源不可用（%s），自动降级 csv 兜底", e)
+            return _read_csv(filename) if filename else []
+    return _read_csv(filename) if filename else []
 
 
 def _read_csv(filename: str) -> list[dict[str, str]]:
@@ -28,36 +110,75 @@ def _read_csv(filename: str) -> list[dict[str, str]]:
         return list(csv.DictReader(f))
 
 
-def load_orders(tenant_id: str = "") -> list[dict[str, str]]:
-    """加载订单数据（15 条）。tenant_id 非空时只返回该租户的数据（R8）。"""
-    orders = _read_csv("orders.csv")
+def _with_tenant(table: str, tenant_id: str) -> tuple[str, tuple]:
+    """拼查询：tenant_id 非空时加 WHERE tenant_id=%s（R8 在 SQL 层过滤）。"""
+    query, params = f"SELECT * FROM {table}", ()
+    if tenant_id:
+        query += " WHERE tenant_id=%s"
+        params = (tenant_id,)
+    return query, params
+
+
+def _row_filter(rows: list[dict], tenant_id: str) -> list[dict]:
+    """csv 兜底/无 tenant 列的 R8 行级过滤；tenant_id 为空全量返回。"""
     if not tenant_id:
-        return orders
-    return [o for o in orders if o.get("tenant_id", "") == tenant_id]
+        return rows
+    return [r for r in rows if r.get("tenant_id", "") == tenant_id]
+
+
+def load_orders(tenant_id: str = "") -> list[dict[str, str]]:
+    """加载订单数据。签名不变（v2 A1：上层零改动）。"""
+    query, params = _with_tenant("orders", tenant_id)
+    return _row_filter(_read_rows(query, params, filename="orders.csv"), tenant_id)
 
 
 def load_inventory(tenant_id: str = "") -> list[dict[str, str]]:
-    """加载库存数据（10 种材料）。"""
-    items = _read_csv("inventory.csv")
-    if not tenant_id:
-        return items
-    return [i for i in items if i.get("tenant_id", "") == tenant_id]
+    """加载库存数据。"""
+    query, params = _with_tenant("inventory", tenant_id)
+    return _row_filter(_read_rows(query, params, filename="inventory.csv"), tenant_id)
 
 
 def load_machines(tenant_id: str = "") -> list[dict[str, str]]:
-    """加载设备数据（8 台）。"""
-    machines = _read_csv("machines.csv")
-    if not tenant_id:
-        return machines
-    return [m for m in machines if m.get("tenant_id", "") == tenant_id]
+    """加载设备数据。"""
+    query, params = _with_tenant("machines", tenant_id)
+    return _row_filter(_read_rows(query, params, filename="machines.csv"), tenant_id)
 
 
 def load_customers(tenant_id: str = "") -> list[dict[str, str]]:
-    """加载客户数据（5 个）。"""
-    customers = _read_csv("customers.csv")
-    if not tenant_id:
-        return customers
-    return [c for c in customers if c.get("tenant_id", "") == tenant_id]
+    """加载客户数据。"""
+    query, params = _with_tenant("customer", tenant_id)
+    return _row_filter(_read_rows(query, params, filename="customers.csv"), tenant_id)
+
+
+def load_parts(tenant_id: str = "") -> list[dict[str, str]]:
+    """加载零件数据（M1 新增）。"""
+    query, params = _with_tenant("parts", tenant_id)
+    return _row_filter(_read_rows(query, params, filename=""), tenant_id)
+
+
+def load_batches(tenant_id: str = "") -> list[dict[str, str]]:
+    """加载批次数据（M1 新增；本轮 solver 未产出，空表返回 []）。
+
+    注：batches 等求解输出表无 tenant_id 列，参数保留仅为对齐 load_* 签名，
+    R8 租户隔离对这类表无列可过滤（v2 §4.2 所有权由 solver 保证）。
+    """
+    return _read_rows("SELECT * FROM batches", (), filename="")
+
+
+def load_config(tenant_id: str = "") -> list[dict[str, str]]:
+    """加载系统配置（M1 新增；本轮未灌数据，空表返回 []）。
+
+    注：system_config 无 tenant_id 列（全局配置），参数保留仅为对齐 load_* 签名。
+    """
+    return _read_rows("SELECT * FROM system_config", (), filename="")
+
+
+def load_preprocess_tasks(tenant_id: str = "") -> list[dict[str, str]]:
+    """加载前道任务（M1 新增；本轮空表返回 []）。
+
+    注：preprocess_tasks 无 tenant_id 列，参数保留仅为对齐 load_* 签名。
+    """
+    return _read_rows("SELECT * FROM preprocess_tasks", (), filename="")
 
 
 def format_table(rows: list[dict], columns: list[str] | None = None) -> str:

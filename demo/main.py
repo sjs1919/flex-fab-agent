@@ -12,8 +12,9 @@
 import sys
 import uuid
 
-from .config import available_providers
+from .config import available_providers, get_data_source
 from .agents.single_agent import run_single_agent
+from .tools.data import load_orders
 from .tools.registry import build_default_registry
 from .observability import tracer, cost_tracker
 
@@ -39,7 +40,10 @@ def selfcheck():
     print(f"可用 Provider：{', '.join(p['name'] for p in providers)}")
     registry = build_default_registry()
     print(f"工具注册表：{registry}")
-    print(f"\n查紧急订单：\n{registry.execute('query_orders', {'status': '紧急'})}")
+    data_source = get_data_source()
+    orders = load_orders()
+    print(f"数据源：{data_source}（订单 {len(orders)} 条）")
+    print(f"\n查待排队订单：\n{registry.execute('query_orders', {'status': '待排队'})}")
     resp = call_llm_simple("你是调度助手，回答简洁。", "用 20 字说明排产关键因素。", max_tokens=80)
     print(f"\nLLM 回答：{resp.choices[0].message.content}")
     print("\n✅ 地基自检通过")

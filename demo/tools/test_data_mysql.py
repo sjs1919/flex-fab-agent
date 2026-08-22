@@ -1,0 +1,156 @@
+"""data.py MySQL 路径测试（M1 T2.2 分流 + T5.1 补全，需 WSL MySQL 可用）。
+
+覆盖：_read_rows 参数化查询、特殊字符防注入、缺连接串 csv 兜底、R8 租户过滤。
+"""
+import logging
+
+import demo.tools.data as data
+from demo.tools import data as data_mod
+
+
+def _mysql_query(query, params=()):
+    """mysql 模式直连池执行，返回 list[dict]。"""
+    conn = data_mod.get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(query, params)
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, row)) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def test_read_rows_mysql_param(monkeypatch):
+    """mysql 分流：参数化查询返回 list[dict]，key=列名。"""
+    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    rows = data._read_rows("SELECT * FROM orders WHERE customer_id=%s", ("C001",))
+    assert isinstance(rows, list) and rows
+    assert {"id", "customer_id", "amount", "status"}.issubset(rows[0].keys())
+    assert all(r["customer_id"] == "C001" for r in rows)
+
+
+def test_read_rows_param_special_char(monkeypatch):
+    """参数化查询：特殊字符不报错、不注入。"""
+    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    # 恶意参数：单引号拼接攻击，应被参数化隔离（查询结果为空而非注入全表）
+    rows = data._read_rows("SELECT * FROM orders WHERE id=%s", ("ORD001' OR '1'='1",))
+    assert rows == []
+
+
+def test_read_rows_missing_dsn_fallback(monkeypatch, caplog):
+    """缺连接串 → 报错提示 + 自动降级 csv 兜底，不抛异常。"""
+    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    monkeypatch.setattr(data_mod, "get_mysql_dsn", lambda: (_ for _ in ()).throw(
+        RuntimeError("缺少 MySQL 口令")
+    ))
+    monkeypatch.setattr(data_mod, "_get_pool", lambda: (_ for _ in ()).throw(
+        RuntimeError("缺少 MySQL 口令")
+    ))
+    with caplog.at_level(logging.WARNING, logger="demo.tools.data"):
+        rows = data._read_rows("SELECT * FROM orders", filename="orders.csv")
+    assert len(rows) >= 1  # csv 兜底结果
+    assert any("兜底" in r.message for r in caplog.records)
+
+
+def test_read_rows_csv_default(monkeypatch):
+    """csv 分流：默认读 CSV。"""
+    monkeypatch.setenv("DEMO_DATA_SOURCE", "csv")
+    rows = data._read_rows("SELECT * FROM orders", filename="orders.csv")
+    assert len(rows) == 15  # 现有 orders.csv 15 条
+
+
+def test_read_rows_tenant_sql(monkeypatch):
+    """R8：SQL 层租户过滤（mysql 路径）。"""
+    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    rows = data._read_rows("SELECT * FROM orders WHERE tenant_id=%s", ("nonexistent",))
+    assert rows == []
+
+
+# ---- T2.3 load_* 换体 ----
+
+def test_load_orders_mysql_40(monkeypatch):
+    """mysql 路径 load_orders 返回 seed 订单数（40），字段对齐新表。"""
+    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    orders = data.load_orders()
+    assert len(orders) == 40
+    assert {"id", "customer_id", "amount", "urgent", "priority", "due_date", "status"}.issubset(orders[0].keys())
+
+
+def test_load_orders_tenant_nonexistent_mysql(monkeypatch):
+    """R8：mysql 路径 load_orders(tenant_id=nonexistent) == []。"""
+    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    assert data.load_orders(tenant_id="nonexistent") == []
+
+
+def test_load_machines_mysql_7(monkeypatch):
+    """mysql 路径 load_machines 返回 7 台，字段含 process/model_type/cabin_size/max_weight。"""
+    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    machines = data.load_machines()
+    assert len(machines) == 7
+    assert {"process", "model_type", "cabin_size", "max_weight"}.issubset(machines[0].keys())
+
+
+def test_load_parts_mysql(monkeypatch):
+    """新增 load_parts：mysql 路径返回数百条，含包络盒三边/件重。"""
+    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    parts = data.load_parts()
+    assert len(parts) >= 200
+    assert {"id", "order_id", "material", "length", "width", "height", "weight"}.issubset(parts[0].keys())
+
+
+def test_load_inventory_mysql_10(monkeypatch):
+    """mysql 路径 load_inventory 返回 10 种材料。"""
+    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    items = data.load_inventory()
+    assert len(items) == 10
+    assert "库存量" in items[0]
+
+
+def test_new_functions_empty(monkeypatch):
+    """新增 load_batches/load_config/load_preprocess_tasks：空表返回 []。"""
+    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    assert data.load_batches() == []
+    assert data.load_config() == []
+    assert data.load_preprocess_tasks() == []
+
+
+# ---- T4.1 事务原子提交 ----
+
+def test_transaction_atomic_rollback(monkeypatch):
+    """同一事务写 2 行后制造异常 → 两行均不存在（无半写）。"""
+    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    try:
+        with data.transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO orders (id, customer_id, amount, urgent, priority, due_date, status, tenant_id) "
+                    "VALUES ('TMP001','C001',1,0,0,'2026-09-30','待排队','default')"
+                )
+                cur.execute(
+                    "INSERT INTO orders (id, customer_id, amount, urgent, priority, due_date, status, tenant_id) "
+                    "VALUES ('TMP002','C001',2,0,0,'2026-09-30','待排队','default')"
+                )
+                raise RuntimeError("模拟失败：事务中途出错")
+    except RuntimeError:
+        pass
+    rows = _mysql_query("SELECT id FROM orders WHERE id IN ('TMP001','TMP002')")
+    assert rows == [], "失败路径出现半写"
+
+
+def test_transaction_commit(monkeypatch):
+    """成功路径：多写均落库。"""
+    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    with data.transaction() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO orders (id, customer_id, amount, urgent, priority, due_date, status, tenant_id) "
+                "VALUES ('TMP003','C001',3,0,0,'2026-09-30','待排队','default')"
+            )
+    rows = _mysql_query("SELECT id FROM orders WHERE id='TMP003'")
+    assert rows, "成功路径数据未落库"
+    # 清理测试数据
+    with data.transaction() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM orders WHERE id='TMP003'")
+    assert _mysql_query("SELECT id FROM orders WHERE id='TMP003'") == []
+

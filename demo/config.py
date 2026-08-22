@@ -71,3 +71,61 @@ if PRIMARY_PROVIDER:
 def available_providers() -> list[dict]:
     """返回当前可用的 provider 列表（已启用 + key 已配置）。"""
     return [p for p in PROVIDERS if p.get("enabled") and _is_real_key(p["api_key"])]
+
+
+# ---- M1 数据源扩展（v2 重构方案 A1/C4/F 组）----
+
+# 数据源：csv（默认，CSV 兜底）| mysql（MySQL 业务库，WSL）
+DEMO_DATA_SOURCE = os.getenv("DEMO_DATA_SOURCE", "csv")
+
+# 凭据文件：gitignored，真实口令只在此处。解析为 {占位符: 真实值}
+CREDENTIALS_FILE = PROJECT_ROOT / "docs" / "demo" / "credentials.local.md"
+
+
+def _parse_credentials_file(path: Path) -> dict[str, str]:
+    """解析 credentials.local.md（markdown 表格）为 {占位符: 真实值}。
+
+    表格行格式：`| {{KEY}} | 用途 | 值 |`。文件缺失/格式不符时返回空 dict，
+    调用方（get_mysql_dsn）据此给中文报错提示（验收清单 M1-1）。
+    """
+    creds: dict[str, str] = {}
+    if not path.exists():
+        return creds
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line.startswith("|") or "{{" not in line:
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if len(cells) < 3:
+            continue
+        key = cells[0].strip("`{}").strip()
+        value = cells[2].strip()
+        if key and value and value not in ("（填入）", "（未用）"):
+            creds[key] = value
+    return creds
+
+
+# 模块级缓存：启动读一次（v2 C4 约定），测试用 monkeypatch 覆盖
+_CREDENTIALS: dict[str, str] = _parse_credentials_file(CREDENTIALS_FILE)
+
+
+def get_data_source() -> str:
+    """当前数据源：csv | mysql。实时读 env（测试可 monkeypatch）。"""
+    return os.getenv("DEMO_DATA_SOURCE", "csv")
+
+
+def get_mysql_dsn() -> str:
+    """合成 MySQL DSN（口令来自 credentials.local.md）。
+
+    口令缺失时抛中文报错提示填写凭据文件（验收清单 M1-1：缺连接串时报错）。
+    """
+    password = _CREDENTIALS.get("MYSQL_PASSWORD", "")
+    if not password:
+        raise RuntimeError(
+            "缺少 MySQL 口令：请填写 docs/demo/credentials.local.md 的 {{MYSQL_PASSWORD}}（gitignored，不提交）"
+        )
+    host = _CREDENTIALS.get("MYSQL_HOST", "127.0.0.1")
+    port = _CREDENTIALS.get("MYSQL_PORT", "3306")
+    db = _CREDENTIALS.get("MYSQL_DB", "demo_scheduling")
+    user = _CREDENTIALS.get("MYSQL_USER", "demo_sched")
+    return f"mysql+pymysql://{user}:{password}@{host}:{port}/{db}?charset=utf8mb4"

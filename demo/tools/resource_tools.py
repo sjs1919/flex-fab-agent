@@ -36,46 +36,47 @@ def query_inventory(material_name: str = "", category: str = "",
 
 
 def query_machine_load() -> str:
-    """查询所有设备负载状态--哪些在运行、哪些空闲、预计何时释放。
+    """查询所有设备负载状态--哪些在打印、哪些空闲、各机舱规格。
 
     无参数。Agent 排产决策的关键依据：哪些设备有空，哪些在忙。
+    状态枚举（M1 T3.2）：{空闲,打印中,故障,维修中,静置中}。
     """
     machines = load_machines()
-    running = [m for m in machines if m["状态"] == "运行中"]
-    idle = [m for m in machines if m["状态"] == "空闲"]
+    busy = [m for m in machines if m.get("status", "") == "打印中"]
+    idle = [m for m in machines if m.get("status", "") == "空闲"]
     return "\n".join([
-        f"设备总数：{len(machines)} 台（运行中 {len(running)} / 空闲 {len(idle)}）\n",
-        format_table(machines, ["machine_id", "型号", "类型", "当前订单", "预计空闲时间", "状态"]),
+        f"设备总数：{len(machines)} 台（打印中 {len(busy)} / 空闲 {len(idle)}）\n",
+        format_table(machines, ["id", "name", "process", "model_type", "cabin_size", "max_weight", "status"]),
     ])
 
 
 def query_customer(customer_id: str = "", customer_name: str = "",
                    min_level: str = "", sort_by: str = "") -> str:
-    """查询客户信息--等级、信用分、历史延期率、行业（R7 增强）。
+    """查询客户信息--等级、信用分、折扣率、行业、违约金日费率（R7 增强，M1 T3.2 对齐新表）。
 
     Args:
         customer_id: 客户编号，如 C001
         customer_name: 客户名模糊匹配，如"深圳"
-        min_level: 最低等级（S/A/B/C/D），空=全部（R7新增）
-        sort_by: 排序 level(等级)/credit(信用分)，空=不排序（R7新增）
+        min_level: 最低等级（S/A/B/C），空=全部（去 D）
+        sort_by: 排序 level(等级)/credit(信用分)，空=不排序
     """
     customers = load_customers()
     if customer_id:
         customers = filter_by(customers, id=customer_id)
     if customer_name:
-        customers = [c for c in customers if customer_name in c["名称"]]
+        customers = [c for c in customers if customer_name in c.get("name", "")]
     if min_level:
-        level_order = {"S": 0, "A": 1, "B": 2, "C": 3, "D": 4}
-        min_val = level_order.get(min_level, 5)
-        customers = [c for c in customers if level_order.get(c.get("等级", ""), 5) <= min_val]
+        level_order = {"S": 0, "A": 1, "B": 2, "C": 3}
+        min_val = level_order.get(min_level, 9)
+        customers = [c for c in customers if level_order.get(c.get("level", ""), 9) <= min_val]
     if sort_by == "level":
-        level_order = {"S": 0, "A": 1, "B": 2, "C": 3, "D": 4}
-        customers.sort(key=lambda x: level_order.get(x.get("等级", ""), 5))
+        level_order = {"S": 0, "A": 1, "B": 2, "C": 3}
+        customers.sort(key=lambda x: level_order.get(x.get("level", ""), 9))
     elif sort_by == "credit":
-        customers.sort(key=lambda x: int(x.get("信用分", 0)), reverse=True)
+        customers.sort(key=lambda x: int(x.get("credit_score", 0)), reverse=True)
     if not customers:
         return "未找到匹配的客户。"
     if len(customers) == 1:
-        return json.dumps(customers[0], ensure_ascii=False, indent=2)
+        return json.dumps(customers[0], ensure_ascii=False, indent=2, default=str)
     return (f"共 {len(customers)} 个客户：\n\n"
-            + format_table(customers, ["id", "名称", "等级", "信用分", "历史延期率", "行业"]))
+            + format_table(customers, ["id", "name", "level", "credit_score", "discount_rate", "industry", "penalty_rate"]))
