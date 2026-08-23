@@ -19,6 +19,10 @@ from typing import Any, Callable
 from .order_tools import query_orders, get_order_detail, get_production_status
 from .resource_tools import query_inventory, query_machine_load, query_customer
 
+# E6（M5a）：需 token 做文档级权限过滤的工具。服务端注入 token 对象
+# （不进 Schema，防 LLM 伪造 token 提权），handler 侧做 RAG 权限过滤。
+_TOOLS_NEED_TOKEN = {"search_knowledge_base"}
+
 
 @dataclass
 class ToolSchema:
@@ -134,6 +138,11 @@ class ToolRegistry:
             if token is not None and "approver" in valid_keys:
                 filtered["approver"] = token.subject
 
+            # E6（M5a）：RAG 权限检索 — 服务端注入 token 对象（白名单工具，
+            # 不进 Schema，防 LLM 伪造 token），handler 侧做文档级权限过滤。
+            if token is not None and name in _TOOLS_NEED_TOKEN:
+                filtered.setdefault("token", token)
+
             # R5：MCP mode 路由
             mode = os.getenv("MCP_MODE", "local")
             if mode == "mcp" and schema.server in self._mcp_clients:
@@ -243,9 +252,9 @@ def build_default_registry() -> ToolRegistry:
     )
     # ---- RAG 工具（rag_server） ----
     # 用懒导入包装：建表时不加载 jieba/sentence_transformers，首次调用才拉 RAG 依赖
-    def _search_kb(query: str, top_k: int = 3) -> str:
+    def _search_kb(query: str, top_k: int = 3, token=None) -> str:
         from ..rag.retriever import search_knowledge_base
-        return search_knowledge_base(query, top_k=top_k)
+        return search_knowledge_base(query, top_k=top_k, token=token)
 
     r.register(
         "search_knowledge_base",
@@ -259,9 +268,10 @@ def build_default_registry() -> ToolRegistry:
     )
     # ---- 排产工具（M4a，schedule_server）：4 实装 + 7 占位 ----
     from .scheduler_tools import (
-        PLACEHOLDER_TOOLS, approve_schedule, query_ctp, query_kpi,
-        query_load_assessment, query_order_tracking, query_preprocess_load,
-        query_schedule, query_sim_events, run_scheduling,
+        approve_schedule, query_ctp, query_forecast,
+        query_kpi, query_load_assessment, query_order_tracking,
+        query_preprocess_load, query_schedule, query_sim_events,
+        query_yield, run_scheduling,
     )
     r.register(
         "run_scheduling",
@@ -309,13 +319,16 @@ def build_default_registry() -> ToolRegistry:
     r.register(
         "query_ctp",
         "查询最短可交付时间（CTP）：给定工艺/件数/零件高，返回基于现有设备占用与"
-        "前道人池排队的承诺交期；传 due_date 可判断能否按期。"
+        "前道人池排队的承诺交期；并给出含预测预留的校准承诺期（预测机时按 90% 日产能"
+        "折算，不扰动已下单订单）；传 due_date 可判断能否按期，传 amount（≥5 万）"
+        "标注大单建议按校准承诺期报客户。"
         "适用：客户询交期、插单可行性评估。",
         {"type": "object", "properties": {
             "material": {"type": "string", "description": "工艺：SLA / MJS / SLM"},
             "quantity": {"type": "integer", "description": "件数"},
             "height_mm": {"type": "number", "description": "零件高（Z 方向）mm，>600 超尺寸直接预警"},
             "due_date": {"type": "string", "description": "交期 YYYY-MM-DD，可选；给出则判断能否按期"},
+            "amount": {"type": "number", "description": "订单金额（元），可选；≥5 万标注大单建议按校准承诺期"},
         }, "required": ["material", "quantity", "height_mm"]},
         query_ctp, "scheduling", "schedule_server",
     )
@@ -350,11 +363,22 @@ def build_default_registry() -> ToolRegistry:
         {"type": "object", "properties": {}},
         query_kpi, "scheduling", "schedule_server",
     )
-    _PLACEHOLDER_DESCS = {
-        "query_forecast": "订单量统计预测。占位，M5 提供。",
-        "query_yield": "打印良率查询。占位，M5 提供。",
-    }
-    for _name, _desc in _PLACEHOLDER_DESCS.items():
-        r.register(_name, _desc, {"type": "object", "properties": {}},
-                   PLACEHOLDER_TOOLS[_name], "scheduling", "schedule_server")
+    r.register(
+        "query_forecast",
+        "订单量统计预测（只读）：按下单日聚合历史订单，逐日分材料（SLA/MJS/SLM）预测"
+        "件数与机时。方法/窗口/α 读系统配置（默认指数平滑、5 天、α=0.3）。"
+        "适用：产能预留、承诺期校准（大单≥5万提示预测校准）。",
+        {"type": "object", "properties": {
+            "days": {"type": "string", "description": "预测天数（可选，覆盖配置窗口；非法值回落配置）"},
+        }},
+        query_forecast, "scheduling", "schedule_server",
+    )
+    r.register(
+        "query_yield",
+        "打印良率查询（只读）：总览（良率/坏件数/完工数）-> 设备下钻（含 MTBF 故障次数）"
+        "-> 批次下钻 -> 材料对比 -> LLM 工艺改善建议（LLM 失败降级规则模板）。"
+        "适用：良率归因、质量改善方向。",
+        {"type": "object", "properties": {}},
+        query_yield, "scheduling", "schedule_server",
+    )
     return r

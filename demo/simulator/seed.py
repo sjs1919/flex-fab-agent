@@ -67,6 +67,11 @@ SYSTEM_CONFIG_ROWS = [
     ("前道", "plan_review_hours", "0.5", "h/方案", "方案审核分摊"),
     ("路由", "routing_policy", '{"simple": "DeepSeek", "complex": "火山豆包(coding)"}',
      "json", "B3 模型路由策略（任务类型→provider）"),
+    # 预测类（M5a T5a.2）：rq §3.19 用户 2026-08-23 确认口径
+    ("预测", "forecast_method", "exponential", "ma|exponential", "预测方法（默认指数平滑）"),
+    ("预测", "forecast_window", "5", "天", "预测窗口（用户确认 5 天）"),
+    ("预测", "large_order_amount", "50000", "元", "大单判定阈值（承诺期提示预测校准）"),
+    ("预测", "smoothing_alpha", "0.3", "-", "指数平滑系数 α"),
 ]
 
 # 库存 10 种（沿用 inventory.csv 口径：id/名称/材料名/库存量/单位/安全库存/采购周期天/单价）
@@ -152,7 +157,11 @@ def _seed_system_config(cur) -> None:
 
 
 def _seed_orders(cur) -> None:
-    """生成 40 订单：amount/urgent/priority/due_date/status=待排队。"""
+    """生成 40 订单：amount/urgent/priority/order_date/due_date/status=待排队。
+
+    order_date 分布在 sim 起始日（9/1）前 30 天内 -- 保证有"历史"供预测聚合，
+    且 order_date < due_date（due = 9/1 起 7~30 天）。
+    """
     start = date(2026, 9, 1)
     rows = []
     for i in range(1, ORDER_COUNT + 1):
@@ -160,11 +169,12 @@ def _seed_orders(cur) -> None:
         amount = round(random.uniform(5000, 800000), 2)
         urgent = 1 if i % 7 == 0 else 0  # 每 7 单 1 单加急
         priority = LEVEL_SCORE[lv] + urgent * 30 + (20 if amount >= 50000 else 0)
+        ordered = start - timedelta(days=random.randint(1, 30))
         due = start + timedelta(days=random.randint(7, 30))
-        rows.append((f"ORD{i:03d}", cid, amount, urgent, priority, due, "待排队", "default"))
+        rows.append((f"ORD{i:03d}", cid, amount, urgent, priority, ordered, due, "待排队", "default"))
     cur.executemany(
-        "INSERT INTO orders (id, customer_id, amount, urgent, priority, due_date, status, tenant_id) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+        "INSERT INTO orders (id, customer_id, amount, urgent, priority, order_date, due_date, status, tenant_id) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
         rows,
     )
 

@@ -14,11 +14,14 @@ import jieba
 from rank_bm25 import BM25Okapi
 from sentence_transformers import CrossEncoder
 
-from .knowledge_base import get_or_build_vectorstore, retrieve
+from .knowledge_base import doc_permission, get_or_build_vectorstore, retrieve
 
 RERANKER_MODEL = "BAAI/bge-reranker-base"
 # reranker 未缓存时走 Clash 代理下载（LLM 调用不受影响，用 trust_env=False 直连）
 _PROXY = os.environ.get("HTTPS_PROXY", os.environ.get("HTTP_PROXY", "http://127.0.0.1:7890"))
+
+# E6（M5a）：confidential 文档仅 admin/reviewer 可检，其余角色/无 token 仅 public。
+CONFIDENTIAL_ROLES = {"admin", "reviewer"}
 
 _rag_state = None  # 懒加载单例：(collection, bm25, chunks, metas, reranker)
 
@@ -129,13 +132,38 @@ def rerank(reranker, query, candidates, top_k=3) -> list[dict]:
     return result
 
 
-def retrieve_hybrid(collection, bm25, chunks, metas, reranker, query, top_k=3) -> list[dict]:
-    """混合检索四步：向量召回 -> BM25 召回 -> RRF 融合 -> Cross-Encoder 精排。"""
+def _role_from_token(token) -> str | None:
+    """从 token 解析角色；无 token/非法/过期回落 None（仅 public，不泄露）。"""
+    from ..auth.token_exchange import STS, Token
+    if token is None:
+        return None
+    if isinstance(token, Token):
+        return None if token.is_expired() else token.role
+    if isinstance(token, str):
+        resolved = STS().get_token(token)
+        return resolved.role if resolved else None
+    return None
+
+
+def _allowed_sources(role: str | None) -> set[str]:
+    """角色 -> 允许的文档权限集。admin/reviewer -> confidential+public；其余 -> public。"""
+    return {"public", "confidential"} if role in CONFIDENTIAL_ROLES else {"public"}
+
+
+def retrieve_hybrid(collection, bm25, chunks, metas, reranker, query, top_k=3,
+                    allowed_perms: set[str] | None = None) -> list[dict]:
+    """混合检索四步：向量召回 -> BM25 召回 -> RRF 融合 -> 权限过滤 -> Cross-Encoder 精排。
+
+    E6（M5a）：allowed_perms 权限过滤发生在融合后、重排前，越权片段不进 rerank
+    （防 reranker 因保密片段相关度高把它顶上去）。None = 不过滤（内部直调用）。
+    """
     vector_hits = retrieve(collection, query, top_k=10)
     for i, h in enumerate(vector_hits, 1):
         h["rank"] = i
     bm25_hits = bm25_search(bm25, chunks, metas, query, top_k=10)
     fused = rrf_fuse(vector_hits, bm25_hits, k=60, top_k=10)
+    if allowed_perms is not None:
+        fused = [h for h in fused if doc_permission(h["source"]) in allowed_perms]
     return rerank(reranker, query, fused, top_k=top_k)
 
 
@@ -150,15 +178,22 @@ def _ensure_rag():
     return _rag_state
 
 
-def search_knowledge_base(query: str, top_k: int = 3) -> str:
+def search_knowledge_base(query: str, top_k: int = 3, token=None) -> str:
     """搜索合同知识库（混合检索 + 重排）。Agent 工具函数。
+
+    E6（M5a）：token -> 角色 -> 文档权限过滤（admin/reviewer 可检 confidential，
+    其余角色/无 token 仅 public）。过滤在重排前，越权片段不进 rerank。
+    无 token/非法 token 回落 public（不崩、不泄露）。
 
     Args:
         query: 检索问题，如"广州航天合同有什么特殊条款"
         top_k: 返回最相关片段数，默认 3
+        token: Token 对象或 token_id（可选）；用于文档级权限过滤
     """
+    allowed = _allowed_sources(_role_from_token(token))
     collection, bm25, chunks, metas, reranker = _ensure_rag()
-    hits = retrieve_hybrid(collection, bm25, chunks, metas, reranker, query, top_k=top_k)
+    hits = retrieve_hybrid(collection, bm25, chunks, metas, reranker, query,
+                           top_k=top_k, allowed_perms=allowed)
     if not hits:
         return "知识库中未找到相关条款。"
     lines = [f"命中 {len(hits)} 条合同条款（按相关性排序）：\n"]

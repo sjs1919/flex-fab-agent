@@ -3,7 +3,7 @@
 覆盖：reset 幂等、数量口径（7 设备/5 客户/30-50 订单/数百 part/10 库存）、
 枚举合法、超尺寸样例（M2 预警验收预留）。
 """
-from datetime import datetime
+from datetime import date, datetime
 
 import demo.schema.migrate as mig
 import demo.simulator.seed as seed_mod
@@ -119,3 +119,35 @@ def test_seed_system_config_readable_via_get_config():
     assert get_config("产能", "t_window_h") == "24"
     assert get_config("前道", "workers") == "6"
     assert get_config("产能", "no_such_key", "42") == "42"
+
+
+# ---- M5a T5a.2：order_date 种子 + 预测配置 ----
+
+def test_seed_order_date_filled_and_before_due():
+    """reset 后 orders.order_date 全部非空且早于 due_date（预测聚合维度，M5a）。"""
+    seed_mod.reset()
+    rows = _query("SELECT order_date, due_date FROM orders")
+    assert rows, "orders 为空"
+    for ordered, due in rows:
+        assert ordered is not None
+        assert ordered < due
+
+
+def test_seed_order_date_history_depth():
+    """order_date 分布在 sim 起始日（2026-09-01）前 30 天内 -> 有历史供预测聚合。"""
+    rows = _query("SELECT MIN(order_date), MAX(order_date) FROM orders")
+    lo, hi = rows[0]
+    assert hi < date(2026, 9, 1)
+    assert lo >= date(2026, 8, 2)  # 9/1 前 30 天
+
+
+def test_seed_forecast_config_rows():
+    """预测配置 4 行可读（M5a T5a.2 用户确认口径：exponential/5 天/5 万/α0.3）。"""
+    seed_mod.reset()
+    cfg = _config_rows()
+    assert cfg[("预测", "forecast_method")] == "exponential"
+    assert cfg[("预测", "forecast_window")] == "5"
+    assert cfg[("预测", "large_order_amount")] == "50000"
+    assert cfg[("预测", "smoothing_alpha")] == "0.3"
+    from demo.config import get_config
+    assert get_config("预测", "forecast_window") == "5"

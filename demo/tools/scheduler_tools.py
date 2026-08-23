@@ -18,6 +18,8 @@ import json
 from datetime import date, datetime
 from decimal import Decimal
 
+from demo.config import get_config
+from demo.forecast import forecaster
 from demo.scheduler import assessment
 from demo.scheduler.snapshot import load_snapshot
 from demo.scheduler.solver import persist, solve
@@ -26,7 +28,7 @@ from demo.tools.data import (format_table, get_connection, load_customers,
                              transaction)
 
 _PLACEHOLDER_M4B = ()
-_PLACEHOLDER_M5 = ("query_forecast", "query_yield")
+_PLACEHOLDER_M5 = ()
 
 
 def run_scheduling(triggered_by: str = "agent") -> str:
@@ -190,9 +192,10 @@ def query_load_assessment() -> str:
 
 
 def query_ctp(material: str = "", quantity: int = 0, height_mm: float = 0,
-              due_date: str = "") -> str:
-    """查询最短可交付时间 CTP（M4b 实装）。material 工艺、quantity 件数、
-    height_mm 零件高(mm)、due_date 可选交期——给出"能否按期"。只读。"""
+              due_date: str = "", amount: float = 0) -> str:
+    """查询最短可交付时间 CTP（M4b 实装，M5a 增强预测校准）。material 工艺、
+    quantity 件数、height_mm 零件高(mm)、due_date 可选交期——给出"能否按期"；
+    amount 可选订单金额（≥5 万大单标注，建议按含预测预留的承诺期报客户）。只读。"""
     if not material or not quantity or not height_mm:
         return "❌ 参数不完整：需 material（SLA/MJS/SLM）+ quantity（件数）+ height_mm（零件高 mm）"
     try:
@@ -201,9 +204,23 @@ def query_ctp(material: str = "", quantity: int = 0, height_mm: float = 0,
         return f"❌ {e}"
     lines = [
         f"📅 CTP（最短可交付）：{_fmt(r['ctp'])}",
+        f"承诺期（含预测预留）：{_fmt(r['calibrated_ctp'])}"
+        f"（预测预留 {r.get('forecast_reserved_days', 0):.0f} 天，"
+        "预测机时按 90% 日产能折算，不扰动已下单订单）",
         f"瓶颈：{r['bottleneck']} | 新单机时 {r['machine_hours']:.2f}h"
         f"（该工艺现有占用完成 {_fmt(r['machine_ctp'])} / 前道人池完成 {_fmt(r['preprocess_ctp'])}）",
     ]
+    try:
+        threshold = float(get_config("预测", "large_order_amount", "50000"))
+    except ValueError:
+        threshold = 50000.0
+    try:
+        amount_v = float(amount)
+    except (TypeError, ValueError):
+        amount_v = 0.0
+    if amount_v >= threshold:
+        lines.append(f"💰 大单标注：金额 ¥{amount_v:,.0f} ≥ {threshold:,.0f}，"
+                     "建议向客户按承诺期（含预测预留）报交期")
     if due_date:
         if r.get("meet_due"):
             lines.append(f"✅ 可满足交期 {due_date}")
@@ -389,8 +406,12 @@ def query_kpi() -> str:
                 "SELECT entity_id, MAX(sim_time) FROM state_change_log "
                 "WHERE entity_type='order' AND new_value='完成' GROUP BY entity_id")
             done_log = dict(cur.fetchall())
-            cur.execute("SELECT COUNT(*) FROM sim_events WHERE event_type='scrap'")
+            # 坏件数：bad_parts 为准（M5a，与 query_yield 同源）；空表回落 sim_events 口径（兼容旧库）
+            cur.execute("SELECT COALESCE(SUM(part_count), 0) FROM bad_parts")
             scrap = cur.fetchone()[0]
+            if not scrap:
+                cur.execute("SELECT COUNT(*) FROM sim_events WHERE event_type='scrap'")
+                scrap = cur.fetchone()[0]
     # 完成时间：state_change_log（订单→完成）优先，批次 post_process_end 兜底
     batch_end: dict[str, datetime] = {}
     for b in batches:
@@ -421,6 +442,165 @@ def query_kpi() -> str:
     lines.append(f"5️⃣ 前道瓶颈占用：{pp['utilization'] * 100:.0f}%"
                  f"（{pp['remaining_man_hours']:.1f}/{pp['net_capacity_h_per_day']:.1f} 人·时）"
                  + (" | ⚠️ 已瓶颈" if pp["bottleneck"] else " | 未瓶颈"))
+    return "\n".join(lines)
+
+
+def query_forecast(days: str = "") -> str:
+    """订单量统计预测（M5a 实装）：逐日分材料预测件数/机时。days 可选覆盖窗口。只读。"""
+    n_days: int | None
+    try:
+        n_days = int(days) if days else None
+        if n_days is not None and n_days <= 0:
+            n_days = None  # 非法输入回落配置窗口
+    except ValueError:
+        n_days = None
+    out = forecaster.forecast(n_days=n_days)
+    if not out["materials"]:
+        return f"ℹ️ {out['note']}"
+    method_txt = {"ma": "移动平均", "exponential": "指数平滑"}[out["method"]]
+    lines = [f"📈 订单量预测（{method_txt}，α={out['alpha']}，窗口 {out['window']} 天，"
+             f"口径：按下单日 order_date 聚合历史 -> 预测未来机时按 90% 日产能折算预留）"]
+    for material, rows in out["materials"].items():
+        lines.append(f"【{material}】")
+        lines.append(format_table([{"日期": r["date"], "件数": r["parts"],
+                                    "机时(h)": r["hours"]} for r in rows]))
+    return "\n".join(lines)
+
+
+# ---- M5a T5a.9：query_yield（良率下钻 + LLM 改善建议） ----
+
+def _yield_bad_rows() -> list[dict]:
+    """bad_parts 全部坏件行（根因维度：批次/设备/材料）。"""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT batch_id, machine_id, material, part_count FROM bad_parts")
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def _done_parts_by_machine() -> dict[str, int]:
+    """完成批次件数按设备（良率分母；口径同 _kpi_done_parts）。"""
+    batches = assessment._latest_batches()
+    by_order: dict[str, list[dict]] = {}
+    for p in load_parts():
+        by_order.setdefault(p.get("order_id"), []).append(p)
+    result: dict[str, int] = {}
+    for b in batches:
+        if b.get("status") != "完成" or not b.get("machine_id"):
+            continue
+        total = sum(int(p.get("quantity") or 0)
+                    for oid in _json_list(b.get("order_ids"))
+                    for p in by_order.get(oid, []))
+        result[b["machine_id"]] = result.get(b["machine_id"], 0) + total
+    return result
+
+
+def _machine_failure_counts() -> dict[str, int]:
+    """各设备 MTBF 故障次数（sim_events machine_failure 的 payload.machine_id 聚合）。"""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT payload_json FROM sim_events WHERE event_type='machine_failure'")
+            payloads = [r[0] for r in cur.fetchall()]
+    counts: dict[str, int] = {}
+    for raw in payloads:
+        if not raw:
+            continue
+        try:
+            mid = json.loads(raw).get("machine_id")
+        except (TypeError, ValueError):
+            continue
+        if mid:
+            counts[mid] = counts.get(mid, 0) + 1
+    return counts
+
+
+def _yield_rule_based_advice(bad_rows: list[dict]) -> str:
+    """LLM 失败降级规则模板：烂设备->检修；材料->针对性换料/参数核查。"""
+    by_machine: dict[str, int] = {}
+    by_material: dict[str, int] = {}
+    for r in bad_rows:
+        by_machine[r["machine_id"]] = by_machine.get(r["machine_id"], 0) + int(r["part_count"])
+        by_material[r["material"]] = by_material.get(r["material"], 0) + int(r["part_count"])
+    lines = []
+    if by_machine:
+        worst_m, worst_n = max(by_machine.items(), key=lambda kv: kv[1])
+        lines.append(f"设备 {worst_m} 坏件最多（{worst_n} 件），建议安排检修/校准后试打验证。")
+    material_hint = {
+        "SLA": "检查树脂批次与曝光参数（层厚/曝光时间）",
+        "MJS": "检查喷射头状态与材料粘度",
+        "SLM": "检查粉末粒径/含氧量/铺粉均匀性",
+    }
+    for m, n in sorted(by_material.items(), key=lambda kv: -kv[1]):
+        lines.append(f"材料 {m} 坏件 {n} 件：{material_hint.get(m, '核查工艺参数')}。")
+    return "\n".join(lines) if lines else "暂无坏件，无需归因建议。"
+
+
+def _yield_advice(bad_rows: list[dict], total_bad: int, total_done: int,
+                  by_machine_rows: list[dict]) -> str:
+    """LLM 生成工艺改善建议；失败/无 key 降级规则模板（不中断工具）。"""
+    yr = _kpi_yield_rate(total_bad, total_done)
+    summary_lines = [f"良率 {yr * 100:.2f}%（坏件 {total_bad} / 完工 {total_done} 件）",
+                     "设备下钻（坏件降序）：" + "; ".join(
+                         f"{r['设备']} {r['坏件']}件/故障{r['MTBF故障']}次" for r in by_machine_rows)]
+    summary = "\n".join(summary_lines)
+    try:
+        from demo.core.llm_client import call_llm_simple
+        system = ("你是 3D 打印车间的工艺质量工程师。基于坏件归因摘要，给出 2~4 条"
+                  "可执行的改善建议（设备/材料/工艺维度），直接给结论，不客套。")
+        resp = call_llm_simple(system, summary, task_type="complex", max_tokens=300)
+        content = (resp.choices[0].message.content or "").strip()
+        if content:
+            return content
+    except Exception:  # noqa: BLE001 - LLM 失败不阻塞只读工具
+        pass
+    return _yield_rule_based_advice(bad_rows)
+
+
+def query_yield() -> str:
+    """打印良率（M5a 实装）：总览 -> 设备下钻（含 MTBF 故障次数）-> 批次下钻
+    -> 材料对比 -> LLM 工艺改善建议。只读，无参数。"""
+    rows = _yield_bad_rows()
+    done = _done_parts_by_machine()
+    total_bad = sum(int(r["part_count"]) for r in rows)
+    total_done = sum(done.values())
+    failures = _machine_failure_counts()
+
+    lines = [f"🛡️ 打印良率（生成 {_fmt(datetime.now())}）"]
+    if not rows:
+        lines.append("（暂无坏件记录，全部批次良率 100%，无需归因）")
+        return "\n".join(lines)
+    yr = _kpi_yield_rate(total_bad, total_done)
+    lines.append(f"总览：良率 {yr * 100:.2f}% | 坏件 {total_bad} 件 / 完工 {total_done} 件")
+
+    by_machine: dict[str, int] = {}
+    by_batch: dict[str, int] = {}
+    by_material: dict[str, int] = {}
+    for r in rows:
+        by_machine[r["machine_id"]] = by_machine.get(r["machine_id"], 0) + int(r["part_count"])
+        by_batch[r["batch_id"]] = by_batch.get(r["batch_id"], 0) + int(r["part_count"])
+        by_material[r["material"]] = by_material.get(r["material"], 0) + int(r["part_count"])
+
+    machine_rows = [{
+        "设备": mid, "坏件": n,
+        "完工": done.get(mid, 0),
+        "良率": f"{_kpi_yield_rate(n, done.get(mid, 0)) * 100:.2f}%" if done.get(mid, 0) else "—",
+        "MTBF故障": failures.get(mid, 0),
+    } for mid, n in sorted(by_machine.items(), key=lambda kv: -kv[1])]
+    lines.append("1️⃣ 设备下钻（坏件降序）：")
+    lines.append(format_table(machine_rows))
+
+    batch_rows = [{"批次": bid, "坏件": n}
+                  for bid, n in sorted(by_batch.items(), key=lambda kv: -kv[1])]
+    lines.append("2️⃣ 批次下钻：")
+    lines.append(format_table(batch_rows))
+
+    material_rows = [{"材料": m, "坏件": n}
+                     for m, n in sorted(by_material.items(), key=lambda kv: -kv[1])]
+    lines.append("3️⃣ 材料对比：")
+    lines.append(format_table(material_rows))
+
+    lines.append("4️⃣ 改善建议（LLM 归因，失败降级规则模板）：")
+    lines.append(_yield_advice(rows, total_bad, total_done, machine_rows))
     return "\n".join(lines)
 
 

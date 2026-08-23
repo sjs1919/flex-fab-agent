@@ -30,15 +30,37 @@ def test_read_only_flags():
 
 
 def test_placeholder_tools_execute():
-    """占位工具 execute 返回 M5 说明；M4b 已实装工具不再返回占位文案。"""
+    """M5 占位已全部实装：query_forecast/query_yield 均返回真实输出而非占位文案。"""
     r = build_default_registry()
-    out = r.execute("query_forecast", {})
-    assert "M5" in out
-    out = r.execute("query_yield", {})
-    assert "M5" in out
+    out = r.execute("query_forecast", {})  # 已实装：预测输出或无历史说明，非 M5 占位
+    assert "M5" not in out
+    out = r.execute("query_yield", {})     # 已实装：良率报告，非 M5 占位
+    assert "M5" not in out and "良率" in out
     # query_ctp 已实装（T4b.3）：缺参返回明确提示而非 M4b 占位文案
     out = r.execute("query_ctp", {})
     assert "M4b" not in out and "参数不完整" in out
+
+
+def test_search_kb_token_injection(monkeypatch):
+    """E6：execute 带 token 时服务端注入 search_knowledge_base（不进 Schema 防伪造）。"""
+    from demo.auth.token_exchange import ROLE_PERMISSIONS, Token
+    r = build_default_registry()
+    schema = r.get_schema("search_knowledge_base")
+    assert "token" not in schema.parameters["properties"], "token 不得暴露给 LLM"
+    captured = {}
+
+    def _fake_search(query, top_k=3, token=None):
+        captured["token"] = token
+        return f"ok {query}"
+
+    monkeypatch.setattr("demo.rag.retriever.search_knowledge_base", _fake_search)
+    t = Token(subject="李四", role="reviewer",
+              permissions=ROLE_PERMISSIONS["reviewer"], source="user")
+    r.execute("search_knowledge_base", {"query": "违约金条款"}, token=t)
+    assert captured["token"] is t, "白名单工具须收到注入的 token"
+    # 无 token -> handler 收到 None（回落 public）
+    r.execute("search_knowledge_base", {"query": "违约金条款"})
+    assert captured["token"] is None
 
 
 def test_timeout_override_passthrough(monkeypatch):

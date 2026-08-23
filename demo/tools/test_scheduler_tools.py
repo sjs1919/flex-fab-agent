@@ -3,6 +3,8 @@
 覆盖：run_scheduling 落库、query_schedule 最新/指定版本、query_sim_events
 过滤、approve_schedule 通过/驳回/非法动作/版本不存在。
 """
+import re
+
 import pytest
 
 from demo.scheduler.snapshot import load_snapshot
@@ -193,6 +195,174 @@ def test_query_ctp_params_and_response(mysql_source):
     assert "未知工艺" in out4
 
 
+def test_query_ctp_calibrated_and_large_order(mysql_source):
+    """M5a：文案含两档承诺（CTP + 承诺期含预测预留）；amount≥5 万大单标注。"""
+    out = scheduler_tools.query_ctp(material="SLA", quantity=10, height_mm=100)
+    assert "CTP（最短可交付）" in out
+    assert "承诺期（含预测预留）" in out
+    assert "90% 日产能" in out
+    assert "大单" not in out  # 未传金额不标注
+    out2 = scheduler_tools.query_ctp(material="SLA", quantity=10, height_mm=100,
+                                     amount=80000)
+    assert "大单标注" in out2 and "承诺期" in out2
+    out3 = scheduler_tools.query_ctp(material="SLA", quantity=10, height_mm=100,
+                                     amount=10000)
+    assert "大单" not in out3  # 低于阈值不标注
+
+
+# ---- M5a T5a.8：query_kpi 坏件口径（bad_parts 优先，回落 sim_events） ----
+
+def _scrap_count_in_kpi(out: str) -> int:
+    m = re.search(r"坏件 (\d+) / 完工", out)
+    assert m, f"良率行未找到坏件计数：{out}"
+    return int(m.group(1))
+
+
+def test_query_kpi_scrap_from_bad_parts(mysql_source):
+    """query_kpi 良率与 bad_parts 计数一致（SUM(part_count)）。"""
+    _exec("DELETE FROM bad_parts")
+    _exec("DELETE FROM sim_events WHERE event_type='scrap'")
+    _exec("INSERT INTO bad_parts (batch_id, machine_id, material, part_count, sim_time) "
+          "VALUES ('TESTKPI1', 'M0001', 'SLA', 7, '2026-08-23 10:00:00')")
+    try:
+        out = scheduler_tools.query_kpi()
+        assert _scrap_count_in_kpi(out) == 7
+    finally:
+        _exec("DELETE FROM bad_parts")
+
+
+def test_query_kpi_scrap_falls_back_to_sim_events(mysql_source):
+    """空 bad_parts 回落 sim_events 口径（COUNT scrap 事件，兼容旧库）。"""
+    _exec("DELETE FROM bad_parts")
+    _exec("DELETE FROM sim_events WHERE event_type='scrap'")
+    _exec("INSERT INTO sim_events (sim_time, event_type, payload_json, status) "
+          "VALUES ('2026-08-23 10:00:00', 'scrap', '{}', 'fired')")
+    _exec("INSERT INTO sim_events (sim_time, event_type, payload_json, status) "
+          "VALUES ('2026-08-23 11:00:00', 'scrap', '{}', 'fired')")
+    try:
+        out = scheduler_tools.query_kpi()
+        assert _scrap_count_in_kpi(out) == 2
+    finally:
+        _exec("DELETE FROM sim_events WHERE event_type='scrap' AND payload_json='{}'")
+
+
+# ---- M5a T5a.6：query_forecast 实装 ----
+
+def test_query_forecast_seed_5days(mysql_source):
+    """seed 后输出 5 天预测表（分材料件数/机时）+ 口径说明。"""
+    seed_mod.reset()
+    out = scheduler_tools.query_forecast()
+    assert "预测" in out and "指数平滑" in out and "窗口 5 天" in out and "α=0.3" in out
+    assert "order_date" in out  # 口径说明
+    for m in ("SLA", "MJS", "SLM"):  # seed 三材料全覆盖
+        assert f"【{m}】" in out
+    assert "日期" in out and "件数" in out and "机时(h)" in out
+    # 默认 5 天：任一材料段含 5 行数据（表头+分隔线后 5 个日期行）
+    sla = out.split("【SLA】")[1].split("【")[0]
+    dates = [ln for ln in sla.splitlines() if ln.startswith("| 2026-")]
+    assert len(dates) == 5
+
+
+def test_query_forecast_days_override(mysql_source, monkeypatch):
+    """days 可改窗口；非法输入回落配置值（None）。"""
+    real = scheduler_tools.forecaster.forecast
+    captured = {}
+
+    def _spy(n_days=None, tenant_id=""):
+        captured["n_days"] = n_days
+        return real(n_days=n_days, tenant_id=tenant_id)
+
+    monkeypatch.setattr(scheduler_tools.forecaster, "forecast", _spy)
+    scheduler_tools.query_forecast(days="3")
+    assert captured["n_days"] == 3
+    scheduler_tools.query_forecast(days="abc")   # 非法 -> 回落配置窗口
+    assert captured["n_days"] is None
+    scheduler_tools.query_forecast(days="-1")    # 负数 -> 回落配置窗口
+    assert captured["n_days"] is None
+    scheduler_tools.query_forecast()             # 空 -> 配置窗口
+    assert captured["n_days"] is None
+
+
+# ---- M5a T5a.9：query_yield（良率下钻 + LLM 改善建议） ----
+
+@pytest.fixture()
+def yield_bad_rows():
+    """构造两台设备不同坏件量（M0001=5, M0002=2）+ M0001 一次 MTBF 故障。用后清理。"""
+    _exec("DELETE FROM bad_parts")
+    _exec("DELETE FROM sim_events WHERE event_type='machine_failure'")
+    _exec("INSERT INTO bad_parts (batch_id, machine_id, material, part_count, sim_time) "
+          "VALUES ('YB1', 'M0001', 'SLA', 3, '2026-08-23 10:00:00'), "
+          "('YB1', 'M0001', 'SLA', 2, '2026-08-23 11:00:00'), "
+          "('YB2', 'M0002', 'MJS', 2, '2026-08-23 12:00:00')")
+    _exec("INSERT INTO sim_events (sim_time, event_type, payload_json, status) "
+          "VALUES ('2026-08-23 09:00:00', 'machine_failure', "
+          "'{\"machine_id\": \"M0001\"}', 'fired')")
+    yield
+    _exec("DELETE FROM bad_parts")
+    _exec("DELETE FROM sim_events WHERE event_type='machine_failure'")
+
+
+def test_query_yield_drilldown_order_and_rate(mysql_source, yield_bad_rows, monkeypatch):
+    """设备下钻坏件降序（坏件多者在前）；良率 = 1−坏件/完工；MTBF 故障列在表头。"""
+    monkeypatch.setattr(scheduler_tools, "_done_parts_by_machine",
+                        lambda: {"M0001": 50, "M0002": 10})
+    out = scheduler_tools.query_yield()
+    assert "总览" in out and "坏件 7 件 / 完工 60 件" in out
+    # 设备下钻坏件降序：M0001(5) 在 M0002(2) 之前
+    assert out.index("M0001") < out.index("M0002")
+    # 批次下钻同样坏件降序：YB1(5) 在 YB2(2) 之前
+    assert out.index("YB1") < out.index("YB2")
+    # 良率计算：M0001=1−5/50=90.00%，M0002=1−2/10=80.00%
+    assert "90.00%" in out and "80.00%" in out
+    assert "MTBF故障" in out
+
+
+def test_query_yield_llm_advice_includes_summary(mysql_source, yield_bad_rows, monkeypatch):
+    """LLM 建议：归因摘要（良率/设备下钻）进 prompt；有内容时直接返回。"""
+    import types
+    monkeypatch.setattr(scheduler_tools, "_done_parts_by_machine",
+                        lambda: {"M0001": 50, "M0002": 10})
+    captured = {}
+    msg = types.SimpleNamespace(content="建议：M0001 优先检修，核查曝光参数。")
+    fake_resp = types.SimpleNamespace(choices=[types.SimpleNamespace(message=msg)])
+
+    def _fake_llm(system_prompt, user_prompt, **_kwargs):
+        captured["prompt"] = user_prompt
+        return fake_resp
+
+    monkeypatch.setattr("demo.core.llm_client.call_llm_simple", _fake_llm)
+    out = scheduler_tools.query_yield()
+    assert "检修" in out and "核查曝光参数" in out  # LLM 内容直接返回
+    assert captured["prompt"], "LLM prompt 须含归因摘要"
+    assert "良率" in captured["prompt"] and "坏件" in captured["prompt"]
+    assert "M0001" in captured["prompt"]  # 设备下钻摘要进 prompt
+
+
+def test_query_yield_llm_failure_falls_back_to_rules(mysql_source, yield_bad_rows, monkeypatch):
+    """LLM 抛异常降级规则模板：设备检修 + 材料参数提示，不中断工具。"""
+    monkeypatch.setattr(scheduler_tools, "_done_parts_by_machine",
+                        lambda: {"M0001": 50, "M0002": 10})
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("llm down")
+
+    monkeypatch.setattr("demo.core.llm_client.call_llm_simple", _boom)
+    out = scheduler_tools.query_yield()
+    assert "检修" in out                      # 设备 M0001 坏件最多 -> 检修建议
+    assert "SLA" in out and "曝光" in out      # 材料 SLA 建议（曝光参数）
+    assert "MJS" in out and "喷射头" in out    # 材料 MJS 建议（喷射头）
+
+
+def test_query_yield_no_bad_parts_friendly(mysql_source):
+    """无坏件数据：返回友好提示（良率 100%，无需归因），不报错。"""
+    _exec("DELETE FROM bad_parts")
+    try:
+        out = scheduler_tools.query_yield()
+        assert "良率 100%" in out and "暂无坏件" in out
+    finally:
+        _exec("DELETE FROM bad_parts")
+
+
 # ---- M4b T4b.4：query_order_tracking / query_preprocess_load 实装 ----
 
 def _extract_ahead(out):
@@ -241,20 +411,25 @@ def test_query_order_tracking_structure(mysql_source):
 
 def test_query_order_tracking_in_transit(mysql_source):
     """在途订单：关联批次打印中，预计完成 = post_process_end。"""
-    _exec("INSERT INTO schedule_versions (id, created_at, triggered_by, status) "
-          "VALUES (999000, '2026-09-01 08:00:00', 'test', '已审核')")
+    _exec("DELETE FROM batches WHERE id='BT'")
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT MAX(id) FROM schedule_versions")
+            vid = (cur.fetchone()[0] or 0) + 1  # 运行时取 max+1，防历史残留版本覆盖
+    _exec(f"INSERT INTO schedule_versions (id, created_at, triggered_by, status) "
+          f"VALUES ({vid}, '2026-09-01 08:00:00', 'test', '已审核')")
     try:
-        _exec("INSERT INTO batches (id, schedule_version_id, order_ids, process, machine_id, "
-              "start_time, end_time, post_process_end, status, approval_status) "
-              "VALUES ('BT', 999000, '[\"ORD001\"]', 'SLA', 'M0001', "
-              "'2026-09-01 08:00:00', '2026-09-01 10:00:00', '2026-09-01 12:00:00', "
-              "'打印中', '通过')")
+        _exec(f"INSERT INTO batches (id, schedule_version_id, order_ids, process, machine_id, "
+              f"start_time, end_time, post_process_end, status, approval_status) "
+              f"VALUES ('BT', {vid}, '[\"ORD001\"]', 'SLA', 'M0001', "
+              f"'2026-09-01 08:00:00', '2026-09-01 10:00:00', '2026-09-01 12:00:00', "
+              f"'打印中', '通过')")
         out = scheduler_tools.query_order_tracking("ORD001")
         assert "打印中" in out
         assert "2026-09-01 12:00" in out, "预计完成须取 post_process_end"
     finally:
-        _exec("DELETE FROM batches WHERE schedule_version_id=999000")
-        _exec("DELETE FROM schedule_versions WHERE id=999000")
+        _exec(f"DELETE FROM batches WHERE schedule_version_id={vid}")
+        _exec(f"DELETE FROM schedule_versions WHERE id={vid}")
 
 
 def test_query_preprocess_load_structure(mysql_source):
@@ -319,3 +494,111 @@ def test_query_kpi_structure(mysql_source):
         assert k in out, k
     assert "暂无完工数据" in out or "%" in out
     assert "暂无完工批次" in out or "%" in out
+
+
+# ---- M5a T5a.12：KPI tick 联动 E2E ----
+
+def _insert_kpi_version_row(vid):
+    """新建排产版本（显式 id）。"""
+    _exec(f"INSERT INTO schedule_versions (id, created_at, triggered_by, status) "
+          f"VALUES ({vid}, '2026-09-01 08:00:00', 'test', '已审核')")
+
+
+def _insert_kpi_batch(bid, vid, oid, machine):
+    """版本下新增批次（打印中）+ 设备占用。"""
+    _exec("INSERT INTO batches (id, schedule_version_id, order_ids, process, model_type, "
+          "machine_id, start_time, end_time, post_process_end, status, approval_status) "
+          "VALUES (%s, %s, %s, 'SLA', '600', %s, "
+          "'2026-09-01 08:00:00', '2026-09-01 10:00:00', '2026-09-01 11:00:00', "
+          "'打印中', '通过')", (bid, vid, f'["{oid}"]', machine))
+    _exec("UPDATE machines SET status='打印中', current_batch_id=%s WHERE id=%s",
+          (bid, machine))
+
+
+def _max_version_id():
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT MAX(id) FROM schedule_versions")
+            return (cur.fetchone()[0] or 0) + 1
+
+
+@pytest.fixture()
+def kpi_tick_env(mysql_source):
+    """KPI tick 联动环境：T-ORD001 已排产（V1，T-B0001 打印中）+ T-ORD002 新到未排产。
+    清基线保证 KPI 数值仅由本环境数据驱动；用后清理。"""
+    _exec("DELETE FROM sim_events")
+    _exec("DELETE FROM bad_parts")
+    _exec("DELETE FROM state_change_log WHERE entity_id LIKE 'T-%%' OR entity_id LIKE 'M000%%'")
+    _exec("DELETE FROM preprocess_tasks WHERE batch_id LIKE 'T-%%'")
+    # 残留在途批次（含其前道任务）清空：保证 tick 只推进本环境批次、scrap 计数确定
+    _exec("DELETE FROM preprocess_tasks WHERE batch_id IN "
+          "(SELECT id FROM batches WHERE status IN ('打印中','静置中','待上机','前道'))")
+    _exec("DELETE FROM batches WHERE status IN ('打印中','静置中','待上机','前道')")
+    _exec("DELETE FROM schedule_versions WHERE triggered_by='test'")
+    _exec("DELETE FROM parts WHERE id LIKE 'T-%%'")    # 先删 parts（引用 orders）
+    _exec("DELETE FROM orders WHERE id LIKE 'T-%%'")
+    _exec("UPDATE machines SET status='空闲', current_batch_id=NULL WHERE id IN ('M0001','M0002')")
+    _exec("INSERT INTO orders (id, customer_id, amount, urgent, priority, due_date, status, tenant_id) "
+          "VALUES ('T-ORD001', 'C001', 100000, 0, 40, '2026-09-10', '待排队', 'default'), "
+          "('T-ORD002', 'C001', 60000, 0, 20, '2026-09-08', '待排队', 'default')")
+    _exec("INSERT INTO parts (id, order_id, product_id, name, quantity, material, "
+          "length, width, height, weight, tenant_id) VALUES "
+          "('T-P0001', 'T-ORD001', 'P-T1', '测试件1', 3, 'SLA', 100, 100, 100, 1, 'default'), "
+          "('T-P0002', 'T-ORD002', 'P-T2', '测试件2', 5, 'SLA', 100, 100, 100, 1, 'default')")
+    v1 = _max_version_id()
+    _insert_kpi_version_row(v1)
+    _insert_kpi_batch("T-B0001", v1, "T-ORD001", "M0001")
+    yield {"v1": v1}
+    _exec("DELETE FROM state_change_log WHERE entity_id LIKE 'T-%%' OR entity_id LIKE 'M000%%'")
+    _exec("DELETE FROM preprocess_tasks WHERE batch_id LIKE 'T-%%'")
+    _exec("DELETE FROM bad_parts WHERE batch_id LIKE 'T-%%'")
+    _exec("DELETE FROM batches WHERE id LIKE 'T-%%'")
+    _exec("DELETE FROM schedule_versions WHERE triggered_by='test'")
+    _exec("DELETE FROM parts WHERE id LIKE 'T-%%'")    # 先删 parts（引用 orders）
+    _exec("DELETE FROM orders WHERE id LIKE 'T-%%'")
+    _exec("DELETE FROM sim_events")
+    _exec("UPDATE machines SET status='空闲', current_batch_id=NULL WHERE id IN ('M0001','M0002')")
+
+
+def _kpi_sample(out):
+    """解析准交率样本（on_time/sample）。"""
+    for ln in out.splitlines():
+        if "单按期" in ln:
+            m = re.search(r"(\d+)/(\d+)", ln)
+            assert m, f"未找到准交率样本: {out}"
+            return int(m.group(1)), int(m.group(2))
+    assert False, f"未找到准交率样本: {out}"
+
+
+def test_kpi_tick_linkage(kpi_tick_env):
+    """T5a.12：KPI 随 tick 联动——新订单入排产后 准交率分母 +1；
+    有 scrap 时良率下降（空态 -> 数值 <100%）；前后 KPI 数值确有变化。"""
+    from datetime import datetime
+
+    from demo.simulator import engine
+
+    out1 = scheduler_tools.query_kpi()
+    _, sample1 = _kpi_sample(out1)
+    assert "暂无完工批次" in out1, "KPI#1 无已完成批次 -> 良率空态"
+    assert _scrap_count_in_kpi(out1) == 0, "KPI#1 应无坏件"
+
+    # 新排产版本 V2（MAX+1）取代 V1：删旧批次 T-B0001 后重建，并纳入 T-ORD002
+    _exec("DELETE FROM batches WHERE id='T-B0001'")
+    v2 = _max_version_id()
+    _insert_kpi_version_row(v2)
+    _insert_kpi_batch("T-B0001", v2, "T-ORD001", "M0001")
+    _insert_kpi_batch("T-B0002", v2, "T-ORD002", "M0002")
+    # tick 快进：两批 打印中 -> 静置中 -> 完成（scrap_rate=1 全坏）
+    with get_connection() as conn:
+        engine.advance_tick(conn, datetime(2026, 9, 1, 11, 30), {"scrap_rate": 1.0})
+        conn.commit()
+
+    out2 = scheduler_tools.query_kpi()
+    _, sample2 = _kpi_sample(out2)
+    assert sample2 == sample1 + 1, f"准交率分母应随 T-ORD002 入排产 +1: {sample1} -> {sample2}"
+    assert _scrap_count_in_kpi(out2) == 8, "两批全坏(3+5)应落 bad_parts"
+    yr = next((ln for ln in out2.splitlines() if "良率" in ln), "")
+    m = re.search(r"([\d.]+)%", yr)
+    assert m, f"KPI#2 应输出数值良率: {out2}"
+    assert float(m.group(1)) < 100.0, "坏件存在 -> 良率应 < 100%"
+    assert out1 != out2, "前后两次 query_kpi 数值应有变化"

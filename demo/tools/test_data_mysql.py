@@ -163,3 +163,52 @@ def test_transaction_commit(monkeypatch):
             cur.execute("DELETE FROM orders WHERE id='TMP003'")
     assert _mysql_query("SELECT id FROM orders WHERE id='TMP003'") == []
 
+
+# ---- M5a T5a.3 load_bad_parts ----
+
+def _clear_test_bad_parts(all_rows: bool = False):
+    """清理 bad_parts 测试数据（all_rows=True 全清：该表数据全部由测试/模拟器注入）。"""
+    sql = "DELETE FROM bad_parts" if all_rows else "DELETE FROM bad_parts WHERE batch_id LIKE 'TESTBP%'"
+    with data.transaction() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+
+
+def test_load_bad_parts_empty_table(monkeypatch):
+    """空表返回 []（bad_parts 由 simulator 落库，测试清 TESTBP 前缀后验证）。"""
+    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    _clear_test_bad_parts(all_rows=True)
+    assert data.load_bad_parts() == []
+
+
+def test_load_bad_parts_filter_dimensions(monkeypatch):
+    """插入后按 machine_id/batch_id/material 维度 filter_by 走通。"""
+    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    _clear_test_bad_parts()
+    with data.transaction() as conn:
+        with conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO bad_parts (batch_id, machine_id, material, part_count, sim_time, tenant_id) "
+                "VALUES (%s,%s,%s,%s,%s,%s)",
+                [("TESTBP01", "M00001", "SLA", 2, "2026-08-23 10:00:00", "default"),
+                 ("TESTBP02", "M00002", "SLM", 1, "2026-08-23 11:00:00", "default")],
+            )
+    try:
+        rows = data.load_bad_parts()
+        mine = [r for r in rows if str(r["batch_id"]).startswith("TESTBP")]
+        assert len(mine) == 2
+        assert {"id", "batch_id", "machine_id", "material", "part_count", "sim_time",
+                "tenant_id"}.issubset(mine[0].keys())
+        by_machine = data.filter_by(rows, machine_id="M00001", batch_id="TESTBP01", material="SLA")
+        assert len(by_machine) == 1 and by_machine[0]["part_count"] == 2
+        by_material = data.filter_by(rows, material="SLM", batch_id="TESTBP02")
+        assert len(by_material) == 1 and by_material[0]["machine_id"] == "M00002"
+    finally:
+        _clear_test_bad_parts()
+
+
+def test_load_bad_parts_tenant_filter(monkeypatch):
+    """R8：load_bad_parts(tenant_id=nonexistent) == []。"""
+    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    assert data.load_bad_parts(tenant_id="nonexistent") == []
+

@@ -20,6 +20,15 @@ CONTRACTS_DIR = DATA_DIR / "contracts"
 DELAY_RECORD = DATA_DIR / "历史延期记录.txt"
 COLLECTION_NAME = "kb_contracts_delay"
 
+# E6（M5a）：文档级权限映射。缺省 public，仅列出的文件受限。
+# 广州航天精工合同特殊条款含违约金等敏感条款，仅 admin/reviewer 可检索。
+DOC_PERMISSION: dict[str, str] = {"广州航天精工_合同特殊条款.txt": "confidential"}
+
+
+def doc_permission(source: str) -> str:
+    """返回文档权限：confidential（机密）或 public（公开）。"""
+    return DOC_PERMISSION.get(source, "public")
+
 
 def load_documents() -> list[tuple[str, str]]:
     """加载知识库文档：历史延期记录 + contracts/ 下所有合同 txt。返回 [(filename, text)]。"""

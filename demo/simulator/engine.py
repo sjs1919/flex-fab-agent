@@ -88,15 +88,50 @@ def advance_batches(conn, cur, sim_time: datetime, params: dict | None = None) -
 
 def _scrap_inspect(cur, sim_time: datetime, batch_id: str, params: dict) -> None:
     """批次完成抽检（v1 §5.3）：按坏件率触发 scrap 事件（即时 fired）。
-    重打批次生成留 M4（工具层），此处仅事件 + 日志提示。"""
+
+    M5a：scrap 同事务落 bad_parts（设备/材料/件数根因维度，query_yield 数据源），
+    related_event_id 关联本次 sim_events 事件。重打批次生成留 M4（工具层）。
+    """
     if random.random() >= params.get("scrap_rate", 0.05):
         return
+    cur.execute("SELECT machine_id, process, order_ids FROM batches WHERE id=%s",
+                (batch_id,))
+    row = cur.fetchone()
+    machine_id, process, order_ids = row if row else (None, None, None)
+    # 件数：批次关联订单的 parts 量合计；查不到回落 1
+    part_count = 1
+    oids = _json_list(order_ids)
+    if oids:
+        cur.execute(
+            f"SELECT COALESCE(SUM(quantity), 0) FROM parts WHERE order_id IN "
+            f"({','.join(['%s'] * len(oids))})", tuple(oids))
+        total = cur.fetchone()[0]
+        if total:
+            part_count = int(total)
     cur.execute(
         "INSERT INTO sim_events (sim_time, event_type, payload_json, status) "
         "VALUES (%s, 'scrap', %s, 'fired')",
         (sim_time, json.dumps({"batch_id": batch_id, "hint": "坏件需重打"},
                               ensure_ascii=False)))
+    event_id = cur.lastrowid
+    cur.execute(
+        "INSERT INTO bad_parts (batch_id, machine_id, material, part_count, "
+        "related_event_id, sim_time) VALUES (%s,%s,%s,%s,%s,%s)",
+        (batch_id, machine_id or "", process or "", part_count, event_id, sim_time))
     states.log_state_change(cur, sim_time, "batch", batch_id, "scrap", "完成", "坏件需重打")
+
+
+def _json_list(raw) -> list:
+    """order_ids 字段（JSON 字符串/列表）-> list（坏件件数统计用）。"""
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        return raw
+    try:
+        v = json.loads(raw)
+        return v if isinstance(v, list) else []
+    except (TypeError, ValueError):
+        return []
 
 
 def advance_preprocess(conn, cur, sim_time: datetime) -> int:

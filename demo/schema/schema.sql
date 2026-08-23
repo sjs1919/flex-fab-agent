@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS orders (
     amount      DECIMAL(12,2) NOT NULL COMMENT '订单金额（违约金计费依据）',
     urgent      TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '加急（权重 +30）',
     priority    INT          NOT NULL DEFAULT 0 COMMENT '订单权重分（§3.8 公式计算落库）',
+    order_date  DATE         NOT NULL DEFAULT '2026-08-01' COMMENT '下单日（预测聚合维度，M5a）',
     due_date    DATE         NOT NULL COMMENT '交期（截止日 23:59 完成）',
     status      ENUM('待排队','已审核','打印中','完成') NOT NULL DEFAULT '待排队' COMMENT '状态模型',
     tenant_id   VARCHAR(32)  NOT NULL DEFAULT 'default' COMMENT 'R8',
@@ -194,6 +195,23 @@ CREATE TABLE IF NOT EXISTS sim_events (
     KEY idx_sim_events_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='模拟事件流水（所有权：simulator）';
+
+-- 坏件记录（写方：simulator B 层 scrap 落库；读方：query_yield/query_kpi；M5a）
+CREATE TABLE IF NOT EXISTS bad_parts (
+    id                BIGINT AUTO_INCREMENT COMMENT '坏件记录 id',
+    batch_id          VARCHAR(32)  NOT NULL COMMENT '批次（根因维度）',
+    machine_id        CHAR(6)      NOT NULL COMMENT '设备（根因维度）',
+    material          ENUM('SLA','MJS','SLM') NOT NULL COMMENT '材料（根因维度）',
+    part_count        INT          NOT NULL DEFAULT 1 COMMENT '坏件数',
+    related_event_id  INT          DEFAULT NULL COMMENT '关联 sim_events 事件 id（scrap/MTBF 故障）',
+    sim_time          DATETIME     NOT NULL COMMENT 'sim 时间',
+    tenant_id         VARCHAR(32)  NOT NULL DEFAULT 'default' COMMENT 'R8',
+    PRIMARY KEY (id),
+    KEY idx_badparts_machine (machine_id),
+    KEY idx_badparts_batch (batch_id),
+    KEY idx_badparts_material (material)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='坏件记录（所有权：simulator）';
 
 -- 状态变更日志（写方：simulator；读方：agent 回答"为什么"的依据）
 CREATE TABLE IF NOT EXISTS state_change_log (

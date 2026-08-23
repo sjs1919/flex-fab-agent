@@ -152,3 +152,39 @@ def test_compute_ctp_from_db_structure(seeded_mysql):
         assessment.compute_ctp_from_db("CNC", 1, 100)  # 未知工艺
     with pytest.raises(ValueError):
         assessment.compute_ctp_from_db("SLA", 1, 650)  # 超尺寸
+
+
+# ---- M5a T5a.7：预测校准 CTP ----
+
+def test_ctp_calibrated_not_earlier(seeded_mysql):
+    """calibrated_ctp ≥ 常规 ctp（预测预留只会推迟，不提前）。"""
+    r = assessment.compute_ctp_from_db("SLA", 10, 100)
+    assert r["forecast_reserved_days"] >= 0
+    assert r["calibrated_ctp"] >= r["ctp"]
+    assert (r["calibrated_ctp"] - r["ctp"]).days == r["forecast_reserved_days"]
+
+
+def test_ctp_calibrated_no_forecast(seeded_mysql, monkeypatch):
+    """预测机时=0（无历史）时 calibrated == 常规 ctp。"""
+    from demo.forecast import forecaster
+    empty = {"method": "exponential", "alpha": 0.3, "window": 5,
+             "days": [], "materials": {}, "note": "无历史订单可聚合"}
+    monkeypatch.setattr(forecaster, "forecast",
+                        lambda n_days=None, tenant_id="": empty)
+    r = assessment.compute_ctp_from_db("SLA", 10, 100)
+    assert r["forecast_reserved_days"] == 0
+    assert r["calibrated_ctp"] == r["ctp"]
+
+
+def test_ctp_calibrated_known_reserved_days(seeded_mysql, monkeypatch):
+    """已知预测机时 -> 预留天数 = ⌈机时 ÷ (设备数×24×0.9)⌉（SLA 3 台：64.8h/天）。"""
+    from demo.forecast import forecaster
+    fake = {"method": "exponential", "alpha": 0.3, "window": 5, "days": ["d"] * 5,
+            "materials": {"SLA": [{"date": f"d{i}", "parts": 1, "hours": 65.0}
+                                  for i in range(5)]}, "note": ""}
+    monkeypatch.setattr(forecaster, "forecast",
+                        lambda n_days=None, tenant_id="": fake)
+    r = assessment.compute_ctp_from_db("SLA", 10, 100)
+    # 5×65=325h，SLA 3 台 -> 64.8h/天 -> 325/64.8=5.01 -> ⌈⌉=6 天
+    assert r["forecast_reserved_days"] == 6
+    assert r["calibrated_ctp"] > r["ctp"]

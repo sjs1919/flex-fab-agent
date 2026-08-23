@@ -387,6 +387,32 @@ def load_assessment() -> dict:
     }
 
 
+def _forecast_reserved_days(material: str) -> float:
+    """预测校准（M5a）：预测窗口机时按 90% 日产能折算预留天数。
+
+    口径（用户 2026-08-23 确认）：预测占用只在常规 CTP 之上追加预留，
+    不扰动已下单订单的排产；大单（≥5 万）承诺期按含预留档报给客户。
+    延迟 import forecast（forecast 不 import assessment，防循环依赖）。
+    """
+    from demo.forecast import forecaster
+
+    out = forecaster.forecast()
+    rows = out.get("materials", {}).get(material)
+    if not rows:
+        return 0.0
+    forecast_hours = sum(r["hours"] for r in rows)
+    if forecast_hours <= 0:
+        return 0.0
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM machines WHERE process=%s", (material,))
+            machine_count = cur.fetchone()[0]
+    if not machine_count:
+        return 0.0
+    daily_effective_h = machine_count * 24 * 0.9  # 90% 日产能
+    return math.ceil(forecast_hours / daily_effective_h)
+
+
 def compute_ctp_from_db(material: str, quantity: int, height_mm: float,
                         due_date: str = "") -> dict:
     """query_ctp 拼装：读库取现有占用完成/前道池完成 → compute_ctp。"""
@@ -408,6 +434,9 @@ def compute_ctp_from_db(material: str, quantity: int, height_mm: float,
         _per_part_eff(material), pp["plan_review_hours"],
         machine_load_end, preprocess_queue_end, pp["workers"],
     )
+    reserved = _forecast_reserved_days(material)
+    result["forecast_reserved_days"] = reserved
+    result["calibrated_ctp"] = result["ctp"] + timedelta(days=reserved)
     result["due_date"] = due_date
     if due_date:
         due = _to_due_datetime(due_date)

@@ -20,6 +20,7 @@ R3 缺陷修复（2026-08-07）：evaluate_results 实现工具结果质量校�
 R4 缺陷修复（2026-08-07）：select_and_execute 前自动检查上下文压缩
 """
 import json
+import re
 from typing import Any
 
 from langgraph.graph import END, StateGraph
@@ -38,6 +39,38 @@ _SCHEDULE_CONTEXT_TOOLS = frozenset({
     "query_schedule", "query_load_assessment", "query_ctp",
     "query_order_tracking", "query_preprocess_load", "query_kpi",
 })
+
+# T5a.11：延期解释增强 — 从这些工具结果抽取延期清单注入综合指令
+_DELAY_TOOLS = frozenset({
+    "query_schedule", "query_load_assessment", "query_order_tracking", "query_kpi",
+})
+_DELAY_MARKERS = ("延期", "逾期", "超期", "延后", "预警", "⚠️", "红", "无法满足")
+_DELAY_VERSION_RE = re.compile(r"排产版本\s*(\d+)")
+
+
+def _extract_delay_context(results: list[dict], max_lines: int = 15) -> str:
+    """从排产工具结果抽取结构化延期数据：延期行（清单+天数）+ 排产版本号。
+
+    只挑含延期标记的行（query_schedule/query_load_assessment 的延期清单、
+    逾期预警、红区等），按出现顺序去重拼接，供 LLM 逐单解释延期原因。
+    """
+    lines: list[str] = []
+    version = ""
+    for tr in results:
+        if tr.get("tool") not in _DELAY_TOOLS:
+            continue
+        text = tr.get("result", "") or ""
+        m = _DELAY_VERSION_RE.search(text)
+        if m:
+            version = m.group(1)
+        for ln in text.splitlines():
+            stripped = ln.strip()
+            if stripped and any(mk in stripped for mk in _DELAY_MARKERS) \
+                    and stripped not in lines:
+                lines.append(stripped)
+    parts = [f"排产版本：{version}"] if version else []
+    parts.extend(lines[:max_lines])
+    return "\n".join(parts)
 
 
 def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
@@ -229,16 +262,26 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
             state["final_answer"] = last_msg["content"]
             return state
 
-        # 追加综合指令让 LLM 汇总（C2：已获取排产数据时引用排产结果作依据）
-        summary_prompt = {
-            "role": "system",
-            "content": ("请基于以上所有工具查询结果，给出综合调度建议。\n"
-                        "必须包含：\n1. 关键发现（交期/客户/库存/设备）\n"
-                        "2. 今日优先排产订单（按优先级排序，列出订单号和原因）\n"
-                        "3. 可以延后的订单及原因\n"
-                        "若已获取排产表/负载/CTP 数据，请引用版本号、批次、延期清单等排产结果作为排产依据。\n"
-                        "用中文回答，格式清晰。"),
-        }
+        # 追加综合指令让 LLM 汇总（C2：已获取排产数据时引用排产结果作依据；
+        # T5a.11 升级为结构化注入——带延期清单/天数/版本，而非只提示）
+        delay_ctx = _extract_delay_context(state.get("tool_results", []))
+        summary_lines = [
+            "请基于以上所有工具查询结果，给出综合调度建议。",
+            "必须包含：\n1. 关键发现（交期/客户/库存/设备）\n"
+            "2. 今日优先排产订单（按优先级排序，列出订单号和原因）\n"
+            "3. 可以延后的订单及原因",
+        ]
+        if delay_ctx:
+            summary_lines.append(
+                "【结构化延期数据（来自排产表/负载评估）】\n" + delay_ctx +
+                "\n请逐单解释：哪些订单会延期、为什么（引用对应批次/排产版本），"
+                "并给出可采取的对策。")
+        else:
+            summary_lines.append(
+                "若已获取排产表/负载/CTP 数据，请引用版本号、批次、延期清单等"
+                "排产结果作为排产依据。")
+        summary_lines.append("用中文回答，格式清晰。")
+        summary_prompt = {"role": "system", "content": "\n".join(summary_lines)}
 
         # ---- R2 护栏集成：最多重试 2 次 ----
         from ..guardrails import run_guardrails

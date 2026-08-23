@@ -181,6 +181,12 @@ def load_preprocess_tasks(tenant_id: str = "") -> list[dict[str, str]]:
     return _read_rows("SELECT * FROM preprocess_tasks", (), filename="")
 
 
+def load_bad_parts(tenant_id: str = "") -> list[dict[str, str]]:
+    """加载坏件记录（M5a 新增，query_yield 良率根因分析数据源）。"""
+    query, params = _with_tenant("bad_parts", tenant_id)
+    return _row_filter(_read_rows(query, params, filename=""), tenant_id)
+
+
 def format_table(rows: list[dict], columns: list[str] | None = None) -> str:
     """将 dict 列表格式化为 Markdown 表格，方便 LLM 阅读。
 

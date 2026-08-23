@@ -298,3 +298,91 @@ def test_evaluate_loop_detection_breaks_cycle(monkeypatch):
     # 循环检测触发：needs_more 被清除（不再死循环），有最终答案
     assert result["needs_more"] is not True, "循环检测应清除 needs_more"
     assert result["final_answer"] != "", "循环检测后应有最终答案"
+
+
+# ---- T5a.11：generate_answer 延期解释增强（结构化注入） ----
+
+class FakeDelayRegistry(FakeRegistry):
+    """FakeRegistry + query_load_assessment（排产上下文工具）。"""
+
+    def __init__(self):
+        super().__init__()
+        self.schemas["query_load_assessment"] = {"server": "schedule_server"}
+
+
+_DELAY_RESULT = (
+    "📊 产能负载评估（生成 2026-08-23 08:00，T 窗口 48h）\n"
+    "2️⃣ 各订单预计完成（满负荷粗算）：\n"
+    "| 订单 | 工艺 | 交期 | 预计完成 | 状态 |\n"
+    "| ORD001 | SLA | 2026-09-10 | 2026-09-12 | ⚠️ 延期 2 天 |\n"
+    "3️⃣ 满负荷超期预警：\n"
+    "| 订单 | 延期 |\n| ORD001 | 2 天 |\n"
+)
+
+
+def _invoke_delay_flow(monkeypatch):
+    """seeded 含延期清单的 query_load_assessment 结果 -> 捕获 generate_answer summary_prompt。"""
+    from demo.graph import single_agent_graph as sag
+    _disable_compression(monkeypatch)
+    prompts: list = []
+    responses = [
+        FakeResponse(tool_calls=_make_tool_call("query_load_assessment")),
+        FakeResponse(content="ORD001 会延期 2 天，建议调整排产"),
+    ]
+
+    def fake_call_llm(messages, tools=None, **kwargs):
+        if tools is None:  # generate_answer 综合指令（无工具 schema）
+            prompts.append(messages[-1]["content"])
+        return responses.pop(0) if responses else FakeResponse(content="兜底答案")
+
+    monkeypatch.setattr(sag, "call_llm", fake_call_llm)
+    app = build_single_agent_graph(FakeDelayRegistry(), checkpointer=None)
+    app.invoke({
+        "messages": [{"role": "user", "content": "哪些订单会延期？"}],
+        "tool_results": [{"tool": "query_load_assessment", "arguments": {},
+                          "result": _DELAY_RESULT}],
+        "iteration": 0,
+        "final_answer": "",
+    })
+    return prompts
+
+
+def test_generate_answer_injects_structured_delay(monkeypatch):
+    """T5a.11：排产结果含延期清单 -> summary_prompt 注入结构化延期数据+逐单解释指令。"""
+    prompts = _invoke_delay_flow(monkeypatch)
+    assert prompts, "应有一次 generate_answer 的 LLM 调用"
+    summary = prompts[-1]
+    assert "结构化延期数据" in summary
+    assert "延期 2 天" in summary          # 延期清单+天数注入
+    assert "逐单解释" in summary and "为什么" in summary  # 逐单解释指令
+
+
+def test_generate_answer_no_schedule_ctx_unchanged(monkeypatch):
+    """T5a.11：无排产上下文 -> 不注入结构化延期数据（与 M4b 行为一致）。"""
+    from demo.graph import single_agent_graph as sag
+    _disable_compression(monkeypatch)
+    prompts: list = []
+    responses = [
+        FakeResponse(tool_calls=_make_tool_call("query_orders")),
+        FakeResponse(content="订单汇总"),
+    ]
+
+    def fake_call_llm(messages, tools=None, **kwargs):
+        if tools is None:
+            prompts.append(messages[-1]["content"])
+        return responses.pop(0) if responses else FakeResponse(content="兜底答案")
+
+    monkeypatch.setattr(sag, "call_llm", fake_call_llm)
+    app = build_single_agent_graph(FakeRegistry(), checkpointer=None)
+    app.invoke({
+        "messages": [{"role": "user", "content": "有哪些订单？"}],
+        "tool_results": [{"tool": "query_orders", "arguments": {},
+                          "result": "ORD001 A 级 交期 2026-09-10"}],
+        "iteration": 1,
+        "ready_for_answer": True,
+        "final_answer": "",
+    })
+    assert prompts, "应有一次 generate_answer 的 LLM 调用"
+    summary = prompts[-1]
+    assert "结构化延期数据" not in summary    # 不注入结构化块
+    assert "排产依据" in summary               # M4b 原引用提示保留

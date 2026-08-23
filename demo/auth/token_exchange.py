@@ -24,17 +24,22 @@ RoleType = Literal["admin", "scheduler", "reviewer", "operator", "viewer"]
 # 5 角色 × 可调用工具集合。admin 通配。
 # M4a（v2 D1/B5）：scheduler 加排产工具（含写工具 run_scheduling，不含审批）；
 # reviewer 加审批（approve_schedule）+ 排产查询；operator/viewer 不变。
+# M5a（E6）：search_knowledge_base 全角色可调——文档级权限在 RAG 层过滤
+# （confidential 仅 admin/reviewer），角色权限只控"能否用工具"，不控能看到哪份文档。
 ROLE_PERMISSIONS: dict[RoleType, list[str]] = {
     "admin":     ["*"],
     "scheduler": ["query_orders", "get_order_detail", "get_production_status",
                   "query_inventory", "query_machine_load", "query_customer",
                   "run_scheduling", "query_schedule", "query_sim_events",
                   "query_ctp", "query_load_assessment", "query_order_tracking",
-                  "query_preprocess_load", "query_kpi"],
+                  "query_preprocess_load", "query_kpi",
+                  "search_knowledge_base"],
     "reviewer":  ["get_order_detail", "get_production_status", "query_customer",
-                  "approve_schedule", "query_schedule", "query_sim_events"],
-    "operator":  ["query_orders", "query_machine_load", "query_inventory"],
-    "viewer":    ["query_orders"],
+                  "approve_schedule", "query_schedule", "query_sim_events",
+                  "search_knowledge_base"],
+    "operator":  ["query_orders", "query_machine_load", "query_inventory",
+                  "search_knowledge_base"],
+    "viewer":    ["query_orders", "search_knowledge_base"],
 }
 
 

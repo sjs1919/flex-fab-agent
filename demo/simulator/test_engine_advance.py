@@ -143,3 +143,34 @@ def test_mark_overdue_orders(sim_env):
     _tick(datetime(2026, 9, 1, 9, 0, 0))
     assert not _rows("SELECT id FROM state_change_log WHERE entity_id='T-ORD001' "
                      "AND field='overdue'")
+
+
+# ---- M5a T5a.8：scrap 落 bad_parts ----
+
+def test_scrap_writes_bad_parts(sim_env):
+    """tick 触发 scrap（scrap_rate=1）后 bad_parts 有记录：
+    设备/批次/材料/件数齐全，related_event_id 关联 sim_events scrap 事件。"""
+    _exec("DELETE FROM bad_parts WHERE batch_id='T-B0001'")
+    _exec("DELETE FROM parts WHERE id='T-P0001'")
+    _exec(
+        "INSERT INTO parts (id, order_id, product_id, name, quantity, material, "
+        "length, width, height, weight, tenant_id) VALUES "
+        "('T-P0001', 'T-ORD001', 'P-T', '测试件', 3, 'SLA', 100, 100, 100, 1, 'default')")
+    try:
+        with get_connection() as conn:
+            engine.advance_tick(conn, datetime(2026, 9, 1, 11, 30, 0),
+                                {"scrap_rate": 1.0})
+            conn.commit()
+        rows = _rows("SELECT batch_id, machine_id, material, part_count, related_event_id "
+                     "FROM bad_parts WHERE batch_id='T-B0001'")
+        assert len(rows) == 1
+        r = rows[0]
+        assert r["machine_id"] == "M0001"
+        assert r["material"] == "SLA"
+        assert r["part_count"] == 3  # T-ORD001 关联 parts 量合计
+        evs = _rows("SELECT id FROM sim_events WHERE event_type='scrap' "
+                    "AND payload_json LIKE '%%T-B0001%%'")
+        assert evs and evs[0]["id"] == r["related_event_id"]
+    finally:
+        _exec("DELETE FROM bad_parts WHERE batch_id='T-B0001'")
+        _exec("DELETE FROM parts WHERE id='T-P0001'")
