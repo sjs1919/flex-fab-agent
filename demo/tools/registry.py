@@ -259,8 +259,9 @@ def build_default_registry() -> ToolRegistry:
     )
     # ---- 排产工具（M4a，schedule_server）：4 实装 + 7 占位 ----
     from .scheduler_tools import (
-        PLACEHOLDER_TOOLS, approve_schedule, query_schedule, query_sim_events,
-        run_scheduling,
+        PLACEHOLDER_TOOLS, approve_schedule, query_ctp, query_kpi,
+        query_load_assessment, query_order_tracking, query_preprocess_load,
+        query_schedule, query_sim_events, run_scheduling,
     )
     r.register(
         "run_scheduling",
@@ -305,12 +306,51 @@ def build_default_registry() -> ToolRegistry:
         approve_schedule, "scheduling", "schedule_server",
         read_only=False,
     )
+    r.register(
+        "query_ctp",
+        "查询最短可交付时间（CTP）：给定工艺/件数/零件高，返回基于现有设备占用与"
+        "前道人池排队的承诺交期；传 due_date 可判断能否按期。"
+        "适用：客户询交期、插单可行性评估。",
+        {"type": "object", "properties": {
+            "material": {"type": "string", "description": "工艺：SLA / MJS / SLM"},
+            "quantity": {"type": "integer", "description": "件数"},
+            "height_mm": {"type": "number", "description": "零件高（Z 方向）mm，>600 超尺寸直接预警"},
+            "due_date": {"type": "string", "description": "交期 YYYY-MM-DD，可选；给出则判断能否按期"},
+        }, "required": ["material", "quantity", "height_mm"]},
+        query_ctp, "scheduling", "schedule_server",
+    )
+    r.register(
+        "query_load_assessment",
+        "产能负载评估（只读）：四段报告——订单在途/排队分布 → 各订单预计完成 →"
+        "满负荷超期预警 → T 窗口消化（剩余/缺口/缺机器数）+ 三区制（绿/黄/红）"
+        "+ 前道人池负载。无参数，全量评估。",
+        {"type": "object", "properties": {}},
+        query_load_assessment, "scheduling", "schedule_server",
+    )
+    r.register(
+        "query_order_tracking",
+        "订单状态跟踪：查询单个订单当前所处环节（在途/排队/完成）、关联批次、预计开打与完成时间、"
+        "前面单据清单（同工艺队列，交期升序→优先级降序）。",
+        {"type": "object", "properties": {
+            "order_id": {"type": "string", "description": "订单编号，如 ORD001"},
+        }, "required": ["order_id"]},
+        query_order_tracking, "scheduling", "schedule_server",
+    )
+    r.register(
+        "query_preprocess_load",
+        "前道人池负载（只读）：打磨/前道任务排队与在途、池占用率、预计清空时刻、是否成瓶颈。"
+        "无参数。",
+        {"type": "object", "properties": {}},
+        query_preprocess_load, "scheduling", "schedule_server",
+    )
+    r.register(
+        "query_kpi",
+        "排产 KPI 查询（只读）：准交率（按期/样本）、延期金额（Σ金额×违约金日费率×天数）、"
+        "舱利用率、良率（1−坏件/完工）、前道瓶颈占用。无参数，DB 实时聚合。",
+        {"type": "object", "properties": {}},
+        query_kpi, "scheduling", "schedule_server",
+    )
     _PLACEHOLDER_DESCS = {
-        "query_ctp": "查询订单最短可交付时间（CTP）。占位，M4b 提供。",
-        "query_load_assessment": "产能负载评估（三区制：绿/黄/红 + 满负荷预警）。占位，M4b 提供。",
-        "query_order_tracking": "订单状态跟踪（排队队列与当前所处环节）。占位，M4b 提供。",
-        "query_preprocess_load": "前道（打磨等）任务负载查询。占位，M4b 提供。",
-        "query_kpi": "排产 KPI 查询（准交率/延期单/设备利用率等）。占位，M4b 提供。",
         "query_forecast": "订单量统计预测。占位，M5 提供。",
         "query_yield": "打印良率查询。占位，M5 提供。",
     }

@@ -86,6 +86,20 @@ def test_extract_context_empty():
     assert ctx == ""
 
 
+def test_judge_uses_simple_task_type(monkeypatch):
+    """judge 打分应走 task_type='simple'（B3 路由：便宜/快模型）。"""
+    from demo.eval import judge as judge_mod
+    seen = {}
+
+    def fake_call_llm(messages, **kwargs):
+        seen["task_type"] = kwargs.get("task_type")
+        return FakeResponse(json.dumps({"faithfulness": 0.9, "answer_relevancy": 0.8}))
+
+    monkeypatch.setattr(judge_mod, "call_llm", fake_call_llm)
+    judge_semantic_quality("问题", "上下文", "回答")
+    assert seen["task_type"] == "simple"
+
+
 def test_judge_no_context_uses_real_judge_for_relevancy(monkeypatch):
     """无 context 时：faithfulness 标记未评估，relevancy 用真实 judge 而非关键词启发式。"""
     from demo.eval import judge as judge_mod

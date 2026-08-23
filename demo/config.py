@@ -5,6 +5,7 @@
   集中到这里后，全项目只此一处 provider 配置，是主备架构的单一事实源。
   调主备 = 改下面 PROVIDERS 列表顺序 + 同步 .env 注释，无需动业务代码。
 """
+import json
 import os
 from pathlib import Path
 
@@ -147,6 +148,17 @@ def get_config(category: str, key: str, default: str = "") -> str:
     except Exception:
         return default
     return row[0] if row and row[0] is not None else default
+
+
+def get_routing_policy() -> dict:
+    """B3 模型路由策略（v2 C7）：system_config 路由/routing_policy 的 JSON
+    （如 {"simple": "DeepSeek", "complex": "火山豆包(coding)"}）。异常回落 {}。"""
+    raw = get_config("路由", "routing_policy", "{}")
+    try:
+        v = json.loads(raw)
+        return v if isinstance(v, dict) else {}
+    except (TypeError, ValueError):
+        return {}
 
 
 def get_scene_version() -> int:

@@ -36,3 +36,26 @@ def test_get_mysql_dsn_missing_password(monkeypatch):
         raise AssertionError("缺口令应抛 RuntimeError")
     except RuntimeError as e:
         assert "credentials.local.md" in str(e)
+
+
+# ---- B3 模型路由（T4b.6）：get_routing_policy ----
+
+def test_get_routing_policy_valid(monkeypatch):
+    monkeypatch.setattr(cfg, "get_config", lambda c, k, d: '{"simple": "DeepSeek", "complex": "火山豆包(coding)"}')
+    assert cfg.get_routing_policy() == {"simple": "DeepSeek", "complex": "火山豆包(coding)"}
+
+
+def test_get_routing_policy_invalid_json(monkeypatch):
+    monkeypatch.setattr(cfg, "get_config", lambda c, k, d: "{not json")
+    assert cfg.get_routing_policy() == {}
+
+
+def test_get_routing_policy_non_dict_json(monkeypatch):
+    monkeypatch.setattr(cfg, "get_config", lambda c, k, d: '["a", "b"]')
+    assert cfg.get_routing_policy() == {}
+
+
+def test_get_routing_policy_empty_default(monkeypatch):
+    """未配置 -> 回落默认 '{}'。"""
+    monkeypatch.setattr(cfg, "get_config", lambda c, k, d: d)
+    assert cfg.get_routing_policy() == {}

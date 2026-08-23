@@ -174,6 +174,25 @@ def _require_admin(token_id: str) -> None:
         raise HTTPException(403, f"需要 admin 角色（当前 {token.role}）")
 
 
+# ---- 订单跟踪 + KPI（M4b，v2 C6；只读，与 /schedule/latest 同级） ----
+
+@app.get("/order/{order_id}/tracking")
+def order_tracking(order_id: str) -> dict:
+    """订单状态跟踪（只读）：当前环节、在途预计完成/排队队列、前面单据清单。"""
+    from .tools.scheduler_tools import query_order_tracking
+    report = query_order_tracking(order_id)
+    if report.startswith("❌ 订单不存在"):
+        raise HTTPException(404, f"订单不存在：{order_id}")
+    return {"order_id": order_id, "report": report}
+
+
+@app.get("/kpi")
+def kpi() -> dict:
+    """排产 KPI（只读）：准交率/延期金额/舱利用率/良率/前道瓶颈占用，DB 实时聚合。"""
+    from .tools.scheduler_tools import query_kpi
+    return {"report": query_kpi()}
+
+
 @app.post("/ask", response_model=AskResponse)
 def ask(req: AskRequest) -> AskResponse:
     """单次或多轮提问。带 thread_id 即多轮（checkpointer 恢复历史）。"""

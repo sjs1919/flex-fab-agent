@@ -30,12 +30,15 @@ def test_read_only_flags():
 
 
 def test_placeholder_tools_execute():
-    """占位工具 execute 返回 M4b/M5 说明。"""
+    """占位工具 execute 返回 M5 说明；M4b 已实装工具不再返回占位文案。"""
     r = build_default_registry()
-    out = r.execute("query_ctp", {})
-    assert "M4b" in out
     out = r.execute("query_forecast", {})
     assert "M5" in out
+    out = r.execute("query_yield", {})
+    assert "M5" in out
+    # query_ctp 已实装（T4b.3）：缺参返回明确提示而非 M4b 占位文案
+    out = r.execute("query_ctp", {})
+    assert "M4b" not in out and "参数不完整" in out
 
 
 def test_timeout_override_passthrough(monkeypatch):

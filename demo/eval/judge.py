@@ -66,7 +66,8 @@ def judge_semantic_quality(question: str, context: str, answer: str) -> dict[str
         # 无检索上下文：faithfulness 无法评估 -> 标记未评估；relevancy 走真实 judge
         messages = build_relevancy_messages(question, answer)
         try:
-            response = call_llm(messages, max_tokens=200, temperature=0.0)
+            response = call_llm(messages, max_tokens=200, temperature=0.0,
+                                task_type="simple")
             raw = response.choices[0].message.content or ""
             parsed = parse_judge_response(raw)
             return {
@@ -86,7 +87,8 @@ def judge_semantic_quality(question: str, context: str, answer: str) -> dict[str
 
     messages = build_judge_messages(question, context, answer)
     try:
-        response = call_llm(messages, max_tokens=200, temperature=0.0)
+        response = call_llm(messages, max_tokens=200, temperature=0.0,
+                            task_type="simple")
         raw = response.choices[0].message.content or ""
         parsed = parse_judge_response(raw)
         return {

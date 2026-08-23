@@ -22,7 +22,7 @@ import httpx
 from openai import OpenAI
 
 from ..cache import llm_cache
-from ..config import PROVIDERS, _is_real_key
+from ..config import PROVIDERS, _is_real_key, get_routing_policy
 from ..observability import tracer, cost_tracker
 
 # 每个 provider 的 OpenAI 客户端缓存（模块级单例，复用 TCP 连接池）
@@ -112,7 +112,8 @@ def clear_client_cache() -> None:
 
 
 def call_llm(messages: list[dict], tools: list[dict] | None = None,
-             max_tokens: int = 500, temperature: float = 0.3):
+             max_tokens: int = 500, temperature: float = 0.3,
+             task_type: str = "complex"):
     """统一 LLM 调用，内置主备自动降级 + 连接池复用 + 精确缓存。
 
     两层缓存：
@@ -122,10 +123,19 @@ def call_llm(messages: list[dict], tools: list[dict] | None = None,
     遍历 PROVIDERS，第一个成功即返回；失败自动切下一个。
       messages    -- OpenAI 消息列表（system/user/assistant/tool）
       tools       -- 可选，Function Calling 的工具 schema 列表
+      task_type   -- B3 模型路由（v2 C7）：simple（快/便宜模型）| complex（强模型，默认）。
+                     策略来自 system_config 路由/routing_policy；指定的 provider 可用时
+                     优先使用，否则回落默认遍历顺序（主备降级保持）。
       返回 OpenAI ChatCompletion 响应对象（或缓存的等价模拟对象）。
     """
+    providers = list(PROVIDERS)
+    preferred = get_routing_policy().get(task_type)
+    if preferred:
+        hit = next((i for i, p in enumerate(providers) if p["name"] == preferred), -1)
+        if hit > 0:
+            providers.insert(0, providers.pop(hit))
     last_err = None
-    for p in PROVIDERS:
+    for p in providers:
         if not p.get("enabled") or not _is_real_key(p["api_key"]):
             continue
         model = p["model"]
@@ -135,6 +145,7 @@ def call_llm(messages: list[dict], tools: list[dict] | None = None,
         if cached is not None:
             with tracer.span("llm:call", provider=p["name"], model=model,
                              cache="L1_hit") as s:
+                s.attributes["task_type"] = task_type
                 s.attributes["tokens_in"] = cached["prompt_tokens"]
                 s.attributes["tokens_out"] = cached["completion_tokens"]
                 s.attributes["cache"] = "exact"
@@ -162,6 +173,7 @@ def call_llm(messages: list[dict], tools: list[dict] | None = None,
                 kwargs["tools"] = tools
                 kwargs["tool_choice"] = "auto"
             with tracer.span("llm:call", provider=p["name"], model=model) as s:
+                s.attributes["task_type"] = task_type
                 resp = client.chat.completions.create(**kwargs)
             # 记录 token 用量到 span（生产级会随 span 一起导出到 OTel）
             if resp.usage:

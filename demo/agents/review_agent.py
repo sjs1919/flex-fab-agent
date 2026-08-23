@@ -60,6 +60,7 @@ def review_order(order_id: str, registry: ToolRegistry,
         response = call_llm_simple(
             REVIEW_AGENT_PROMPT,
             f"请审核订单 {order_id} 的风险等级。\n\n订单上下文数据：\n{context}",
+            task_type="complex",
         )
         risk_data = _parse_json(response.choices[0].message.content)
     except Exception as e:

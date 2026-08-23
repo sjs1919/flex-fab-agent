@@ -28,6 +28,17 @@ from ..core.llm_client import call_llm
 from ..graph.state import AgentState
 from ..tools.registry import ToolRegistry
 
+# B3 模型路由（v2 C7）：这些工具在场 => 排产推理场景，走 complex 强模型
+_COMPLEX_TOOLS = frozenset({
+    "run_scheduling", "query_load_assessment", "query_ctp",
+    "query_order_tracking", "query_preprocess_load", "query_kpi",
+})
+# C2 排产上下文（v2 C2）：调过任一即视为已获排产表/负载/跟踪数据，evaluate 判数据充足
+_SCHEDULE_CONTEXT_TOOLS = frozenset({
+    "query_schedule", "query_load_assessment", "query_ctp",
+    "query_order_tracking", "query_preprocess_load", "query_kpi",
+})
+
 
 def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
     """构建单 Agent 状态图。registry 决定 Agent 可用哪些工具。"""
@@ -52,7 +63,9 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
             state["compression_count"] = state.get("compression_count", 0) + 1
 
         # ---- 原有逻辑 ----
-        response = call_llm(state["messages"], tools_schema)
+        tool_names = {t.get("function", {}).get("name", "") for t in tools_schema}
+        task_type = "complex" if _COMPLEX_TOOLS.intersection(tool_names) else "simple"
+        response = call_llm(state["messages"], tools_schema, task_type=task_type)
         msg = response.choices[0].message
 
         # LLM 未调工具 -> 直接返回文本
@@ -152,8 +165,15 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
         tool_names = {tr.get("tool", "") for tr in results}
         has_order = any(t in tool_names for t in ["query_orders", "get_order_detail"])
         has_resource = any(t in tool_names for t in ["query_inventory", "query_machine_load", "query_customer"])
+        has_schedule_context = any(t in tool_names for t in _SCHEDULE_CONTEXT_TOOLS)
 
-        if not has_order:
+        if has_schedule_context:
+            # C2（v2）：已获取排产上下文（排产表/负载/CTP/跟踪/KPI）-> 数据充足，直接生成
+            state["evaluation_notes"] = "已获取排产上下文数据，可以生成排产建议"
+            state["ready_for_answer"] = True
+            state["needs_more"] = False
+            state["needs_retry"] = False
+        elif not has_order:
             state["evaluation_notes"] = "尚未查询订单数据，建议先查订单"
             state["needs_more"] = True
         elif not has_resource:
@@ -209,13 +229,15 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
             state["final_answer"] = last_msg["content"]
             return state
 
-        # 追加综合指令让 LLM 汇总
+        # 追加综合指令让 LLM 汇总（C2：已获取排产数据时引用排产结果作依据）
         summary_prompt = {
             "role": "system",
             "content": ("请基于以上所有工具查询结果，给出综合调度建议。\n"
                         "必须包含：\n1. 关键发现（交期/客户/库存/设备）\n"
                         "2. 今日优先排产订单（按优先级排序，列出订单号和原因）\n"
-                        "3. 可以延后的订单及原因\n用中文回答，格式清晰。"),
+                        "3. 可以延后的订单及原因\n"
+                        "若已获取排产表/负载/CTP 数据，请引用版本号、批次、延期清单等排产结果作为排产依据。\n"
+                        "用中文回答，格式清晰。"),
         }
 
         # ---- R2 护栏集成：最多重试 2 次 ----
@@ -224,7 +246,8 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
         MAX_RETRIES = 2
         for retry in range(MAX_RETRIES + 1):
             try:
-                response = call_llm(state["messages"] + [summary_prompt])
+                response = call_llm(state["messages"] + [summary_prompt],
+                                    task_type="complex")
                 answer = response.choices[0].message.content or ""
             except Exception as e:
                 # 兜底：LLM 失败时返回原始工具数据

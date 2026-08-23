@@ -79,3 +79,43 @@ def test_seed_machines_spec():
     assert spec[("MJS", "600")] == 1
     assert spec[("MJS", "450")] == 2
     assert spec[("SLM", "600")] == 1
+
+
+# ---- M4b T4b.1：system_config 种子（产能/前道/路由） ----
+
+def _config_rows():
+    rows = _query("SELECT category, `key`, value FROM system_config ORDER BY category, `key`")
+    return {(c, k): v for c, k, v in rows}
+
+
+def test_seed_system_config_rows():
+    """reset 后 system_config 含产能/前道/路由三类配置行（M4b T4b.1）。"""
+    seed_mod.reset()
+    cfg = _config_rows()
+    assert cfg[("产能", "t_window_h")] == "24"
+    assert cfg[("前道", "workers")] == "6"
+    assert cfg[("前道", "shifts")] == "3"
+    assert cfg[("前道", "shift_hours")] == "8"
+    assert cfg[("前道", "changeover_min")] == "30"
+    assert cfg[("前道", "per_part_eff_sla_mjs")] == "15"
+    assert cfg[("前道", "per_part_eff_slm")] == "6"
+    assert cfg[("前道", "per_part_eff_mix")] == "12"
+    assert cfg[("前道", "plan_review_hours")] == "0.5"
+    assert cfg[("路由", "routing_policy")].startswith("{")  # JSON 策略
+
+
+def test_seed_system_config_idempotent():
+    """reset 两次 system_config 行数不变（不在 SEED_TABLES 清空列表，INSERT IGNORE 幂等）。"""
+    seed_mod.reset()
+    n1 = len(_config_rows())
+    seed_mod.reset()  # system_config 不清表 → INSERT IGNORE 跳过已存在行
+    assert len(_config_rows()) == n1
+
+
+def test_seed_system_config_readable_via_get_config():
+    """get_config 可读到种子配置；缺行回落 default（M4b T4b.1 验收）。"""
+    seed_mod.reset()
+    from demo.config import get_config
+    assert get_config("产能", "t_window_h") == "24"
+    assert get_config("前道", "workers") == "6"
+    assert get_config("产能", "no_such_key", "42") == "42"

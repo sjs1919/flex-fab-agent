@@ -53,6 +53,103 @@ def _disable_compression(monkeypatch):
     monkeypatch.setattr(context_compressor, "MAX_CHARS", 10 ** 9)
 
 
+def test_graph_tool_loop_task_type_simple(monkeypatch):
+    """工具轮：无排产复杂工具 -> task_type='simple'（B3 路由）。"""
+    from demo.graph import single_agent_graph as sag
+    _disable_compression(monkeypatch)
+    seen: list = []
+
+    def fake_call_llm(messages, tools=None, **kwargs):
+        seen.append(kwargs.get("task_type"))
+        return FakeResponse(content="简单回答")  # 直接文本作答，无工具调用
+
+    monkeypatch.setattr(sag, "call_llm", fake_call_llm)
+    app = build_single_agent_graph(FakeRegistry(), checkpointer=None)
+    app.invoke({
+        "messages": [{"role": "user", "content": "有哪些订单？"}],
+        "tool_results": [],
+        "iteration": 0,
+        "final_answer": "",
+    })
+    assert seen and seen[0] == "simple"
+
+
+def test_graph_tool_loop_task_type_complex(monkeypatch):
+    """工具轮：注册表含排产复杂工具（query_ctp）-> task_type='complex'。"""
+    from demo.graph import single_agent_graph as sag
+    _disable_compression(monkeypatch)
+
+    class FakeComplexRegistry(FakeRegistry):
+        def __init__(self):
+            super().__init__()
+            self.schemas["query_ctp"] = {"server": "scheduler_server"}
+
+    seen: list = []
+
+    def fake_call_llm(messages, tools=None, **kwargs):
+        seen.append(kwargs.get("task_type"))
+        return FakeResponse(content="排产建议")  # 直接文本作答
+
+    monkeypatch.setattr(sag, "call_llm", fake_call_llm)
+    app = build_single_agent_graph(FakeComplexRegistry(), checkpointer=None)
+    app.invoke({
+        "messages": [{"role": "user", "content": "CTP 什么时候？"}],
+        "tool_results": [],
+        "iteration": 0,
+        "final_answer": "",
+    })
+    assert seen and seen[0] == "complex"
+
+
+class FakeScheduleRegistry(FakeRegistry):
+    """FakeRegistry + query_schedule（排产上下文工具，仅此一个，无订单工具）。"""
+
+    def __init__(self):
+        super().__init__()
+        self.schemas["query_schedule"] = {"server": "schedule_server"}
+
+
+def _invoke_schedule_flow(monkeypatch):
+    """走完整流程：第一轮调 query_schedule，第二轮直接作答。返回 (result, prompts)。"""
+    from demo.graph import single_agent_graph as sag
+    _disable_compression(monkeypatch)
+    prompts: list = []
+    responses = [
+        FakeResponse(tool_calls=_make_tool_call("query_schedule")),
+        FakeResponse(content="排产建议：ORD003 优先，依据排产版本 12"),
+    ]
+
+    def fake_call_llm(messages, tools=None, **kwargs):
+        if tools is None:  # generate_answer 综合指令（无工具 schema）
+            prompts.append(messages[-1]["content"])
+        return responses.pop(0) if responses else FakeResponse(content="兜底答案")
+
+    monkeypatch.setattr(sag, "call_llm", fake_call_llm)
+    app = build_single_agent_graph(FakeScheduleRegistry(), checkpointer=None)
+    result = app.invoke({
+        "messages": [{"role": "user", "content": "当前排产什么进度？"}],
+        "tool_results": [],
+        "iteration": 0,
+        "final_answer": "",
+    })
+    return result, prompts
+
+
+def test_graph_schedule_context_marks_data_sufficient(monkeypatch):
+    """仅调 query_schedule 未调 query_orders -> evaluate 判定数据充足（C2）。"""
+    result, _ = _invoke_schedule_flow(monkeypatch)
+    assert "排产上下文" in result.get("evaluation_notes", "")
+    assert result.get("ready_for_answer") is True
+    assert "ORD003" in result["final_answer"]
+
+
+def test_graph_generate_answer_injects_schedule_citation(monkeypatch):
+    """generate_answer 综合指令含排产引用提示（版本号/延期清单）。"""
+    _, prompts = _invoke_schedule_flow(monkeypatch)
+    assert prompts, "应有一次 generate_answer 的 LLM 调用"
+    assert "版本号" in prompts[-1] and "延期清单" in prompts[-1]
+
+
 def test_graph_invokes_tool_and_generates_answer(monkeypatch):
     """图应执行 LLM -> 调工具 -> 生成答案 完整链路。"""
     from demo.graph import single_agent_graph as sag

@@ -36,6 +36,7 @@ def assess_production_feasibility(order_ids: list[str] | None = None,
         response = call_llm_simple(
             PRODUCTION_AGENT_PROMPT,
             f"请评估以下订单的生产可行性。\n\n当前资源数据：\n{context}",
+            task_type="complex",
         )
         feasibility_data = _parse_json(response.choices[0].message.content)
     except Exception as e:

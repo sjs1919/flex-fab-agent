@@ -1,0 +1,154 @@
+"""assessment.py 计算核心测试（M4b T4b.2）。
+
+覆盖口径（需求规格 §8 + §3.13/§3.15）：
+  三区制边界（需求 vs 90%/100% 可用）、T 窗口消化（已腾出+当天腾出、打印中排除）、
+  缺机器数（⌈缺口÷单台 T 窗口产能⌉ 按工艺）、前道净产能（45人·时/天）、
+  前道任务时长（件数÷(人×件人效)+0.5h）、CTP（现有占用全排完+新单机时，max(设备,前道)）。
+
+纯函数测试不连库；拼装层（load_assessment 等）连 MySQL。
+"""
+from datetime import datetime, timedelta
+
+import pytest
+
+from demo.scheduler import assessment
+
+
+def test_zone_color_boundaries():
+    """三区制边界：恰 90%→绿、恰 100%→黄、超 100%→红（§8）。"""
+    assert assessment.zone_color(0.0, 100) == "绿"
+    assert assessment.zone_color(90.0, 100) == "绿"    # 恰 90%
+    assert assessment.zone_color(90.01, 100) == "黄"   # 90% 边线上界
+    assert assessment.zone_color(100.0, 100) == "黄"   # 恰 100%
+    assert assessment.zone_color(100.01, 100) == "红"  # 超 100%
+    assert assessment.zone_color(50, 0) == "红"        # 无产能 → 红
+
+
+def test_zone_color_rounding():
+    """浮点误差不越界：90/100=0.9 判绿而非黄。"""
+    assert assessment.zone_color(90.0 / 100.0 * 100, 100) == "绿"
+
+
+def test_preprocess_net_capacity_h():
+    """前道净产能：3班×8h − 3×30min换班 = 22.5h/天 = 45人·时（§8）。"""
+    # 3班×8h=24h，减 3×0.5h 换班 = 22.5h
+    assert assessment.preprocess_net_capacity_h(shifts=3, shift_hours=8,
+                                                changeover_min=30, workers=6) == 45.0
+    # 单班制无换班：8h × 6人 = 48人·时
+    assert assessment.preprocess_net_capacity_h(shifts=1, shift_hours=8,
+                                                changeover_min=0, workers=6) == 48.0
+
+
+def test_preprocess_task_hours():
+    """前道任务时长 = 件数÷(人×件人效) + 方案审核分摊（§8）。"""
+    # 100 件 / (2人 × 15件/人·h) + 0.5h = 3.33 + 0.5 = 3.83h
+    h = assessment.preprocess_task_hours(part_count=100, assigned_workers=2,
+                                         per_part_eff=15, plan_review_hours=0.5)
+    assert abs(h - (100 / 30 + 0.5)) < 1e-9
+    # 前道完成 ≤ 打印开始：任务时长不含等待
+    assert h > 0
+
+
+def test_clear_eta_hours():
+    """前道池清空日历小时 = 人·时 ÷ 日净产能 × 24h/天（CR：勿把总人·时当小时数）。"""
+    assert assessment.clear_eta_hours(100, 45) == pytest.approx(100 * 24 / 45, rel=1e-9)  # 53.3h
+    assert assessment.clear_eta_hours(45, 45) == pytest.approx(24, rel=1e-9)              # 1 天
+    assert assessment.clear_eta_hours(10, 0) == 10  # 净产能未知回落原值
+
+
+def test_t_window_availability():
+    """T 窗口可用产能 = Σ(已腾出×T) + Σ(当天腾出×(T−预计腾出时间))；打印中排除了。"""
+    now = datetime(2026, 9, 1, 8, 0, 0)
+    t_window_h = 24
+    machines = [
+        {"id": "M1", "process": "SLA", "status": "空闲"},                       # 已腾出 → +24
+        {"id": "M2", "process": "SLA", "status": "打印中", "current_batch_id": "B1"},  # 当天腾出(4h后) → +20
+        {"id": "M3", "process": "SLA", "status": "打印中", "current_batch_id": "B2"},  # end 30h 后 > T → 排除
+        {"id": "M4", "process": "MJS", "status": "空闲"},                       # +24
+        {"id": "M5", "process": "SLM", "status": "维修中"},                     # 非空闲非打印 → 不算已腾出
+    ]
+    batches = [
+        {"id": "B1", "machine_id": "M2", "end_time": now + timedelta(hours=4)},  # 4h 后腾出
+        {"id": "B2", "machine_id": "M3", "end_time": now + timedelta(hours=30)},  # 超 T → 排除
+    ]
+    avail = assessment.t_window_availability(machines, batches, now, t_window_h)
+    assert avail["SLA"] == pytest.approx(24 + (24 - 4), rel=1e-9)  # 24 + 20
+    assert avail["MJS"] == pytest.approx(24, rel=1e-9)
+    assert "SLM" not in avail or avail["SLM"] == 0  # 维修中不计
+
+
+def test_missing_machines():
+    """缺机器数 = ⌈缺口 ÷ 单台 T 窗口产能⌉ 按工艺分群取整（§8）。"""
+    assert assessment.missing_machines(gap_h=50, t_window_h=24) == 3   # 50/24=2.08 → 3
+    assert assessment.missing_machines(gap_h=24, t_window_h=24) == 1   # 恰整除 → 1
+    assert assessment.missing_machines(gap_h=0, t_window_h=24) == 0    # 无缺口
+    assert assessment.missing_machines(gap_h=-5, t_window_h=24) == 0   # 富余 → 0
+
+
+def test_part_machine_hours():
+    """单件时长=Z高÷工艺速率；新单机时=件数×单件时长（§8）。"""
+    h = assessment.part_machine_hours(material="SLA", height_mm=100, rate_mm_h=50)
+    assert h == pytest.approx(100 / 50, rel=1e-9)  # 2h
+    # SLM 15mm/h 更慢
+    h = assessment.part_machine_hours(material="SLM", height_mm=100, rate_mm_h=15)
+    assert h == pytest.approx(100 / 15, rel=1e-9)
+
+
+def test_ctp_pure():
+    """CTP = max(设备现有占用完成+新单机时, 前道占用完成+新单前道时长)（§8 保守不偏乐观）。"""
+    ctp = assessment.compute_ctp(
+        material="SLA", quantity=10, height_mm=100, rate_mm_h=50,
+        preprocess_eff=15, plan_review_hours=0.5,
+        machine_load_end=datetime(2026, 9, 5, 12, 0, 0),   # 该工艺现有占用完成
+        preprocess_queue_end=datetime(2026, 9, 6, 0, 0, 0),  # 前道池完成
+        assigned_workers=2,
+    )
+    # 新单机时 = 10件 × 2h = 20h → 设备侧 9/5 12:00 + 20h = 9/6 08:00
+    # 前道时长 = 10件/(2人×15) + 0.5 = 0.333+0.5 = 0.833h → 前道侧 9/6 00:00 + 0.833h
+    # CTP = max(9/6 08:00, 9/6 00:50) = 9/6 08:00
+    assert ctp["machine_ctp"] == datetime(2026, 9, 6, 8, 0, 0)
+    assert ctp["preprocess_ctp"] == datetime(2026, 9, 6, 0, 50, 0)
+    assert ctp["ctp"] == datetime(2026, 9, 6, 8, 0, 0)
+    assert ctp["bottleneck"] == "设备"
+
+
+# ────────────── 拼装层集成测试（连库，reset 后验证结构） ──────────────
+
+
+@pytest.fixture()
+def seeded_mysql():
+    """重建 MySQL 业务库 + 切 mysql 数据源（与 test_solver/test_snapshot 同款）。"""
+    from demo.simulator import seed as seed_mod
+    seed_mod.reset()
+    import os
+    os.environ["DEMO_DATA_SOURCE"] = "mysql"
+    yield
+    os.environ.pop("DEMO_DATA_SOURCE", None)
+
+
+def test_load_assessment_structure(seeded_mysql):
+    """reset 后 load_assessment 输出四段结构完整、三区制颜色合法、前道参数生效。"""
+    a = assessment.load_assessment()
+    assert a["t_window_h"] == 24
+    assert set(a["distribution"].keys()) == {"在途", "排队", "完成"}
+    assert isinstance(a["orders_eta"], list)
+    assert isinstance(a["overdue_alerts"], list)
+    assert isinstance(a["t_window"], dict)
+    assert a["preprocess"]["workers"] == 6
+    assert a["preprocess"]["net_capacity_h_per_day"] == pytest.approx(45.0, rel=1e-9)
+    assert a["zone"], "至少一个工艺有三区制判定"
+    assert all(z in ("绿", "黄", "红") for z in a["zone"].values())
+
+
+def test_compute_ctp_from_db_structure(seeded_mysql):
+    """compute_ctp_from_db 连库跑通，返回 ctp/瓶颈/机时；超尺寸与未知工艺报错。"""
+    r = assessment.compute_ctp_from_db("SLA", 10, 100)
+    assert "ctp" in r and "bottleneck" in r and "machine_hours" in r
+    assert r["machine_hours"] == pytest.approx(10 * 100 / 50, rel=1e-9)  # 20h
+    # 带交期：结构含 meet_due
+    r2 = assessment.compute_ctp_from_db("SLM", 5, 50, due_date="2026-12-31")
+    assert "meet_due" in r2
+    with pytest.raises(ValueError):
+        assessment.compute_ctp_from_db("CNC", 1, 100)  # 未知工艺
+    with pytest.raises(ValueError):
+        assessment.compute_ctp_from_db("SLA", 1, 650)  # 超尺寸

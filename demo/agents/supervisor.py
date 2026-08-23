@@ -125,7 +125,7 @@ class SupervisorAgent:
             {"role": "user", "content": f"用户请求：{query}\n\n子 Agent 结果：\n{synthesis_context}\n\n请综合给出排产建议。"},
         ]
         try:
-            response = call_llm(messages, max_tokens=800)
+            response = call_llm(messages, max_tokens=800, task_type="complex")
             synthesis = response.choices[0].message.content.strip()
         except Exception as e:
             synthesis = f"综合分析失败：{e}"

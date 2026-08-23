@@ -53,6 +53,22 @@ MACHINES = [
 # 工艺参数（material 表）
 MATERIAL = [("SLA", 50, 1), ("MJS", 25, 3), ("SLM", 15, 12)]
 
+# system_config 种子（M4b T4b.1）：产能/前道/路由三类。
+# INSERT IGNORE 写入（uk_system_config 幂等，不覆盖运维已改值；不在 SEED_TABLES 清空列表）。
+SYSTEM_CONFIG_ROWS = [
+    ("产能", "t_window_h", "24", "h", "T 窗口（满负荷判断窗口，需求规格 §8）"),
+    ("前道", "workers", "6", "人", "前道人池（3 班×2 人）"),
+    ("前道", "shifts", "3", "班", "班次"),
+    ("前道", "shift_hours", "8", "h", "每班时长"),
+    ("前道", "changeover_min", "30", "min", "换班无产出时长"),
+    ("前道", "per_part_eff_sla_mjs", "15", "件/人·h", "SLA/MJS 件人效"),
+    ("前道", "per_part_eff_slm", "6", "件/人·h", "SLM 件人效"),
+    ("前道", "per_part_eff_mix", "12", "件/人·h", "综合件人效（按件活动折算）"),
+    ("前道", "plan_review_hours", "0.5", "h/方案", "方案审核分摊"),
+    ("路由", "routing_policy", '{"simple": "DeepSeek", "complex": "火山豆包(coding)"}',
+     "json", "B3 模型路由策略（任务类型→provider）"),
+]
+
 # 库存 10 种（沿用 inventory.csv 口径：id/名称/材料名/库存量/单位/安全库存/采购周期天/单价）
 INVENTORY = [
     ("MAT001", "AlSi10Mg铝合金粉末", "铝合金粉末", 120, "kg", 50, 7, 380),
@@ -126,6 +142,15 @@ def _seed_inventory(cur) -> None:
     )
 
 
+def _seed_system_config(cur) -> None:
+    """写 system_config 种子（INSERT IGNORE：缺行才插，保运维已改值）。"""
+    cur.executemany(
+        "INSERT IGNORE INTO system_config (category, `key`, value, unit, description) "
+        "VALUES (%s,%s,%s,%s,%s)",
+        SYSTEM_CONFIG_ROWS,
+    )
+
+
 def _seed_orders(cur) -> None:
     """生成 40 订单：amount/urgent/priority/due_date/status=待排队。"""
     start = date(2026, 9, 1)
@@ -182,6 +207,7 @@ def seed(conn: pymysql.connections.Connection | None = None) -> dict:
             _seed_inventory(cur)
             _seed_orders(cur)
             _seed_parts(cur)
+            _seed_system_config(cur)
         c.commit()
         with c.cursor() as cur:
             stats = {}
