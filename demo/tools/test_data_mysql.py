@@ -106,12 +106,21 @@ def test_load_inventory_mysql_10(monkeypatch):
     assert "库存量" in items[0]
 
 
-def test_new_functions_empty(monkeypatch):
-    """新增 load_batches/load_config/load_preprocess_tasks：空表返回 []。"""
+def test_new_functions_passthrough(monkeypatch):
+    """load_batches/load_config/load_preprocess_tasks 直读表（返回行数与库一致）。
+
+    M2/M3 后 batches/preprocess_tasks 由求解器与 E2E 落库，不再假设空表。
+    """
     monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
-    assert data.load_batches() == []
-    assert data.load_config() == []
-    assert data.load_preprocess_tasks() == []
+    with data.get_connection() as conn:
+        with conn.cursor() as cur:
+            counts = {}
+            for t in ("batches", "system_config", "preprocess_tasks"):
+                cur.execute(f"SELECT COUNT(*) FROM {t}")
+                counts[t] = cur.fetchone()[0]
+    assert len(data.load_batches()) == counts["batches"]
+    assert len(data.load_config()) == counts["system_config"]
+    assert len(data.load_preprocess_tasks()) == counts["preprocess_tasks"]
 
 
 # ---- T4.1 事务原子提交 ----

@@ -23,6 +23,22 @@ from ..config import RUNTIME_DIR
 _DB_PATH = RUNTIME_DIR / "llm_cache.db"
 _conn: sqlite3.Connection | None = None
 
+# R-3 scene_version（M3 T3.6）：模拟器每 tick bump 一次，使状态相关查询的
+# 精确缓存自动失效（同 prompt 不同版本 -> 不同 key）。默认 0，非模拟场景自洽。
+_scene_version: int = 0
+
+
+def bump_scene_version() -> int:
+    """推进场景版本（模拟器每 tick 调用），返回新版本号。"""
+    global _scene_version
+    _scene_version += 1
+    return _scene_version
+
+
+def get_scene_version() -> int:
+    """读当前场景版本。"""
+    return _scene_version
+
 
 def _get_conn() -> sqlite3.Connection:
     global _conn
@@ -56,6 +72,7 @@ def _cache_key(messages: list[dict], tools: list[dict] | None,
         "model": model,
         "max_tokens": max_tokens,
         "temperature": temperature,
+        "scene_version": _scene_version,
     }, ensure_ascii=False, sort_keys=True)
     return hashlib.md5(payload.encode("utf-8")).hexdigest()
 
