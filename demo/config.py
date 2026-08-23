@@ -129,3 +129,27 @@ def get_mysql_dsn() -> str:
     db = _CREDENTIALS.get("MYSQL_DB", "demo_scheduling")
     user = _CREDENTIALS.get("MYSQL_USER", "demo_sched")
     return f"mysql+pymysql://{user}:{password}@{host}:{port}/{db}?charset=utf8mb4"
+
+
+def get_config(category: str, key: str, default: str = "") -> str:
+    """读 system_config 表（v2 C4 / §6 配置表）。未配置或读库失败回落 default。
+
+    惰性导入 data 层避免循环依赖；调用方按需转换类型（int/float/bool）。
+    """
+    try:
+        from .tools.data import get_connection
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT value FROM system_config WHERE category=%s AND `key`=%s",
+                    (category, key))
+                row = cur.fetchone()
+    except Exception:
+        return default
+    return row[0] if row and row[0] is not None else default
+
+
+def get_scene_version() -> int:
+    """R-3：当前 scene_version（llm_cache 单调递增，模拟器每 tick bump）。"""
+    from .cache import llm_cache
+    return llm_cache.get_scene_version()

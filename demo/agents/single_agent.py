@@ -15,7 +15,7 @@ from ..graph.checkpointer import build_checkpointer
 from ..graph.single_agent_graph import build_single_agent_graph
 from ..graph.state import AgentState
 from ..observability import tracer
-from ..prompts.system_prompts import SINGLE_AGENT_PROMPT
+from ..prompts.versioning import load_system_prompt
 from ..tools.registry import build_default_registry
 
 # 模块级缓存编译好的图：多轮复用同一图 + checkpointer（checkpointer 是单例）
@@ -79,7 +79,7 @@ def run_single_agent(query: str, registry=None, thread_id: str | None = None) ->
     else:
         initial_state = {
             "messages": [
-                {"role": "system", "content": SINGLE_AGENT_PROMPT},
+                {"role": "system", "content": load_system_prompt()},
                 {"role": "user", "content": query},
             ],
             "tool_results": [],

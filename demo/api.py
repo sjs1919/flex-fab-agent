@@ -15,8 +15,9 @@ run_single_agent 运行时的 print 进容器 stdout（docker logs 可见），
 """
 import os
 import uuid
+from datetime import datetime
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -37,6 +38,17 @@ app.add_middleware(
 # 工具注册表进程级单例（首次构建后复用，免去每请求重建）
 _registry = build_default_registry()
 
+# 模拟器心跳进程级单例（M4a /sim/*）
+_sim_runner = None
+
+
+def _get_sim_runner():
+    global _sim_runner
+    if _sim_runner is None:
+        from .simulator.runner import SimulatorRunner
+        _sim_runner = SimulatorRunner()
+    return _sim_runner
+
 
 class AskRequest(BaseModel):
     query: str
@@ -52,7 +64,8 @@ class AskResponse(BaseModel):
 
 @app.get("/health")
 def health() -> dict:
-    """就绪探针：报 provider/工具/缓存/checkpointer 配置，不调 LLM。"""
+    """就绪探针：报 provider/工具/缓存/checkpointer/sim 配置，不调 LLM。"""
+    runner = _get_sim_runner()
     return {
         "status": "ok",
         "providers": [p["name"] for p in available_providers()],
@@ -60,7 +73,105 @@ def health() -> dict:
         "tool_names": _registry.list_all(),
         "cache": "on" if semantic_cache.is_enabled() else "off",
         "checkpointer": os.getenv("CHECKPOINTER", "sqlite"),
+        "sim": {"running": runner.is_alive(), "tick_count": runner.tick_count},
     }
+
+
+# ---- 模拟器控制（M4a，v2 C6） ----
+
+@app.post("/sim/start")
+def sim_start() -> dict:
+    """启动模拟器心跳。sim_clock 未初始化时从当前整点起跳。"""
+    from .simulator import clock
+    from .tools.data import get_connection
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM sim_clock")
+            initialized = cur.fetchone()[0] > 0
+        if not initialized:
+            clock.init_clock(conn, datetime.now().replace(minute=0, second=0,
+                                                          microsecond=0))
+            conn.commit()
+    runner = _get_sim_runner()
+    runner.start()
+    return {"running": True, "tick_seconds": runner.tick_seconds}
+
+
+@app.post("/sim/stop")
+def sim_stop() -> dict:
+    runner = _get_sim_runner()
+    runner.stop()
+    return {"running": runner.is_alive(), "tick_count": runner.tick_count}
+
+
+@app.get("/sim/status")
+def sim_status() -> dict:
+    """模拟器运行态 + 当前 sim 时间（未初始化时 sim_time=null）。"""
+    from .simulator import clock
+    from .tools.data import get_connection
+
+    sim_time = None
+    try:
+        with get_connection() as conn:
+            sim_time = clock.get_sim_time(conn).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        pass
+    runner = _get_sim_runner()
+    return {
+        "running": runner.is_alive(),
+        "tick_count": runner.tick_count,
+        "tick_seconds": runner.tick_seconds,
+        "sim_time": sim_time,
+    }
+
+
+# ---- 排产查询/触发（M4a） ----
+
+@app.get("/schedule/latest")
+def schedule_latest() -> dict:
+    """最新排产版本 + 批次（无版本时 version=null）。"""
+    from .tools.data import get_connection
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, created_at, triggered_by, status "
+                        "FROM schedule_versions ORDER BY id DESC LIMIT 1")
+            vrow = cur.fetchone()
+            version = None
+            batches = []
+            if vrow:
+                version = {"id": vrow[0], "created_at": str(vrow[1]),
+                           "triggered_by": vrow[2], "status": vrow[3]}
+                cur.execute(
+                    "SELECT id, order_ids, process, model_type, machine_id, "
+                    "start_time, end_time, status, approval_status "
+                    "FROM batches WHERE schedule_version_id=%s ORDER BY start_time",
+                    (vrow[0],))
+                cols = [d[0] for d in cur.description]
+                batches = [{k: (str(v) if isinstance(v, datetime) else v)
+                            for k, v in zip(cols, r)} for r in cur.fetchall()]
+    return {"version": version, "batches": batches}
+
+
+@app.post("/schedule/load")
+def schedule_load(x_admin_token: str = Header(default="")) -> dict:
+    """触发一轮排产求解并落库（写端点，强制 admin token，R-7）。"""
+    _require_admin(x_admin_token)
+    from .tools.scheduler_tools import run_scheduling
+    return {"result": run_scheduling(triggered_by="api")}
+
+
+def _require_admin(token_id: str) -> None:
+    """写端点鉴权（R-7）：X-Admin-Token 头必须是有效且未过期的 admin token。"""
+    if not token_id:
+        raise HTTPException(401, "写端点需要 admin token（R-7）：缺 X-Admin-Token 头")
+    from .auth.token_exchange import STS
+    token = STS().get_token(token_id)
+    if token is None or token.is_expired():
+        raise HTTPException(401, "admin token 无效或已过期")
+    if token.role != "admin":
+        raise HTTPException(403, f"需要 admin 角色（当前 {token.role}）")
 
 
 @app.post("/ask", response_model=AskResponse)

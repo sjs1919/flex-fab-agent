@@ -33,6 +33,9 @@ class ToolSchema:
     parameters: dict  # JSON Schema: {type: object, properties: {...}, required: [...]}
     category: str = "general"
     server: str = ""
+    read_only: bool = True
+    timeout_override: int | None = None
+    max_retries_override: int | None = None
 
 
 class ToolRegistry:
@@ -52,11 +55,14 @@ class ToolRegistry:
 
     def register(self, name: str, description: str, parameters: dict,
                  handler: Callable[..., Any], category: str = "general",
-                 server: str = "") -> None:
+                 server: str = "", read_only: bool = True,
+                 timeout_override: int | None = None,
+                 max_retries_override: int | None = None) -> None:
         """注册一个工具。一次调用完成 Schema 定义 + Handler 绑定。"""
         if name in self._tools:
             raise ValueError(f"工具 '{name}' 已注册，不能重复注册")
-        self._tools[name] = ToolSchema(name, description, parameters, category, server)
+        self._tools[name] = ToolSchema(name, description, parameters, category, server,
+                                       read_only, timeout_override, max_retries_override)
         self._handlers[name] = handler
 
     def register_mcp(self, server_name: str, script_path: str) -> None:
@@ -89,8 +95,9 @@ class ToolRegistry:
         """执行指定工具，返回结果字符串。
 
         参数白名单过滤：只传 Schema 中定义的参数，防 LLM 传多余字段。
-        鉴权（洋葱第 3 层）：传入 token 则强制 RBAC 校验，无权则拒绝并审计。
-          token/audit 为 None 时放行（兼容单 Agent 无鉴权模式）。
+        鉴权（洋葱第 3 层）：guard 全路径调用——token=None 时只读工具放行
+        （兼容单 Agent 无鉴权模式）、写工具拒绝（R-2）；传入 token 则强制
+        RBAC 校验，无权/超配额则拒绝并审计。
 
         R1：执行前经 sandbox.run_with_retry 包裹（超时 + 指数退避重试）。
         R5：mode="mcp" 时走 MCP 协议子进程调用。
@@ -103,15 +110,17 @@ class ToolRegistry:
         if name not in self._handlers:
             return f"❌ 未知工具: '{name}'。可用: {', '.join(self.list_all())}"
 
+        schema = self._tools[name]
+
         # 工具层权限校验（缺口#7 修复：让鉴权真生效）
-        if token is not None:
-            from ..auth.guard import check_tool_permission
-            allowed, reason = check_tool_permission(token, name, audit)
-            if not allowed:
-                return f"❌ 鉴权拒绝：{reason}"
+        # M4a：guard 全路径调用（token=None 时写工具拒绝 R-2，只读放行）
+        from ..auth.guard import check_tool_permission
+        allowed, reason = check_tool_permission(token, name, audit,
+                                                read_only=schema.read_only)
+        if not allowed:
+            return f"❌ 鉴权拒绝：{reason}"
 
         try:
-            schema = self._tools[name]
             valid_keys = set(schema.parameters.get("properties", {}).keys())
             filtered = {k: v for k, v in arguments.items() if k in valid_keys} if valid_keys else arguments
 
@@ -119,6 +128,11 @@ class ToolRegistry:
             if token is not None and hasattr(token, 'tenant_id') and token.tenant_id:
                 if "tenant_id" in valid_keys and "tenant_id" not in filtered:
                     filtered["tenant_id"] = token.tenant_id
+
+            # M4a：写工具自动注入操作者身份（approver 等，类似 R8 tenant_id 注入）。
+            # token 存在时以 token.subject 为准（防 LLM 伪造审批人）。
+            if token is not None and "approver" in valid_keys:
+                filtered["approver"] = token.subject
 
             # R5：MCP mode 路由
             mode = os.getenv("MCP_MODE", "local")
@@ -133,10 +147,18 @@ class ToolRegistry:
             with tracer.span(f"tool:{name}", server=schema.server) as s:
                 result_str, success, retries = run_with_retry(
                     self._handlers[name], filtered, tool_name=name,
+                    timeout=schema.timeout_override,
+                    max_retries=schema.max_retries_override,
                 )
                 s.attributes["tool_success"] = success
                 s.attributes["tool_retries"] = retries
-                return result_str
+            # M4a：写工具执行结果统一入审计（治理层落，handler 保持纯业务）
+            if not schema.read_only and audit is not None:
+                audit.log("write", token.subject if token else "anonymous",
+                          name, {"params": {k: v for k, v in filtered.items()
+                                            if k != "tenant_id"}},
+                          "✅ 执行成功" if success else "❌ 执行失败", "INFO")
+            return result_str
         except Exception as e:
             return f"❌ 工具 '{name}' 执行失败: {type(e).__name__}: {e}"
 
@@ -152,10 +174,12 @@ class ToolRegistry:
 
 
 def build_default_registry() -> ToolRegistry:
-    """构建默认工具注册表（7 个工具：3 订单 + 3 资源 + 1 RAG）。
+    """构建默认工具注册表（18 个工具：3 订单 + 3 资源 + 1 RAG + 11 排产）。
 
     RAG 工具 search_knowledge_base 用懒导入包装：建表时不加载重依赖，
     Agent 首次调用该工具才拉 jieba/chromadb/sentence_transformers。
+    M4a：追加 11 个排产工具（4 实装 + 7 占位）；run_scheduling
+    timeout_override=240s + max_retries=1（> 3 工艺组×60s 串行求解预算，防沙箱先杀，v2 §6/§7.1）。
 
     R7：query_orders 增强为多字段 AND 组合筛选（level/process/due_before/due_after/sort_by/limit）。
     """
@@ -233,4 +257,64 @@ def build_default_registry() -> ToolRegistry:
         }, "required": ["query"]},
         _search_kb, "rag", "rag_server",
     )
+    # ---- 排产工具（M4a，schedule_server）：4 实装 + 7 占位 ----
+    from .scheduler_tools import (
+        PLACEHOLDER_TOOLS, approve_schedule, query_schedule, query_sim_events,
+        run_scheduling,
+    )
+    r.register(
+        "run_scheduling",
+        "触发一轮排产求解并落库，返回新版本号与关键指标（写工具，需 token）。"
+        "适用：初始排产、插单/故障后的重排。产出版本为待审核，需 approve_schedule 审批后生效。",
+        {"type": "object", "properties": {
+            "triggered_by": {"type": "string", "description": "触发来源标记，默认 agent"},
+        }},
+        run_scheduling, "scheduling", "schedule_server",
+        read_only=False, timeout_override=240, max_retries_override=1,
+    )
+    r.register(
+        "query_schedule",
+        "查询排产表。默认返回最新版本的批次排布（设备/工序/起止时间/审批状态），"
+        "可指定 version_id 查历史版本。",
+        {"type": "object", "properties": {
+            "version_id": {"type": "integer", "description": "排产版本号，0=最新"},
+        }},
+        query_schedule, "scheduling", "schedule_server",
+    )
+    r.register(
+        "query_sim_events",
+        "查询模拟器事件流（新订单/设备故障/维修完成/请假/补货/坏件/重排告警）。"
+        "可按 event_type 与 status 过滤。",
+        {"type": "object", "properties": {
+            "event_type": {"type": "string", "description": "事件类型，如 machine_failure/new_order/reschedule_alert，空=全部"},
+            "status": {"type": "string", "description": "scheduled/fired，空=全部"},
+            "limit": {"type": "integer", "description": "返回条数，默认50，上限200"},
+        }},
+        query_sim_events, "scheduling", "schedule_server",
+    )
+    r.register(
+        "approve_schedule",
+        "审批排产版本：通过或驳回（写工具，reviewer 专属）。"
+        "通过后版本生效（已审核）且批次标记通过；驳回则批次标记驳回。",
+        {"type": "object", "properties": {
+            "version_id": {"type": "integer", "description": "待审核的排产版本号"},
+            "action": {"type": "string", "description": "审批动作：通过 / 驳回"},
+            "note": {"type": "string", "description": "审批备注（驳回原因等），可空"},
+            "approver": {"type": "string", "description": "审批人（自动从 token 注入，无需传入）"},
+        }, "required": ["version_id", "action"]},
+        approve_schedule, "scheduling", "schedule_server",
+        read_only=False,
+    )
+    _PLACEHOLDER_DESCS = {
+        "query_ctp": "查询订单最短可交付时间（CTP）。占位，M4b 提供。",
+        "query_load_assessment": "产能负载评估（三区制：绿/黄/红 + 满负荷预警）。占位，M4b 提供。",
+        "query_order_tracking": "订单状态跟踪（排队队列与当前所处环节）。占位，M4b 提供。",
+        "query_preprocess_load": "前道（打磨等）任务负载查询。占位，M4b 提供。",
+        "query_kpi": "排产 KPI 查询（准交率/延期单/设备利用率等）。占位，M4b 提供。",
+        "query_forecast": "订单量统计预测。占位，M5 提供。",
+        "query_yield": "打印良率查询。占位，M5 提供。",
+    }
+    for _name, _desc in _PLACEHOLDER_DESCS.items():
+        r.register(_name, _desc, {"type": "object", "properties": {}},
+                   PLACEHOLDER_TOOLS[_name], "scheduling", "schedule_server")
     return r

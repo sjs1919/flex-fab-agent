@@ -62,3 +62,6 @@ logs/
 *.log
 dist/
 coverage*
+
+# 审计运行时 JSONL（测试/服务运行产生，勿提交）
+demo/data/audit.jsonl

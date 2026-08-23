@@ -1,0 +1,9 @@
+{
+  "current": "v1",
+  "versions": {
+    "v1": {
+      "desc": "初版（自 system_prompts.py SINGLE_AGENT_PROMPT 原样搬出）",
+      "created": "2026-08-23"
+    }
+  }
+}

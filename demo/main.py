@@ -7,6 +7,9 @@
   python -m demo.main "..." --thread <id>       # 单次提问但恢复某会话上下文
   python -m demo.main --demo                    # 跑预设场景
   python -m demo.main --check                   # 地基自检（config/LLM/工具）
+  python -m demo.main --sim                     # 启动模拟器心跳（Ctrl+C 停止，M4a）
+  python -m demo.main --init-schedule           # 求解一轮并落库（M4a）
+  python -m demo.main --rollback v1             # 回滚 prompt 版本（M4a R-4）
   python -m demo.main --mode multi "..."        # 多 Agent 模式（Step 3 接入）
 """
 import sys
@@ -40,6 +43,7 @@ def selfcheck():
     print(f"可用 Provider：{', '.join(p['name'] for p in providers)}")
     registry = build_default_registry()
     print(f"工具注册表：{registry}")
+    print(f"工具数：{len(registry)}")
     data_source = get_data_source()
     orders = load_orders()
     print(f"数据源：{data_source}（订单 {len(orders)} 条）")
@@ -54,6 +58,22 @@ def main():
 
     if "--check" in args:
         selfcheck()
+        return
+
+    # M4a 新入口（无需查询文本）
+    if "--sim" in args:
+        _run_sim()
+        return
+    if "--init-schedule" in args:
+        from .tools.scheduler_tools import run_scheduling
+        print(run_scheduling(triggered_by="init"))
+        return
+    if "--rollback" in args:
+        idx = args.index("--rollback")
+        if idx + 1 >= len(args):
+            print("用法：--rollback <版本号>，如 --rollback v1")
+            return
+        _rollback_prompt(args[idx + 1])
         return
 
     # 解析参数
@@ -110,6 +130,54 @@ def main():
         _run_with_trace(run_supervisor, query)
         return
     _run_with_trace(run_single_agent, query, thread_id=thread_id)
+
+
+def _run_sim() -> None:
+    """--sim：启动模拟器心跳线程，Ctrl+C 优雅停止（v2 C5）。"""
+    from datetime import datetime
+
+    from .simulator import clock
+    from .simulator.runner import SimulatorRunner
+    from .tools.data import get_connection
+
+    # sim_clock 未初始化则默认从当前整点起跳（已初始化则沿用）
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM sim_clock")
+            initialized = cur.fetchone()[0] > 0
+        if not initialized:
+            now = datetime.now().replace(minute=0, second=0, microsecond=0)
+            clock.init_clock(conn, now)
+            conn.commit()
+            print(f"sim_clock 未初始化，已从 {now} 起跳")
+
+    r = SimulatorRunner()
+    r.start()
+    print(f"模拟器心跳已启动（tick 间隔 {r.tick_seconds}s，Ctrl+C 停止）")
+    try:
+        while r.is_alive():
+            import time
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        r.stop()
+        with get_connection() as conn:
+            sim_time = clock.get_sim_time(conn)
+        print(f"\n模拟器已停止：共 {r.tick_count} tick，sim 时间 {sim_time}"
+              f"（连续失败 {r.consecutive_failures}）")
+
+
+def _rollback_prompt(version: str) -> None:
+    """--rollback <version>：回滚 prompt 版本并写审计（R-4）。"""
+    from .auth.audit_logger import AuditLogger
+    from .prompts.versioning import rollback
+    try:
+        rollback(version, audit=AuditLogger())
+    except ValueError as e:
+        print(f"❌ {e}")
+        return
+    print(f"✅ prompt 已回滚到 {version}（审计已记录 prompt_rollback）")
 
 
 def _run_with_trace(fn, query, thread_id=None):
