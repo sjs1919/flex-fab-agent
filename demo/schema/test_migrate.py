@@ -100,3 +100,67 @@ def test_migrate_v2_down_up():
     m.up()
     assert _column_exists("orders", "order_date")
     assert "bad_parts" in _tables()
+
+
+def test_migrate_v3_dashboard_tables():
+    """v3 增量：看板三表存在 + 关键列；幂等重跑 no-op。"""
+    m.up()
+    tables = _tables()
+    for t in ("kpi_snapshot", "cost_record", "trace_record"):
+        assert t in tables
+    assert _column_exists("kpi_snapshot", "sim_time")
+    assert _column_exists("kpi_snapshot", "metrics_json")
+    assert _column_exists("cost_record", "trace_id")
+    assert _column_exists("cost_record", "by_model")
+    assert _column_exists("trace_record", "span_count")
+    assert _column_exists("trace_record", "spans")
+    assert m.up() is False  # 幂等
+
+
+def test_dashboard_tables_roundtrip():
+    """看板三表插入/查询走通（JSON 列 json 读写；rollback 清理不留测试数据）。"""
+    m.up()
+    conn = m._connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO kpi_snapshot (sim_time, metrics_json) "
+                "VALUES ('2026-08-24 10:00:00', %s)",
+                ('{"on_time_rate": 0.8, "delay_total": 100.0}',))
+            cur.execute(
+                "INSERT INTO cost_record (trace_id, total_cost, total_tokens, total_calls, "
+                "by_provider, by_model) VALUES (%s, %s, %s, %s, %s, %s)",
+                ("ab" * 8, 0.25, 1000, 2,
+                 '{"DeepSeek": {"calls": 2}}', '{"deepseek-v4-flash": {"cost": 0.25}}'))
+            cur.execute(
+                "INSERT INTO trace_record (trace_id, total_ms, span_count, by_kind, spans) "
+                "VALUES (%s, %s, %s, %s, %s)",
+                ("cd" * 8, 123.5, 3, '{"llm": 2, "tool": 1}', '[{"name": "llm:call"}]'))
+            cur.execute("SELECT metrics_json FROM kpi_snapshot WHERE sim_time=%s",
+                        ("2026-08-24 10:00:00",))
+            kpi_row = cur.fetchone()
+            cur.execute("SELECT trace_id, by_provider, by_model FROM cost_record LIMIT 1")
+            cost_row = cur.fetchone()
+            cur.execute("SELECT trace_id, total_ms, span_count, spans FROM trace_record LIMIT 1")
+            trace_row = cur.fetchone()
+        conn.rollback()
+        assert "on_time_rate" in kpi_row[0]
+        assert cost_row[1] and '"DeepSeek"' in cost_row[1]
+        assert cost_row[2] and '"cost"' in cost_row[2]
+        assert trace_row[0] and trace_row[1] == 123.5 and trace_row[2] == 3
+        assert trace_row[3] and '"llm:call"' in trace_row[3]
+    finally:
+        conn.close()
+
+
+def test_migrate_v3_down_up():
+    """v3 回滚路径：down 后看板三表消失，up 恢复。"""
+    m.up()
+    m.down()
+    tables = _tables()
+    assert "kpi_snapshot" not in tables
+    assert "cost_record" not in tables
+    assert "trace_record" not in tables
+    m.up()
+    tables = _tables()
+    assert "kpi_snapshot" in tables and "cost_record" in tables and "trace_record" in tables

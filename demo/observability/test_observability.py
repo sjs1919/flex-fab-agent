@@ -100,3 +100,32 @@ def test_cost_tracker_by_provider():
     assert "DeepSeek" in stats
     assert "火山豆包(coding)" in stats
     assert stats["DeepSeek"]["cost"] == 1.0
+
+
+def test_cost_tracker_by_model():
+    """by_model 分组统计（M5b T5b.4）：同 provider 不同 model 分开聚合。"""
+    c = CostTracker()
+    c.record("DeepSeek", model="deepseek-v4-flash", prompt_tokens=1_000_000)
+    c.record("DeepSeek", model="deepseek-v4-flash", completion_tokens=1_000_000)
+    c.record("Kimi(coding)", model="kimi-latest", prompt_tokens=500_000)
+    stats = c.by_model()
+    assert stats["deepseek-v4-flash"]["calls"] == 2
+    assert stats["deepseek-v4-flash"]["tokens"] == 2_000_000
+    assert stats["deepseek-v4-flash"]["cost"] == 2.0  # 1.0 输入 + 1.0 输出
+    assert stats["kimi-latest"]["calls"] == 1
+
+
+def test_cost_tracker_by_model_empty_model_name():
+    """model 为空串时归到 '' 键（与 by_provider 的空 provider 行为一致，不丢数据）。"""
+    c = CostTracker()
+    c.record("DeepSeek", prompt_tokens=100)
+    assert "" in c.by_model()
+
+
+def test_cost_tracker_get_summary_has_by_model():
+    """get_summary 含 by_model 键（M5b 看板落库依赖）。"""
+    c = CostTracker()
+    c.record("DeepSeek", model="deepseek-v4-flash", prompt_tokens=1_000)
+    sm = c.get_summary()
+    assert "by_model" in sm
+    assert sm["by_model"]["deepseek-v4-flash"]["calls"] == 1

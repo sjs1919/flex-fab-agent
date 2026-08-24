@@ -16,9 +16,11 @@ import threading
 import time
 
 from demo.cache import llm_cache
+from demo.observability import dashboard
 from demo.observability.tracer import Tracer
 from demo.simulator import clock, engine
 from demo.tools.data import transaction
+from demo.tools.scheduler_tools import kpi_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +55,7 @@ class SimulatorRunner:
         self.tick_count += 1
         self.consecutive_failures = 0
         llm_cache.bump_scene_version()  # R-3：状态相关缓存失效
+        self._record_kpi_snapshot(sim_time)
         duration_ms = round((time.perf_counter() - t0) * 1000, 1)
         self._tracer.record(
             "simulator:tick", duration_ms,
@@ -60,6 +63,18 @@ class SimulatorRunner:
             event_count=stats.get("events_fired", 0),
         )
         return stats
+
+    def _record_kpi_snapshot(self, sim_time) -> None:
+        """事务提交后落一条 KPI 快照（M5b T5b.5，看板历史数据源）。
+
+        快照失败只告警不熔断 tick（看板历史是旁路观测，不能拖垮模拟主链路）。
+        dashboard/kpi_metrics 在模块顶部导入：daemon 线程内懒加载重组件
+        （scheduler_tools -> pandas）会被主线程自旋等待抢 GIL 饿死。
+        """
+        try:
+            dashboard.record_kpi_snapshot(kpi_metrics(), sim_time)
+        except Exception:
+            logger.warning("KPI 快照落库失败（tick 不中断）", exc_info=True)
 
     def start(self) -> None:
         """启动心跳线程（重复调用幂等：已活着直接返回）。"""

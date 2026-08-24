@@ -19,7 +19,7 @@ import pymysql
 from demo.config import get_mysql_dsn
 
 SCHEMA_SQL = Path(__file__).resolve().parent / "schema.sql"
-CURRENT_VERSION = 2
+CURRENT_VERSION = 3
 
 # bad_parts 建表 DDL（v2 增量复用；与 schema.sql 保持一致）
 _BAD_PARTS_DDL = """
@@ -38,6 +38,48 @@ CREATE TABLE IF NOT EXISTS bad_parts (
     KEY idx_badparts_material (material)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='坏件记录（所有权：simulator）'
+"""
+
+# M5b 看板三表 DDL（v3 增量复用；与 schema.sql 保持一致）
+_DASHBOARD_DDL = """
+CREATE TABLE IF NOT EXISTS kpi_snapshot (
+    id           BIGINT AUTO_INCREMENT COMMENT '快照 id',
+    sim_time     DATETIME     NOT NULL COMMENT 'sim 时间（tick 落点）',
+    metrics_json TEXT         NOT NULL COMMENT 'kpi_metrics 全量（与 query_kpi 同源，M5b）',
+    tenant_id    VARCHAR(32)  NOT NULL DEFAULT 'default' COMMENT 'R8',
+    PRIMARY KEY (id),
+    KEY idx_kpisnapshot_time (sim_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='KPI 快照（所有权：simulator tick，M5b）';
+
+CREATE TABLE IF NOT EXISTS cost_record (
+    id           BIGINT AUTO_INCREMENT COMMENT '记录 id',
+    trace_id     VARCHAR(32)   NOT NULL COMMENT '关联 trace（M5b）',
+    created_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '落盘时刻',
+    total_cost   DECIMAL(12,6) NOT NULL COMMENT '本次 query 总费用（¥）',
+    total_tokens INT           NOT NULL COMMENT '本次 query 总 token',
+    total_calls  INT           NOT NULL COMMENT '本次 query LLM 调用数',
+    by_provider  JSON          DEFAULT NULL COMMENT '按 provider 分组统计',
+    by_model     JSON          DEFAULT NULL COMMENT '按 model 分组统计',
+    PRIMARY KEY (id),
+    KEY idx_cost_trace (trace_id),
+    KEY idx_cost_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='成本记录（所有权：api /ask，M5b）';
+
+CREATE TABLE IF NOT EXISTS trace_record (
+    id         BIGINT AUTO_INCREMENT COMMENT '记录 id',
+    trace_id   VARCHAR(32)   NOT NULL COMMENT 'trace id',
+    created_at DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '落盘时刻',
+    total_ms   DECIMAL(12,1) NOT NULL COMMENT '本轮总耗时 ms',
+    span_count INT           NOT NULL COMMENT 'span 数',
+    by_kind    JSON          DEFAULT NULL COMMENT '按类型分组计数',
+    spans      JSON          DEFAULT NULL COMMENT 'span 明细（落盘限 50 条）',
+    PRIMARY KEY (id),
+    KEY idx_trace_trace (trace_id),
+    KEY idx_trace_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='trace 记录（所有权：api /ask，M5b）';
 """
 
 
@@ -66,7 +108,18 @@ def _down_v2(cur) -> None:
         cur.execute("ALTER TABLE orders DROP COLUMN order_date")
 
 
-_MIGRATIONS = {2: (_up_v2, _down_v2)}
+def _up_v3(cur) -> None:
+    """v3 增量（M5b）：看板三表 kpi_snapshot/cost_record/trace_record。"""
+    cur.execute(_DASHBOARD_DDL)
+
+
+def _down_v3(cur) -> None:
+    """v3 回滚：DROP 看板三表。"""
+    for t in ("kpi_snapshot", "cost_record", "trace_record"):
+        cur.execute(f"DROP TABLE IF EXISTS {t}")
+
+
+_MIGRATIONS = {2: (_up_v2, _down_v2), 3: (_up_v3, _down_v3)}
 
 
 def _connect() -> pymysql.connections.Connection:

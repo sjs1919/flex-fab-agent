@@ -389,9 +389,10 @@ def _kpi_yield_rate(scrap: int, done_parts: int) -> float | None:
     return round(max(0.0, 1 - scrap / done_parts), 4)
 
 
-def query_kpi() -> str:
-    """排产 KPI（M4b 实装）：准交率/延期金额/舱利用率/良率/前道瓶颈占用，DB 实时聚合。
-    口径与 M5 KPI 看板共用（验收清单条 72）。只读，无参数。"""
+def kpi_metrics() -> dict:
+    """排产 KPI 结构化指标（M5b 抽取）：与 query_kpi 同源计算，看板快照/只读端点共用
+    （验收条 74 口径一致：本函数是唯一计算源，query_kpi 仅做格式化）。
+    delay_total 计算走 Decimal 保精度，出口转 float 仅供序列化展示。"""
     now = assessment._now()
     orders = {o["id"]: o for o in load_orders()}
     customers = {c["id"]: c for c in load_customers()}
@@ -432,13 +433,42 @@ def query_kpi() -> str:
     yield_rate = _kpi_yield_rate(scrap, done_parts)
     pp = assessment.preprocess_load()
 
-    lines = [f"📈 排产 KPI（生成 {_fmt(now)}）"]
-    ot_txt = f"{on_time / sample * 100:.1f}%" if sample else "暂无完工数据"
-    lines.append(f"1️⃣ 准交率：{ot_txt}（{on_time}/{sample} 单按期）")
-    lines.append(f"2️⃣ 延期金额：¥{delay_total:.2f}（Σ金额×违约金日费率×延期天数）")
-    lines.append(f"3️⃣ 舱利用率：{cabin * 100:.1f}%（Σ批次投影面积/舱底面积，{len(batches)} 批次）")
-    yr_txt = f"{yield_rate * 100:.1f}%" if yield_rate is not None else "暂无完工批次"
-    lines.append(f"4️⃣ 良率：{yr_txt}（1 − 坏件 {scrap} / 完工 {done_parts} 件）")
+    return {
+        "generated_at": now,
+        "on_time": on_time,
+        "sample": sample,
+        "on_time_rate": round(on_time / sample, 4) if sample else None,
+        "delay_total": float(delay_total),
+        "cabin_utilization": cabin,
+        "batch_count": len(batches),
+        "done_parts": done_parts,
+        "scrap": int(scrap),
+        "yield_rate": float(yield_rate) if yield_rate is not None else None,
+        "preprocess": {
+            "utilization": pp["utilization"],
+            "remaining_man_hours": pp["remaining_man_hours"],
+            "net_capacity_h_per_day": pp["net_capacity_h_per_day"],
+            "bottleneck": pp["bottleneck"],
+        },
+    }
+
+
+def query_kpi() -> str:
+    """排产 KPI（M4b 实装）：准交率/延期金额/舱利用率/良率/前道瓶颈占用，DB 实时聚合。
+    口径与 M5 KPI 看板共用（验收清单条 72）。M5b 起计算在 kpi_metrics()，本函数仅格式化。
+    只读，无参数。"""
+    m = kpi_metrics()
+    ot_txt = (f"{m['on_time_rate'] * 100:.1f}%" if m["on_time_rate"] is not None
+              else "暂无完工数据")
+    yr = m["yield_rate"]
+    yr_txt = f"{yr * 100:.1f}%" if yr is not None else "暂无完工批次"
+    pp = m["preprocess"]
+    lines = [f"📈 排产 KPI（生成 {_fmt(m['generated_at'])}）"]
+    lines.append(f"1️⃣ 准交率：{ot_txt}（{m['on_time']}/{m['sample']} 单按期）")
+    lines.append(f"2️⃣ 延期金额：¥{m['delay_total']:.2f}（Σ金额×违约金日费率×延期天数）")
+    lines.append(f"3️⃣ 舱利用率：{m['cabin_utilization'] * 100:.1f}%"
+                 f"（Σ批次投影面积/舱底面积，{m['batch_count']} 批次）")
+    lines.append(f"4️⃣ 良率：{yr_txt}（1 − 坏件 {m['scrap']} / 完工 {m['done_parts']} 件）")
     lines.append(f"5️⃣ 前道瓶颈占用：{pp['utilization'] * 100:.0f}%"
                  f"（{pp['remaining_man_hours']:.1f}/{pp['net_capacity_h_per_day']:.1f} 人·时）"
                  + (" | ⚠️ 已瓶颈" if pp["bottleneck"] else " | 未瓶颈"))

@@ -496,6 +496,42 @@ def test_query_kpi_structure(mysql_source):
     assert "暂无完工批次" in out or "%" in out
 
 
+# ---- M5b T5b.2：kpi_metrics 结构化抽取（与 query_kpi 同源） ----
+
+def test_kpi_metrics_fields(mysql_source):
+    """kpi_metrics 返回全字段结构化指标；on_time_rate 与分子分母自洽。"""
+    m = scheduler_tools.kpi_metrics()
+    assert set(m) >= {"generated_at", "on_time", "sample", "on_time_rate", "delay_total",
+                      "cabin_utilization", "batch_count", "done_parts", "scrap",
+                      "yield_rate", "preprocess"}
+    assert set(m["preprocess"]) == {"utilization", "remaining_man_hours",
+                                    "net_capacity_h_per_day", "bottleneck"}
+    if m["sample"]:
+        assert m["on_time_rate"] == round(m["on_time"] / m["sample"], 4)
+    else:
+        assert m["on_time_rate"] is None
+
+
+def test_kpi_metrics_consistent_with_query_kpi(mysql_source):
+    """口径一致：kpi_metrics 数值与 query_kpi 格式化输出互相印证。"""
+    m = scheduler_tools.kpi_metrics()
+    out = scheduler_tools.query_kpi()
+    assert f"¥{m['delay_total']:.2f}" in out
+    if m["on_time_rate"] is not None:
+        assert f"{m['on_time_rate'] * 100:.1f}%" in out
+        assert f"（{m['on_time']}/{m['sample']} 单按期）" in out
+    if m["yield_rate"] is not None:
+        assert f"{m['yield_rate'] * 100:.1f}%" in out
+    assert f"（1 − 坏件 {m['scrap']} / 完工 {m['done_parts']} 件）" in out
+
+
+def test_kpi_metrics_json_serializable(mysql_source):
+    """metrics dict 可 json.dumps（看板落盘 metrics_json 前提）。"""
+    import json
+    s = json.dumps(scheduler_tools.kpi_metrics(), default=str)
+    assert "on_time_rate" in s and "preprocess" in s
+
+
 # ---- M5a T5a.12：KPI tick 联动 E2E ----
 
 def _insert_kpi_version_row(vid):

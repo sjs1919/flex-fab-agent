@@ -137,6 +137,20 @@ class CostTracker:
                 v["cost"] = round(v["cost"], 6)
             return result
 
+    def by_model(self) -> dict[str, dict]:
+        """按 model 分组统计（M5b 看板成本分模型视图）。镜像 by_provider。"""
+        with self._lock:
+            result: dict[str, dict] = {}
+            for e in self._entries:
+                if e.model not in result:
+                    result[e.model] = {"calls": 0, "tokens": 0, "cost": 0.0}
+                result[e.model]["calls"] += 1
+                result[e.model]["tokens"] += e.total_tokens
+                result[e.model]["cost"] += e.cost_total
+            for v in result.values():
+                v["cost"] = round(v["cost"], 6)
+            return result
+
     def get_summary(self) -> dict:
         """返回本轮会话的费用摘要。"""
         return {
@@ -144,6 +158,7 @@ class CostTracker:
             "total_tokens": self.total_tokens,
             "total_calls": len(self._entries),
             "by_provider": self.by_provider(),
+            "by_model": self.by_model(),
             "budget": {"limit": BUDGET_LIMIT, "exceeded": self._budget_exceeded},
         }
 

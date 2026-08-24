@@ -254,3 +254,47 @@ CREATE TABLE IF NOT EXISTS sim_clock (
     CONSTRAINT chk_sim_clock_single CHECK (id = 1)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='模拟时钟（所有权：simulator）';
+
+-- ---------------- 看板（M5b，写方：simulator tick + api /ask；读方：dashboard 只读端点） ----------------
+
+-- KPI 快照（写方：simulator tick；读方：dashboard；与 query_kpi 同源）
+CREATE TABLE IF NOT EXISTS kpi_snapshot (
+    id           BIGINT AUTO_INCREMENT COMMENT '快照 id',
+    sim_time     DATETIME     NOT NULL COMMENT 'sim 时间（tick 落点）',
+    metrics_json TEXT         NOT NULL COMMENT 'kpi_metrics 全量（与 query_kpi 同源，M5b）',
+    tenant_id    VARCHAR(32)  NOT NULL DEFAULT 'default' COMMENT 'R8',
+    PRIMARY KEY (id),
+    KEY idx_kpisnapshot_time (sim_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='KPI 快照（所有权：simulator tick，M5b）';
+
+-- 成本记录（写方：api /ask；读方：dashboard 成本分模型）
+CREATE TABLE IF NOT EXISTS cost_record (
+    id           BIGINT AUTO_INCREMENT COMMENT '记录 id',
+    trace_id     VARCHAR(32)   NOT NULL COMMENT '关联 trace（M5b）',
+    created_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '落盘时刻',
+    total_cost   DECIMAL(12,6) NOT NULL COMMENT '本次 query 总费用（¥）',
+    total_tokens INT           NOT NULL COMMENT '本次 query 总 token',
+    total_calls  INT           NOT NULL COMMENT '本次 query LLM 调用数',
+    by_provider  JSON          DEFAULT NULL COMMENT '按 provider 分组统计',
+    by_model     JSON          DEFAULT NULL COMMENT '按 model 分组统计',
+    PRIMARY KEY (id),
+    KEY idx_cost_trace (trace_id),
+    KEY idx_cost_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='成本记录（所有权：api /ask，M5b）';
+
+-- trace 记录（写方：api /ask；读方：dashboard trace 摘要）
+CREATE TABLE IF NOT EXISTS trace_record (
+    id         BIGINT AUTO_INCREMENT COMMENT '记录 id',
+    trace_id   VARCHAR(32)   NOT NULL COMMENT 'trace id',
+    created_at DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '落盘时刻',
+    total_ms   DECIMAL(12,1) NOT NULL COMMENT '本轮总耗时 ms',
+    span_count INT           NOT NULL COMMENT 'span 数',
+    by_kind    JSON          DEFAULT NULL COMMENT '按类型分组计数',
+    spans      JSON          DEFAULT NULL COMMENT 'span 明细（落盘限 50 条）',
+    PRIMARY KEY (id),
+    KEY idx_trace_trace (trace_id),
+    KEY idx_trace_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='trace 记录（所有权：api /ask，M5b）';

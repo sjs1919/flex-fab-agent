@@ -35,8 +35,13 @@ def _env():
     _exec("DELETE FROM sim_events")
 
 
-def test_runner_ticks():
-    """SIM_TICK_SECONDS 加速跑 3 tick：sim_clock +3h，tick_count=3，scene_version +3。"""
+def test_runner_ticks(monkeypatch):
+    """SIM_TICK_SECONDS 加速跑 3 tick：sim_clock +3h，tick_count=3，scene_version +3。
+
+    DEMO_DATA_SOURCE=mysql：tick 内 kpi_metrics 读 load_machines 走 mysql 列名
+    （csv 模式下 query_kpi/KPI 计算本就不同源，属存量限制，见 test_run_tick_writes_kpi_snapshot 注释）。
+    """
+    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
     import time as _time
     start_version = llm_cache.get_scene_version()
     r = runner_mod.SimulatorRunner(tick_seconds=0.02)
@@ -46,6 +51,9 @@ def test_runner_ticks():
         while r.tick_count < 3:
             assert _time.monotonic() < deadline, "3 tick 未在 10s 内完成"
             assert r.is_alive(), "模拟器线程异常退出"
+            # 忙等会持续抢 GIL，饿死 worker 里的 CPU 密集 kpi_metrics；
+            # 用短 sleep 让出 GIL（生产主线程是 async 循环，无此争抢）。
+            _time.sleep(0.01)
     finally:
         r.stop()
     with get_connection() as conn:
@@ -92,6 +100,48 @@ def test_tick_atomic_rollback(monkeypatch):
         t = clock.get_sim_time(conn)
     assert t == T0, "tick 失败时钟必须回滚（不 +1h）"
     assert r.tick_count == 0
+
+
+def test_run_tick_writes_kpi_snapshot(monkeypatch):
+    """M5b T5b.5：run_tick 事务提交后落一条 KPI 快照（与 kpi_metrics 同源）。
+
+    DEMO_DATA_SOURCE=mysql：kpi_metrics 读 load_* 走 mysql 列名（csv 模式下
+    query_kpi/KPI 计算本就不通，属存量限制，快照侧由 try/except 降级为告警）。
+    """
+    import os
+    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    _exec("DELETE FROM kpi_snapshot")
+    try:
+        r = runner_mod.SimulatorRunner()
+        r.run_tick()
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT sim_time, metrics_json FROM kpi_snapshot "
+                    "ORDER BY id DESC LIMIT 1")
+                row = cur.fetchone()
+        assert row is not None, "tick 后必须落 KPI 快照"
+        assert row[0] == datetime(2026, 9, 1, 9, 0, 0)  # T0 + 1h
+        import json as _json
+        metrics = _json.loads(row[1])
+        for key in ("on_time_rate", "delay_total", "cabin_utilization", "yield_rate"):
+            assert key in metrics, f"快照缺 kpi_metrics 字段 {key}"
+    finally:
+        _exec("DELETE FROM kpi_snapshot")
+
+
+def test_kpi_snapshot_failure_does_not_break_tick(monkeypatch):
+    """M5b：快照落库失败只告警，不熔断 tick（旁路观测不拖垮主链路）。"""
+    from demo.observability import dashboard
+    def _boom(metrics, sim_time, tenant_id="default"):
+        raise RuntimeError("注入快照故障")
+    monkeypatch.setattr(dashboard, "record_kpi_snapshot", _boom)
+    r = runner_mod.SimulatorRunner()
+    stats = r.run_tick()  # 不抛异常
+    assert r.tick_count == 1 and stats is not None
+    with get_connection() as conn:
+        t = clock.get_sim_time(conn)
+    assert t == datetime(2026, 9, 1, 9, 0, 0), "时钟已正常推进"
 
 
 def test_runner_circuit_breaker(monkeypatch):

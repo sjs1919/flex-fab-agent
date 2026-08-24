@@ -193,6 +193,47 @@ def kpi() -> dict:
     return {"report": query_kpi()}
 
 
+# ---- 看板只读端点（M5b T5b.7；匿名可读，B8 前端消费） ----
+
+def _cap_limit(limit: int, max_limit: int = 2000) -> int:
+    """limit 参数夹取（只读端点防全表拉取）。"""
+    return min(max(limit, 1), max_limit)
+
+
+@app.get("/dashboard/kpi-history")
+def dashboard_kpi_history(limit: int = 500) -> dict:
+    """KPI 快照历史（只读，升序）：sim tick 落点 + kpi_metrics 全量。"""
+    from .observability import dashboard
+    return {"items": dashboard.kpi_history(limit=_cap_limit(limit))}
+
+
+@app.get("/dashboard/costs")
+def dashboard_costs(limit: int = 500) -> dict:
+    """成本历史（只读，倒序）+ 跨记录按 model 聚合。"""
+    from .observability import dashboard
+    return dashboard.cost_by_model(limit=_cap_limit(limit))  # 已含 items + by_model
+
+
+@app.get("/dashboard/traces")
+def dashboard_traces(limit: int = 200) -> dict:
+    """trace 摘要历史（只读，倒序）。"""
+    from .observability import dashboard
+    return {"items": dashboard.trace_summary(limit=_cap_limit(limit))}
+
+
+def _persist_dashboard(trace_id: str, trace: dict, cost: dict) -> None:
+    """看板历史落库（M5b T5b.6）：/ask 后落 cost_record + trace_record。
+
+    旁路观测，失败不影响 /ask 响应（只打警告）。
+    """
+    try:
+        from .observability import dashboard
+        dashboard.record_cost(cost, trace_id=trace_id)
+        dashboard.record_trace(trace, trace_id=trace_id)
+    except Exception as e:
+        print(f"⚠️ 看板落库失败（不影响 /ask 响应）：{e}")
+
+
 @app.post("/ask", response_model=AskResponse)
 def ask(req: AskRequest) -> AskResponse:
     """单次或多轮提问。带 thread_id 即多轮（checkpointer 恢复历史）。"""
@@ -202,6 +243,7 @@ def ask(req: AskRequest) -> AskResponse:
     trace = tracer.get_summary()
     cost = cost_tracker.get_summary()
     tracer.flush()
+    _persist_dashboard(tracer.trace_id, trace, cost)
     # 成本摘要输出到 stdout（docker logs 可见）
     print(cost_tracker.format_text())
     return AskResponse(
