@@ -21,6 +21,7 @@ from ..auth.token_exchange import STS
 from ..auth.audit_logger import AuditLogger
 from ..core.llm_client import call_llm
 from ..prompts.system_prompts import SUPERVISOR_PROMPT
+from ..observability import tracer
 from ..tools.registry import ToolRegistry, build_default_registry
 
 
@@ -58,10 +59,12 @@ class SupervisorAgent:
         self.audit.log("dispatch", "supervisor", "review_agent", {"orders": order_ids}, "已调度")
         token = self.sts.get_token(self.sub_agent_tokens["review"])
         results = []
-        for oid in order_ids:
-            result = review_order(oid, self.registry, token, self.audit)
-            results.append(result)
-            self.audit.log("sub_call", "review_agent", oid, {}, "完成，风险待评")
+        # M6 T6.3：supervisor 级 span（二级树：orchestrate -> dispatch -> tool）
+        with tracer.span("supervisor:dispatch", agent="review"):
+            for oid in order_ids:
+                result = review_order(oid, self.registry, token, self.audit)
+                results.append(result)
+                self.audit.log("sub_call", "review_agent", oid, {}, "完成，风险待评")
         return results
 
     def dispatch_production(self, order_ids: list[str] | None = None) -> dict:
@@ -71,12 +74,19 @@ class SupervisorAgent:
             return {}
         self.audit.log("dispatch", "supervisor", "production_agent", {"orders": order_ids}, "已调度")
         token = self.sts.get_token(self.sub_agent_tokens["production"])
-        result = assess_production_feasibility(order_ids, self.registry, token, self.audit)
+        # M6 T6.3：supervisor 级 span（二级树：orchestrate -> dispatch -> tool）
+        with tracer.span("supervisor:dispatch", agent="production"):
+            result = assess_production_feasibility(order_ids, self.registry, token, self.audit)
         self.audit.log("sub_call", "production_agent", "feasibility", {}, "完成")
         return result
 
     def orchestrate(self, query: str) -> dict:
         """编排多 Agent 协作全流程。"""
+        # M6 T6.3：orchestrate 父 span，dispatch/tool 挂其下（两级链路树）
+        with tracer.span("supervisor:orchestrate"):
+            return self._orchestrate(query)
+
+    def _orchestrate(self, query: str) -> dict:
         print(f"\n{'=' * 60}\n Supervisor 调度\n{'=' * 60}")
         print(f" 请求：{query}")
 

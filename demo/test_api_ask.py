@@ -44,6 +44,8 @@ def test_ask_persists_cost_and_trace():
     assert r.json()["answer"] == "打桩回答：测试看板落库"
     from demo.observability.tracer import tracer
     tid = tracer.trace_id
+    # M6 T6.7：/ask 响应带 trace_id（前端 judge/回放入口）
+    assert r.json()["trace_id"] == tid
     try:
         costs = _rows_by_trace(tid, "cost_record")
         traces = _rows_by_trace(tid, "trace_record")

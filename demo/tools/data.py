@@ -126,10 +126,35 @@ def _row_filter(rows: list[dict], tenant_id: str) -> list[dict]:
     return [r for r in rows if r.get("tenant_id", "") == tenant_id]
 
 
+# M6 联调修复：orders.csv 仍是 M1 T3.1 前的旧列名/旧状态枚举。
+# 数据层归一为 schema 键（status/due_date）+ 新枚举，csv 与 mysql 语义一致；
+# 不迁移数据文件（补列=双维护，与 T6.1 machines.csv 处理同款）。
+_ORDERS_CSV_ALIAS = {"交期": "due_date", "状态": "status"}
+_ORDERS_CSV_STATUS = {
+    "生产中": "打印中",   # 在产
+    "即将完成": "打印中",  # 在产（收尾）
+    "紧急": "打印中",      # 质检/收尾在产
+    "排期中": "待排队",    # 排队等待排产
+    "待排产": "待排队",    # 排队等待排产
+}
+
+
+def _normalize_orders_row(row: dict[str, str]) -> dict[str, str]:
+    out = dict(row)
+    for src, dst in _ORDERS_CSV_ALIAS.items():
+        if src in out and dst not in out:
+            out[dst] = out[src]
+    st = out.get("status")
+    if st in _ORDERS_CSV_STATUS:
+        out["status"] = _ORDERS_CSV_STATUS[st]
+    return out
+
+
 def load_orders(tenant_id: str = "") -> list[dict[str, str]]:
     """加载订单数据。签名不变（v2 A1：上层零改动）。"""
     query, params = _with_tenant("orders", tenant_id)
-    return _row_filter(_read_rows(query, params, filename="orders.csv"), tenant_id)
+    rows = [_normalize_orders_row(r) for r in _read_rows(query, params, filename="orders.csv")]
+    return _row_filter(rows, tenant_id)
 
 
 def load_inventory(tenant_id: str = "") -> list[dict[str, str]]:

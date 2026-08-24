@@ -37,6 +37,8 @@ class Span:
     # 绝对 unix 纳秒，仅供 OTel 导出用；duration 仍用 perf_counter 的 start_ms/end_ms
     start_wall_ns: int | None = None
     end_wall_ns: int | None = None
+    # 父 span（嵌套 with 自动建立；顶层/record() 为 None）
+    parent: "Span | None" = None
 
     @property
     def duration_ms(self) -> float | None:
@@ -48,6 +50,7 @@ class Tracer:
 
     def __init__(self) -> None:
         self._spans: list[Span] = []
+        self._stack: list[Span] = []
         self._trace_start: float | None = None
         self._trace_id: str = uuid.uuid4().hex[:16]
         self._exporter = build_exporter()
@@ -60,6 +63,7 @@ class Tracer:
     def reset(self) -> None:
         """每轮查询前清空，开始新一轮 trace。"""
         self._spans.clear()
+        self._stack.clear()
         self._trace_start = None
         self._trace_id = uuid.uuid4().hex[:16]
 
@@ -73,13 +77,17 @@ class Tracer:
             start_ms=time.perf_counter() * 1000,
             attributes=dict(attributes),
             start_wall_ns=time.time_ns(),
+            parent=self._stack[-1] if self._stack else None,
         )
         self._spans.append(s)
+        self._stack.append(s)
         try:
             yield s
         finally:
             s.end_ms = time.perf_counter() * 1000
             s.end_wall_ns = time.time_ns()
+            if self._stack and self._stack[-1] is s:
+                self._stack.pop()
 
     def record(self, name: str, duration_ms: float, **attributes) -> None:
         """手动记录一个已完成的 span（不便用 contextmanager 时用）。"""
@@ -113,7 +121,8 @@ class Tracer:
             "span_count": len(self._spans),
             "by_kind": by_kind,
             "spans": [
-                {"name": s.name, "ms": s.duration_ms, "attrs": s.attributes}
+                {"name": s.name, "ms": s.duration_ms, "attrs": s.attributes,
+                 "parent": s.parent.name if s.parent else None}
                 for s in self._spans
             ],
         }

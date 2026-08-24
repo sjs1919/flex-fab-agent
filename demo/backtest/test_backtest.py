@@ -77,3 +77,36 @@ def test_run_backtest_disables_semantic_cache(monkeypatch):
             os.environ.pop("SEMANTIC_CACHE", None)
         else:
             os.environ["SEMANTIC_CACHE"] = orig
+
+
+# ---- M6 T6.10：场景源扩展 cases.jsonl（G-15，只做可跑通映射） ----
+
+def test_load_scenarios_default_unchanged():
+    """缺省不传 cases_path -> 仍 5 个手写场景（不破坏既有行为/基线）。"""
+    assert len(load_scenarios()) == 5
+
+
+def test_load_scenarios_merges_cases(tmp_path):
+    """传 cases_path：normal case 并入（id=trace_id），chitchat/empty 排除。"""
+    import json
+    p = tmp_path / "cases.jsonl"
+    rows = [
+        {"trace_id": "tc-normal", "type": "normal", "query": "查询订单风险",
+         "answer": "风险分析", "good": None},
+        {"trace_id": "tc-chat", "type": "chitchat", "query": "你好"},
+        {"trace_id": "tc-empty", "type": "empty", "query": "  "},
+        {"trace_id": "tc-normal2", "type": "normal", "query": "评估产能"},
+    ]
+    p.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n",
+                 encoding="utf-8")
+
+    scenarios = load_scenarios(p)
+    base = [s for s in scenarios if s["id"].startswith("bt_")]
+    case_s = [s for s in scenarios if not s["id"].startswith("bt_")]
+    assert len(base) == 5
+    assert [s["id"] for s in case_s] == ["tc-normal", "tc-normal2"]
+    for s in case_s:
+        assert s["query"] and s["expected_keypoints"] == []  # 可跑通映射，覆盖度不设
+    # 派生场景评分不炸（空 keypoints coverage=1.0）
+    score = score_backtest("任意答案", case_s[0])
+    assert score["coverage"] == 1.0

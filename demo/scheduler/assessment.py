@@ -88,6 +88,8 @@ def t_window_availability(machines: list[dict], batches: list[dict],
     avail: dict[str, float] = {}
     for m in machines:
         p = m.get("process")
+        if not p:  # csv 模式 machines.csv 无 process 列，跳过（无工艺无法分组）
+            continue
         status = m.get("status")
         if status == "空闲":
             avail[p] = avail.get(p, 0.0) + t_window_h
@@ -307,7 +309,9 @@ def load_assessment() -> dict:
     from demo.tools.data import load_machines
     machine_count: dict[str, int] = {}
     for m in load_machines():
-        machine_count[m["process"]] = machine_count.get(m["process"], 0) + 1
+        p = m.get("process")
+        if p:  # csv 模式 machines.csv 无 process 列 -> 缺工艺不分群，n 回落 1
+            machine_count[p] = machine_count.get(p, 0) + 1
     pending = [o for o in orders.values() if o.get("status") in ("待排队", "已审核")]
     pending.sort(key=lambda o: (_to_due_datetime(o.get("due_date")) or datetime.max,
                                 -int(o.get("priority") or 0)))

@@ -12,7 +12,8 @@
 | [todo-M4a-20260823.md](todo-M4a-20260823.md) | ✅ 已完成（M4a 集成骨架，280 tests，commit `ac563f8`） |
 | [todo-M4b-20260823.md](todo-M4b-20260823.md) | ✅ 已完成（M4b 业务工具+B3 路由+C2，323 tests，commit `cc0bcda`） |
 | [todo-M5a-20260823.md](todo-M5a-20260823.md) | ✅ 已完成（M5a 后端能力，387 tests，commit `14eca13`） |
-| [todo-M5b-20260824.md](todo-M5b-20260824.md) | ✅ 执行完成（T5b.1~T5b.11，B8 Dashboard，414 tests 全绿 ≥387，门禁1/2/3 已过；待用户验收 + commit） |
+| [todo-M5b-20260824.md](todo-M5b-20260824.md) | ✅ 已完成（T5b.1~T5b.11，B8 Dashboard，414 tests，commit `ce07345`） |
+| [todo-M6-20260824.md](todo-M6-20260824.md) | 📋 待确认（T6.1~T6.11，调试台 G 组 + G5 主页 + F-2/F-3 + csv 存量 bug，9 角色 PASS，门禁1 已核对） |
 | [todo-模板启用与生产化评审-20260822.md](todo-模板启用与生产化评审-20260822.md) | 📋 进行中（T-1~T-7） |
 | [todo-前端Vue化与演进-20260822.md](todo-前端Vue化与演进-20260822.md) | 📋 进行中（F-1~F-3） |
 

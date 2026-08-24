@@ -11,6 +11,7 @@ from demo.scheduler.snapshot import load_snapshot
 from demo.scheduler.solver import persist, solve
 from demo.simulator import seed as seed_mod
 from demo.tools import scheduler_tools
+from demo.scheduler import assessment
 from demo.tools.data import get_connection
 
 _MATERIAL = [
@@ -530,6 +531,33 @@ def test_kpi_metrics_json_serializable(mysql_source):
     import json
     s = json.dumps(scheduler_tools.kpi_metrics(), default=str)
     assert "on_time_rate" in s and "preprocess" in s
+
+
+# ---- M6 T6.1：csv 模式优雅降级（存量 bug：machines.csv 无 id/cabin_size 列） ----
+
+def test_kpi_metrics_csv_mode_degrades(monkeypatch):
+    """csv 模式下 cabin_utilization 降级 None，不抛 KeyError 'id'。"""
+    monkeypatch.setenv("DEMO_DATA_SOURCE", "csv")
+    m = scheduler_tools.kpi_metrics()
+    assert m["cabin_utilization"] is None
+
+
+def test_query_kpi_csv_mode_no_crash(monkeypatch):
+    """csv 模式 query_kpi 输出完整（舱利用率行显示暂无提示），不抛错。"""
+    monkeypatch.setenv("DEMO_DATA_SOURCE", "csv")
+    out = scheduler_tools.query_kpi()
+    assert "📈 排产 KPI" in out
+    assert "暂无设备数据" in out
+
+
+def test_query_load_assessment_csv_mode_no_crash(monkeypatch):
+    """csv 模式 load_assessment 不抛 KeyError 'process'；旧枚举归一后排队分布可读。"""
+    monkeypatch.setenv("DEMO_DATA_SOURCE", "csv")
+    a = assessment.load_assessment()
+    assert "ORD005" in a["distribution"]["排队"]   # 排期中→待排队
+    out = scheduler_tools.query_load_assessment()
+    assert "📊 产能负载评估" in out
+    assert "❌" not in out
 
 
 # ---- M5a T5a.12：KPI tick 联动 E2E ----

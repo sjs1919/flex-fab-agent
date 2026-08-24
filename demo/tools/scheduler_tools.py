@@ -427,8 +427,11 @@ def kpi_metrics() -> dict:
 
     on_time, sample = _kpi_on_time(completion, orders)
     delay_total = _kpi_delay_total(completion, orders, customers)
-    cabin = _kpi_cabin_utilization(batches, parts_by_order,
-                                   {m["id"]: m for m in load_machines()})
+    raw_machines = load_machines()
+    machines = {m["id"]: m for m in raw_machines if "id" in m}
+    # csv 模式（machines.csv 无 id/cabin_size 列）映射后为空 -> 舱利用率降级 None
+    cabin = (_kpi_cabin_utilization(batches, parts_by_order, machines)
+             if machines else None)
     done_parts = _kpi_done_parts(batches, parts_by_order)
     yield_rate = _kpi_yield_rate(scrap, done_parts)
     pp = assessment.preprocess_load()
@@ -466,8 +469,10 @@ def query_kpi() -> str:
     lines = [f"📈 排产 KPI（生成 {_fmt(m['generated_at'])}）"]
     lines.append(f"1️⃣ 准交率：{ot_txt}（{m['on_time']}/{m['sample']} 单按期）")
     lines.append(f"2️⃣ 延期金额：¥{m['delay_total']:.2f}（Σ金额×违约金日费率×延期天数）")
-    lines.append(f"3️⃣ 舱利用率：{m['cabin_utilization'] * 100:.1f}%"
-                 f"（Σ批次投影面积/舱底面积，{m['batch_count']} 批次）")
+    cabin = m["cabin_utilization"]
+    cabin_txt = (f"{cabin * 100:.1f}%（Σ批次投影面积/舱底面积，{m['batch_count']} 批次）"
+                 if cabin is not None else "暂无设备数据（csv 模式）")
+    lines.append(f"3️⃣ 舱利用率：{cabin_txt}")
     lines.append(f"4️⃣ 良率：{yr_txt}（1 − 坏件 {m['scrap']} / 完工 {m['done_parts']} 件）")
     lines.append(f"5️⃣ 前道瓶颈占用：{pp['utilization'] * 100:.0f}%"
                  f"（{pp['remaining_man_hours']:.1f}/{pp['net_capacity_h_per_day']:.1f} 人·时）"

@@ -150,6 +150,18 @@ def get_config(category: str, key: str, default: str = "") -> str:
     return row[0] if row and row[0] is not None else default
 
 
+def set_config(category: str, key: str, value: str) -> None:
+    """写 system_config（upsert，M6 T6.6 /config PUT 用）。写失败向上抛。"""
+    from .tools.data import get_connection
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO system_config (category, `key`, value) VALUES (%s, %s, %s) "
+                "ON DUPLICATE KEY UPDATE value=VALUES(value)",
+                (category, key, value))
+        conn.commit()
+
+
 def get_routing_policy() -> dict:
     """B3 模型路由策略（v2 C7）：system_config 路由/routing_policy 的 JSON
     （如 {"simple": "DeepSeek", "complex": "火山豆包(coding)"}）。异常回落 {}。"""

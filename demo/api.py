@@ -59,6 +59,7 @@ class AskResponse(BaseModel):
     answer: str
     tool_results: list[dict]
     thread_id: str | None
+    trace_id: str
     trace: dict
 
 
@@ -234,6 +235,21 @@ def _persist_dashboard(trace_id: str, trace: dict, cost: dict) -> None:
         print(f"⚠️ 看板落库失败（不影响 /ask 响应）：{e}")
 
 
+def _record_case(query: str, answer: str, tool_results: list[dict],
+                 trace_id: str) -> None:
+    """调试台 case 旁路落盘（M6 T6.5 / v2 G1）：/ask 后追加 cases.jsonl。
+
+    同 _persist_dashboard：失败不影响 /ask 响应。
+    """
+    try:
+        from .observability import case_collector
+        case_collector.record_case(query, answer,
+                                   [t.get("tool", "") for t in tool_results],
+                                   trace_id)
+    except Exception as e:
+        print(f"⚠️ case 落盘失败（不影响 /ask 响应）：{e}")
+
+
 @app.post("/ask", response_model=AskResponse)
 def ask(req: AskRequest) -> AskResponse:
     """单次或多轮提问。带 thread_id 即多轮（checkpointer 恢复历史）。"""
@@ -244,14 +260,160 @@ def ask(req: AskRequest) -> AskResponse:
     cost = cost_tracker.get_summary()
     tracer.flush()
     _persist_dashboard(tracer.trace_id, trace, cost)
+    _record_case(req.query, result.get("final_answer", ""),
+                 result.get("tool_results", []), tracer.trace_id)
     # 成本摘要输出到 stdout（docker logs 可见）
     print(cost_tracker.format_text())
     return AskResponse(
         answer=result.get("final_answer", ""),
         tool_results=result.get("tool_results", []),
         thread_id=req.thread_id,
+        trace_id=tracer.trace_id,
         trace=trace,
     )
+
+
+# ---- 调试台（M6 T6.5 / v2 G4；读端点匿名可读，与看板同策略） ----
+
+@app.get("/debug/cases")
+def debug_cases(type: str | None = None, good: str | None = None,
+                limit: int = 200) -> dict:
+    """case 列表（只读）：type=normal/chitchat/empty、good=true/false/null 过滤。"""
+    from .observability import case_collector
+    items = case_collector.load_cases(case_type=type, good=good,
+                                      limit=_cap_limit(limit))
+    return {"items": items}
+
+
+@app.get("/debug/trace/{trace_id}")
+def debug_trace(trace_id: str) -> dict:
+    """按 trace_id 回放：trace_record（DB）+ case（JSONL）合并展示。"""
+    from .observability import dashboard, case_collector
+    trace = dashboard.get_trace(trace_id)
+    if trace is None:
+        raise HTTPException(404, f"trace 不存在：{trace_id}")
+    case = next((c for c in case_collector.load_cases()
+                 if c.get("trace_id") == trace_id), None)
+    return {"trace": trace, "case": case}
+
+
+def _get_case(trace_id: str) -> dict:
+    """从 cases.jsonl 取单条 case；不存在 404。"""
+    from .observability import case_collector
+    case = next((c for c in case_collector.load_cases()
+                 if c.get("trace_id") == trace_id), None)
+    if case is None:
+        raise HTTPException(404, f"case 不存在：{trace_id}")
+    return case
+
+
+@app.post("/debug/rerun/{trace_id}")
+def debug_rerun(trace_id: str, x_admin_token: str = Header(default="")) -> dict:
+    """重跑（admin，真实 LLM 花钱）：case.query 重走 run_single_agent，
+    返回新结果（新 trace_id），rerun 结果写回 case。"""
+    _require_admin(x_admin_token)
+    case = _get_case(trace_id)
+    from .observability import case_collector
+    tracer.reset()
+    cost_tracker.reset()
+    result = run_single_agent(case["query"], registry=_registry)
+    trace = tracer.get_summary()
+    cost = cost_tracker.get_summary()
+    tracer.flush()
+    _persist_dashboard(tracer.trace_id, trace, cost)
+    answer = result.get("final_answer", "")
+    case_collector.attach_rerun(trace_id, {"trace_id": tracer.trace_id,
+                                           "answer": answer})
+    return {"trace_id": trace_id, "new_trace_id": tracer.trace_id, "answer": answer}
+
+
+@app.post("/debug/judge/{trace_id}")
+def debug_judge(trace_id: str, x_admin_token: str = Header(default="")) -> dict:
+    """手动打分（admin，LLM 花钱）：judge_semantic_quality，分数写回 case.judge。
+    有 rerun 优先评 rerun 答案（支持 bad->good 转化率统计）。"""
+    _require_admin(x_admin_token)
+    case = _get_case(trace_id)
+    from .eval.judge import judge_semantic_quality
+    from .observability import case_collector
+    rerun = case.get("rerun") or {}
+    answer = rerun.get("answer") or case.get("answer", "")
+    judge = judge_semantic_quality(case.get("query", ""), "", answer)
+    judge["judged_answer"] = answer
+    case_collector.attach_judge(trace_id, judge)
+    return {"trace_id": trace_id, "judge": judge}
+
+
+@app.get("/debug/stats")
+def debug_stats() -> dict:
+    """case 统计（匿名只读）：总数/分类/good-bad 计数/bad->good 转化率。
+
+    转化率 = bad 标注且 rerun 后 judge answer_relevancy ≥0.5（eval 语义阈值）的比例。
+    """
+    from .observability import case_collector
+    cases = case_collector.load_cases()
+    by_type: dict[str, int] = {}
+    for c in cases:
+        by_type[c.get("type", "?")] = by_type.get(c.get("type", "?"), 0) + 1
+    bad = [c for c in cases if c.get("good") is False]
+    converted = [c for c in bad
+                 if (c.get("judge") or {}).get("answer_relevancy", 0) >= 0.5]
+    return {
+        "total": len(cases),
+        "by_type": by_type,
+        "good_count": sum(1 for c in cases if c.get("good") is True),
+        "bad_count": len(bad),
+        "bad_to_good_rate": round(len(converted) / len(bad), 2) if bad else None,
+    }
+
+
+@app.put("/debug/cases/{trace_id}/label")
+def debug_label(trace_id: str, good: dict,
+                x_admin_token: str = Header(default="")) -> dict:
+    """人工标注 good/bad（admin，运营动作），仅 normal case 生效。"""
+    _require_admin(x_admin_token)
+    from .observability import case_collector
+    if "good" not in good:
+        raise HTTPException(400, "body 需含 good: true/false")
+    if not case_collector.label_case(trace_id, bool(good["good"])):
+        raise HTTPException(400, f"标注失败：{trace_id} 不存在或非 normal case")
+    return {"trace_id": trace_id, "good": bool(good["good"])}
+
+
+# ---- 配置端点（M6 T6.6 / F-2；GET 匿名，PUT admin） ----
+
+_CONFIG_WHITELIST = {
+    ("调试台", "case_collection_enabled"),
+    ("调试台", "sample_rate"),
+    ("调试台", "judge_enabled"),
+}
+
+
+@app.get("/config")
+def get_config_view() -> dict:
+    """读关键配置：数据源/SIM_TICK_SECONDS/求解器沙箱预算/调试台三开关。"""
+    from .config import get_config, get_data_source
+    return {
+        "data_source": get_data_source(),
+        "sim_tick_seconds": float(os.getenv("SIM_TICK_SECONDS", "60")),
+        "solver_timeout_override": _registry.get_schema("run_scheduling").timeout_override,
+        "调试台": {
+            "case_collection_enabled": get_config("调试台", "case_collection_enabled", "on"),
+            "sample_rate": get_config("调试台", "sample_rate", "1.0"),
+            "judge_enabled": get_config("调试台", "judge_enabled", "off"),
+        },
+    }
+
+
+@app.put("/config")
+def put_config(body: dict, x_admin_token: str = Header(default="")) -> dict:
+    """写 system_config（admin）：{category, key, value}，白名单键校验。"""
+    _require_admin(x_admin_token)
+    category, key = body.get("category", ""), body.get("key", "")
+    if (category, key) not in _CONFIG_WHITELIST:
+        raise HTTPException(400, f"键不在白名单：{category}.{key}")
+    from .config import set_config
+    set_config(category, key, str(body.get("value", "")))
+    return {"category": category, "key": key, "value": str(body.get("value", ""))}
 
 
 @app.get("/threads/{thread_id}/history")

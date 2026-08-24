@@ -33,7 +33,8 @@ def test_record_kpi_snapshot_and_history():
         m2 = {"on_time_rate": 0.9, "delay_total": 80.0, "generated_at": "2026-08-24 11:00:00"}
         ids.append(dashboard.record_kpi_snapshot(m1, "2026-08-24 10:00:00"))
         ids.append(dashboard.record_kpi_snapshot(m2, "2026-08-24 11:00:00"))
-        hist = dashboard.kpi_history(limit=10)
+        # limit 放宽防被同 suite 更早的 sim 快照挤出（kpi_snapshot 共享表，测试隔离脆弱）
+        hist = dashboard.kpi_history(limit=1000)
         mine = [h for h in hist if h["id"] in ids]
         assert len(mine) == 2
         assert mine[0]["sim_time"] <= mine[1]["sim_time"]  # 升序（折线 x 轴）

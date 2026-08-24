@@ -94,3 +94,40 @@ def test_run_scheduling_timeout_override():
     s = r.get_schema("run_scheduling")
     assert s.timeout_override == 240
     assert s.max_retries_override == 1
+
+
+# ---- M6 T6.3：tool span 入参/出参属性 ----
+
+def test_tool_span_arguments_result_attrs(monkeypatch):
+    """execute 后 tool span 含 arguments/result 属性（str 化，截断 ≤200）。"""
+    from demo.tools import sandbox
+    from demo.observability import tracer
+    monkeypatch.setattr(sandbox, "run_with_retry",
+                        lambda handler, args, **k: ("ok-result", True, 0))
+
+    r = ToolRegistry()
+    r.register("demo_tool", "测试", {"type": "object", "properties": {}},
+               lambda **kw: "ok", "test")
+    tracer.reset()
+    r.execute("demo_tool", {"a": "x" * 500})
+    spans = tracer.get_summary()["spans"]
+    sp = [s for s in spans if s["name"] == "tool:demo_tool"][0]
+    assert len(sp["attrs"]["arguments"]) == 200, "入参须截断到 200"
+    assert sp["attrs"]["result"] == "ok-result"
+    assert sp["attrs"]["tool_success"] is True
+
+
+def test_tool_span_result_truncated(monkeypatch):
+    """超长结果同样截断 200。"""
+    from demo.tools import sandbox
+    from demo.observability import tracer
+    monkeypatch.setattr(sandbox, "run_with_retry",
+                        lambda handler, args, **k: ("r" * 800, True, 0))
+
+    r = ToolRegistry()
+    r.register("demo_tool", "测试", {"type": "object", "properties": {}},
+               lambda **kw: "ok", "test")
+    tracer.reset()
+    r.execute("demo_tool", {})
+    sp = tracer.get_summary()["spans"][0]
+    assert len(sp["attrs"]["result"]) == 200

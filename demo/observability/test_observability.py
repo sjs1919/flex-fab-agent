@@ -54,6 +54,56 @@ def test_tracer_record_manual():
     assert t.get_summary()["spans"][0]["ms"] == 50
 
 
+# ---- M6 T6.2：Span 父子树 ----
+
+def test_tracer_nested_span_parent_chain():
+    """嵌套 with 自动建树：A>B>C，parent 链正确；退出后栈清空。"""
+    t = Tracer()
+    with t.span("supervisor:orchestrate") as a:
+        with t.span("supervisor:dispatch", agent="x") as b:
+            with t.span("tool:query_orders") as c:
+                pass
+    assert c.parent is b and b.parent is a and a.parent is None
+    sm = t.get_summary()
+    parents = {sp["name"]: sp["parent"] for sp in sm["spans"]}
+    assert parents["supervisor:orchestrate"] is None
+    assert parents["supervisor:dispatch"] == "supervisor:orchestrate"
+    assert parents["tool:query_orders"] == "supervisor:dispatch"
+
+
+def test_tracer_sibling_spans_parent_none():
+    """平级 with：各自 parent=None（树退化一层）。"""
+    t = Tracer()
+    with t.span("llm:call"):
+        pass
+    with t.span("tool:query_orders"):
+        pass
+    sm = t.get_summary()
+    assert all(sp["parent"] is None for sp in sm["spans"])
+
+
+def test_tracer_nested_span_exception_unwinds_stack():
+    """嵌套 with 异常也必须出栈，不留脏栈（下个 span parent 不残留）。"""
+    t = Tracer()
+    try:
+        with t.span("outer"):
+            with t.span("inner"):
+                raise ValueError("boom")
+    except ValueError:
+        pass
+    assert t._stack == []
+    with t.span("after") as s:
+        pass
+    assert s.parent is None
+
+
+def test_tracer_record_parent_none():
+    """record() 无栈语义，parent=None。"""
+    t = Tracer()
+    t.record("llm:call", duration_ms=50)
+    assert t.get_summary()["spans"][0]["parent"] is None
+
+
 # ---- CostTracker ----
 
 def test_cost_tracker_records_entry():

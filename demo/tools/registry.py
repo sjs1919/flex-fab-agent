@@ -161,6 +161,9 @@ class ToolRegistry:
                 )
                 s.attributes["tool_success"] = success
                 s.attributes["tool_retries"] = retries
+                # M6 T6.3：入参/出参属性（str 化截断 200，防大结果撑爆 trace 与前端渲染）
+                s.attributes["arguments"] = str(filtered)[:200]
+                s.attributes["result"] = str(result_str)[:200]
             # M4a：写工具执行结果统一入审计（治理层落，handler 保持纯业务）
             if not schema.read_only and audit is not None:
                 audit.log("write", token.subject if token else "anonymous",

@@ -28,9 +28,12 @@ def _enrich(orders: list[dict]) -> list[dict]:
     for p in load_parts():
         parts_by_order.setdefault(p["order_id"], set()).add(p["material"])
     for o in orders:
-        c = customers.get(o.get("customer_id", ""), {})
-        o["客户名"] = c.get("name", "")
-        o["客户等级"] = c.get("level", "")
+        # csv 模式无 customer_id：保留 csv 自带客户名/客户等级；mysql 模式经 customer 表 join
+        cid = o.get("customer_id")
+        if cid:
+            c = customers.get(cid, {})
+            o["客户名"] = c.get("name", "")
+            o["客户等级"] = c.get("level", "")
         o["工艺"] = ",".join(sorted(parts_by_order.get(o["id"], set())))
         # 数据库原生类型 → 字符串/整数，统一展示与筛选（Decimal/date 不可直接比较）
         if o.get("due_date") is not None:
@@ -108,9 +111,11 @@ def get_order_detail(order_id: str) -> str:
     if not matched:
         return f"未找到订单 {order_id}。"
     o = dict(matched[0])
-    c = {cc["id"]: cc for cc in load_customers()}.get(o.get("customer_id", ""), {})
-    o["客户名"] = c.get("name", "")
-    o["客户等级"] = c.get("level", "")
+    cid = o.get("customer_id")
+    if cid:
+        c = {cc["id"]: cc for cc in load_customers()}.get(cid, {})
+        o["客户名"] = c.get("name", "")
+        o["客户等级"] = c.get("level", "")
     return json.dumps(o, ensure_ascii=False, indent=2, default=str)
 
 

@@ -104,3 +104,15 @@ def test_get_production_status_existing():
 def test_get_production_status_missing():
     status = get_production_status("ORD999")
     assert "未找到订单 ORD999" in status
+
+
+def test_query_orders_csv_mode_fields_and_new_enum(monkeypatch):
+    """csv 模式（M6 联调修复）：列别名 + 旧枚举归一后字段可见、新枚举筛选命中。"""
+    monkeypatch.setenv("DEMO_DATA_SOURCE", "csv")
+    all_orders = query_orders()
+    assert "深圳精密五金" in all_orders            # csv 客户名不再被空 customer_id 覆盖
+    assert "待排队" in all_orders                  # 状态列归一为新枚举
+    queued = query_orders(status="待排队")
+    assert "ORD005" in queued and "ORD007" in queued   # 排期中/待排产→待排队
+    printing = query_orders(status="打印中")
+    assert "ORD001" in printing and "ORD002" in printing  # 生产中/即将完成→打印中

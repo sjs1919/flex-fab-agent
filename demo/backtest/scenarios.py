@@ -9,9 +9,25 @@
   - expected_keypoints: 人工复盘里的关键要点（Agent 答案应覆盖）
   - context_hint: 数据层提示（可选，引导 Agent 查哪些工具）
 """
+import json
+from pathlib import Path
 
-def load_scenarios() -> list[dict]:
-    """从历史延期记录提取回测场景。当前为手写 5 个（对应案例 1-5）。"""
+
+def load_scenarios(cases_path: str | Path | None = None) -> list[dict]:
+    """加载回测场景：手写 5 个 + 可选 cases.jsonl 派生（M6 T6.10 / v2 G-15）。
+
+    cases_path 为调试台 cases.jsonl 时，normal case 以"可跑通映射"并入
+    （id=trace_id、expected_keypoints 为空），只跑通链路不设覆盖度断言——
+    覆盖度场景仍以原 5 个为准，防稀释 0.6 回归基线。
+    """
+    scenarios = _handwritten_scenarios()
+    if cases_path is not None:
+        scenarios.extend(_scenarios_from_cases(cases_path))
+    return scenarios
+
+
+def _handwritten_scenarios() -> list[dict]:
+    """手写 5 个历史延期复盘场景（对应历史延期记录.txt 案例 1-5）。"""
     return [
         {
             "id": "bt_001",
@@ -59,6 +75,41 @@ def load_scenarios() -> list[dict]:
             "must_not": ["不知道"],
         },
     ]
+
+
+def _scenarios_from_cases(cases_path: str | Path) -> list[dict]:
+    """从调试台 cases.jsonl 派生可跑通场景（G-15）：normal case -> 复盘提问。
+
+    只做映射不设覆盖度（expected_keypoints 空 -> score 恒 1.0），避免派生场景
+    稀释 0.6 回归基线；chitchat/empty 与坏行跳过。
+    """
+    out: list[dict] = []
+    try:
+        with open(cases_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    c = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if c.get("type") != "normal":
+                    continue
+                q = (c.get("query") or "").strip()
+                if not q:
+                    continue
+                out.append({
+                    "id": c.get("trace_id", f"case_{len(out)}"),
+                    "title": "调试台案例回测",
+                    "query": q,
+                    "expected_keypoints": [],
+                    "context": "来自调试台 cases.jsonl 的 normal case（可跑通映射，覆盖度以原场景文件为准）",
+                    "must_not": [],
+                })
+    except OSError:
+        pass  # 文件缺失/不可读 -> 忽略，仅返回手写场景
+    return out
 
 
 def score_backtest(answer: str, scenario: dict) -> dict:

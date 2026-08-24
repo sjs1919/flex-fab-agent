@@ -65,3 +65,5 @@ coverage*
 
 # 审计运行时 JSONL（测试/服务运行产生，勿提交）
 demo/data/audit.jsonl
+# 调试台 case 落盘（含用户 query，运行时生成，勿提交）
+demo/data/cases.jsonl

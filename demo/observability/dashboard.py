@@ -139,6 +139,26 @@ def trace_summary(limit: int = 200) -> list[dict]:
             for r in rows]
 
 
+def get_trace(trace_id: str) -> dict | None:
+    """按 trace_id 取单条完整 trace（含 spans 明细）；不存在返回 None。"""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, trace_id, created_at, total_ms, span_count, by_kind, spans "
+                "FROM trace_record WHERE trace_id=%s", (trace_id,))
+            r = cur.fetchone()
+    finally:
+        conn.close()
+    if not r:
+        return None
+    return {"id": r[0], "trace_id": r[1],
+            "created_at": r[2].strftime("%Y-%m-%d %H:%M:%S"),
+            "total_ms": float(r[3]), "span_count": r[4],
+            "by_kind": json.loads(r[5] or "{}"),
+            "spans": json.loads(r[6] or "[]")}
+
+
 # ──────────────────────────────────────────────
 # 静态 HTML 兜底（T5b.8，零 CDN，离线可看）
 # ──────────────────────────────────────────────
