@@ -65,8 +65,9 @@ SYSTEM_CONFIG_ROWS = [
     ("前道", "per_part_eff_slm", "6", "件/人·h", "SLM 件人效"),
     ("前道", "per_part_eff_mix", "12", "件/人·h", "综合件人效（按件活动折算）"),
     ("前道", "plan_review_hours", "0.5", "h/方案", "方案审核分摊"),
-    ("路由", "routing_policy", '{"simple": "DeepSeek", "complex": "火山豆包(coding)"}',
-     "json", "B3 模型路由策略（任务类型→provider）"),
+    # 默认空策略 = 不按任务类型分流，全类型走 PRIMARY_PROVIDER 主备链（主→备 fallback）。
+    # 需要按任务类型分流时，用 /config PUT 配置 {"simple": "…", "complex": "…"}。
+    ("路由", "routing_policy", "{}", "json", "B3 模型路由策略（空=走主备链；需分流时 /config 配置）"),
     # 预测类（M5a T5a.2）：rq §3.19 用户 2026-08-23 确认口径
     ("预测", "forecast_method", "exponential", "ma|exponential", "预测方法（默认指数平滑）"),
     ("预测", "forecast_window", "5", "天", "预测窗口（用户确认 5 天）"),

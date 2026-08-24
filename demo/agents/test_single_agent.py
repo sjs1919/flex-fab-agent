@@ -33,3 +33,10 @@ def test_clean_answer_cached(monkeypatch):
     calls = _run(monkeypatch, "ORD003 今天优先排产")
     assert len(calls) == 1
     assert calls[0][1] == "ORD003 今天优先排产"
+
+
+def test_graceful_fallback_not_cached(monkeypatch):
+    """坑（缓存投毒纵深）：生成异常的兜底文本不得入缓存，否则用户重问一直命中失败答案。"""
+    from demo.graph.single_agent_graph import _GRACEFUL_FALLBACK
+    calls = _run(monkeypatch, _GRACEFUL_FALLBACK)
+    assert calls == [], f"失败兜底文本不得入缓存，实际写入 {calls}"

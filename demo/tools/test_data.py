@@ -1,5 +1,25 @@
 """数据层单元测试（纯函数，直测 CSV 加载/过滤/格式化）。"""
-from demo.tools.data import _read_csv, format_table, filter_by, load_orders, load_inventory
+from demo.tools.data import (
+    _read_csv,
+    format_table,
+    filter_by,
+    load_orders,
+    load_inventory,
+    normalize_order_status,
+)
+
+
+def test_normalize_order_status_vocab():
+    """状态口吻词归一（踩坑 #11/#14）：LLM 实参旧词/口吻词 -> 新枚举；未知原样、新枚举幂等。"""
+    assert normalize_order_status("排期中") == "待排队"
+    assert normalize_order_status("待排产") == "待排队"
+    assert normalize_order_status("排队") == "待排队"
+    assert normalize_order_status("生产中") == "打印中"
+    assert normalize_order_status("紧急") == "打印中"
+    assert normalize_order_status("打印完成") == "完成"
+    assert normalize_order_status("已完成") == "完成"
+    assert normalize_order_status("待排队") == "待排队"    # 新枚举幂等
+    assert normalize_order_status("奇怪值") == "奇怪值"    # 未知原样
 
 
 def test_read_csv_returns_rows():

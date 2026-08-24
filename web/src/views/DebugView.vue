@@ -10,9 +10,10 @@
         placeholder="输入排产问题，例如：帮我检查今天的设备负载风险，看看有哪些订单可能延期" />
       <div style="margin-top: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap">
         <el-button type="primary" :loading="loading" @click="submit">执行提问</el-button>
-        <el-input v-model="adminToken" type="password" show-password style="width: 280px"
-          placeholder="admin token（judge / 重跑用）" @change="saveToken" />
-        <span style="color: #909399; font-size: 12px">token 仅存本机 localStorage</span>
+        <el-input v-model="adminToken" type="text" style="width: 300px"
+          placeholder="admin token（judge / 重跑用，已自动签发）" @change="saveToken" />
+        <el-button size="small" :disabled="!adminToken" @click="copyToken">复制 token</el-button>
+        <span style="color: #909399; font-size: 12px">token 自动签发，仅存本机 localStorage，1h 有效</span>
       </div>
     </el-card>
 
@@ -78,8 +79,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { askTrace, judgeCase, type AskResponse, type JudgeResult, type SpanItem } from '../api/debug'
+import { computed, onMounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
+import { askTrace, fetchAdminToken, judgeCase, type AskResponse, type JudgeResult, type SpanItem } from '../api/debug'
 
 const query = ref('')
 const loading = ref(false)
@@ -122,6 +124,27 @@ const judgeEntries = computed(() => {
 function saveToken() {
   localStorage.setItem('debug_admin_token', adminToken.value)
 }
+
+async function copyToken() {
+  try {
+    await navigator.clipboard.writeText(adminToken.value)
+    ElMessage.success('admin token 已复制')
+  } catch {
+    ElMessage.warning('复制失败，请手动选中输入框内容复制')
+  }
+}
+
+onMounted(async () => {
+  // 本地 demo 便利：每次进页面签发新 admin token（R-7 写端点需要；token 1h 过期，
+  // 旧缓存直接覆盖，避免 localStorage 里存过期 token 导致 judge 持续 401）
+  try {
+    const { token } = await fetchAdminToken()
+    adminToken.value = token
+    saveToken()
+  } catch {
+    /* 端点不可用时忽略，可手动输入 */
+  }
+})
 
 async function submit() {
   const q = query.value.trim()

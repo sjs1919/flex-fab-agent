@@ -13,7 +13,7 @@ M1 T3.1 字段/枚举对齐（v2 重构）：
 """
 import json
 
-from .data import load_customers, load_orders, load_parts, format_table
+from .data import load_customers, load_orders, load_parts, format_table, normalize_order_status
 
 
 def _orders_table(orders: list[dict]) -> str:
@@ -69,6 +69,8 @@ def query_orders(
     """
     orders = _enrich(load_orders())
     if status:
+        # 宽容归一（M6 踩坑 #11）：LLM 常传旧枚举/口吻词（排期中/排队），先归一为新枚举
+        status = normalize_order_status(status)
         orders = [o for o in orders if o.get("status", "") == status]
     if customer_name:
         orders = [o for o in orders if customer_name in o.get("客户名", "")]

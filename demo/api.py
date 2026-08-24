@@ -379,6 +379,20 @@ def debug_label(trace_id: str, good: dict,
     return {"trace_id": trace_id, "good": bool(good["good"])}
 
 
+@app.get("/debug/admin-token")
+def debug_admin_token() -> dict:
+    """签发 admin token（调试台前端复制用，本地 demo 便利）。
+
+    R-7 写端点（judge/rerun/label/config）要求 admin token，而用户侧此前无
+    签发入口（token 仅在测试/supervisor 内部自签，1h 过期后无法续），导致
+    调试台 judge 按钮 401。此端点补上：前端页面加载时调用即可拿到可用 token。
+    ⚠️ 安全提示：匿名可签发 admin，仅限本地演示；部署环境应移除或加鉴权。
+    """
+    from .auth.token_exchange import STS
+    token_id = STS().issue_user_token("dev-ui", "admin")
+    return {"token": token_id, "role": "admin", "ttl_hours": 1}
+
+
 # ---- 配置端点（M6 T6.6 / F-2；GET 匿名，PUT admin） ----
 
 _CONFIG_WHITELIST = {

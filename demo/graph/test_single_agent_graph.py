@@ -270,6 +270,22 @@ def test_tool_markup_content_retries_not_answered(monkeypatch):
     assert len(seen) == 2, f"应恰好重试一次，实际 {len(seen)} 轮"
 
 
+def test_tool_markup_fullwidth_dsml_detected():
+    """全角竖线 + ||DSML|| 双竖线包裹变体也要被识别为标记文本（缓存投毒纵深防御）。
+
+    2026-08-24 实测：LLM 输出 `<｜DSML｜｜tool_calls>`（U+FF5C 全角竖线）
+    与 `<||DSML||tool_calls>`（双竖线包裹）两种变体，旧 marker 表均漏检 -> 污染缓存。
+    """
+    from demo.graph import single_agent_graph as sag
+    fw = chr(0xFF5C)  # ｜
+    fullwidth = f"<{fw}{fw}DSML{fw}{fw}tool_calls>\n<{fw}{fw}DSML{fw}{fw}invoke name=\"query_orders\">"
+    dsml = "<||DSML||tool_calls>\n<||DSML||invoke name=\"query_orders\">"
+    assert sag._looks_like_tool_markup(fullwidth), "全角竖线变体应被识别"
+    assert sag._looks_like_tool_markup(dsml), "||DSML|| 包裹变体应被识别"
+    assert not sag._looks_like_tool_markup("有哪些订单在排队？")
+    assert sag._sanitize_answer(fullwidth) == sag._GRACEFUL_FALLBACK
+
+
 def test_tool_markup_persistent_bounded_by_iteration(monkeypatch):
     """坑（缓存投毒）：LLM 持续输出 DSML 标记 -> 安全阀（iteration>=5）强制结束，
     不产出含标记的答案、不死循环。"""

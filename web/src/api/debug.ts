@@ -89,3 +89,8 @@ export async function fetchStats(): Promise<DebugStats> {
   const { data } = await http.get<DebugStats>('/debug/stats')
   return data
 }
+
+export async function fetchAdminToken(): Promise<{ token: string; role: string; ttl_hours: number }> {
+  const { data } = await http.get('/debug/admin-token')
+  return data
+}

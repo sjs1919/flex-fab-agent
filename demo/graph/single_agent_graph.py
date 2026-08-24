@@ -48,14 +48,20 @@ _DELAY_MARKERS = ("延期", "逾期", "超期", "延后", "预警", "⚠️", "�
 _DELAY_VERSION_RE = re.compile(r"排产版本\s*(\d+)")
 
 # 缓存投毒根因修复（2026-08-24）：模型偶发把工具调用意图写成 DSML 标记文本
-# （如 <|tool_calls|> / <invoke name=...>），同时 tool_calls 字段为空。若被当作
+# （如 <|tool_calls|> / 尖括号调用名），同时 tool_calls 字段为空。若被当作
 # 普通答案进入 final_answer 会污染语义缓存（eval 首跑 3/10 即此因）。识别后
 # 注入纠错提示重试，而不是接受为答案。
-_TOOL_MARKUP_MARKERS = ("<|tool_calls|>", "<|tool_call|>", "<|/tool_calls|>", "<invoke ")
+# 2026-08-24 增补：模型还会输出全角竖线（U+FF5C）变体（｜tool_calls 家族），
+# 检测前归一为 ASCII |；并补 ||DSML|| 双竖线包裹格式（||DSML||tool_calls 等）。
+_TOOL_MARKUP_MARKERS = (
+    "<|tool_calls|>", "<|tool_call|>", "<|/tool_calls|>",
+    "<invoke ", "||DSML||", "||/DSML||",
+)
+_FULLWIDTH_BAR = chr(0xFF5C)
 
 
 def _looks_like_tool_markup(text: str) -> bool:
-    return any(m in text for m in _TOOL_MARKUP_MARKERS)
+    return any(m in text.replace(_FULLWIDTH_BAR, "|") for m in _TOOL_MARKUP_MARKERS)
 
 
 def _sanitize_answer(text: str) -> str:

@@ -82,3 +82,23 @@ def test_semantic_functions_exist():
     assert callable(get)
     assert callable(put)
     assert callable(is_enabled)
+
+
+def test_semantic_cache_chinese_discrimination(monkeypatch, tmp_path):
+    """中文区分度回归（踩坑 #14）：近义命中、不同状态问句不误命中。
+
+    MiniLM 时代「有哪些订单在打印？」与「有哪些订单在排队？」距离 0.0（张冠李戴），
+    换 bge-small-zh-v1.5 + 阈值 0.25 后必须干净分离。真模型跑（~3s）。
+    """
+    import demo.cache.semantic_cache as sc
+    monkeypatch.setattr(sc, "_DB_DIR", tmp_path / "cache_db")
+    sc._collection = None
+    try:
+        sc.put("有哪些订单在排队？", "排队答案")
+        hit = sc.get("哪些订单还在排队？")            # 近义改写 -> 命中
+        assert hit is not None and hit[0] == "排队答案"
+        assert sc.get("现在有哪些订单在排队") is not None   # 近义改写 -> 命中
+        assert sc.get("有哪些订单在打印？") is None        # 不同状态问句 -> 不命中
+        assert sc.get("有哪些订单已经打印完成？") is None   # 不同状态问句 -> 不命中
+    finally:
+        sc._collection = None

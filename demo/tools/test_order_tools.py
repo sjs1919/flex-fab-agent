@@ -27,11 +27,12 @@ def test_query_orders_all():
 
 
 def test_query_orders_by_status_new_enum():
-    """状态筛选用新枚举：待排队 命中，旧枚举"紧急" 不再命中。"""
+    """状态筛选：新枚举直接命中；旧枚举/口吻词宽容归一（排期中→待排队、紧急→打印中）。"""
     result = query_orders(status="待排队")
     assert "40 条订单" in result
-    result = query_orders(status="紧急")
-    assert "未找到" in result  # 新枚举无"紧急"
+    # 宽容归一（M6 踩坑 #11）：LLM 传旧词时归一为新枚举再过滤，结果与新枚举一致
+    assert query_orders(status="排期中") == result
+    assert query_orders(status="紧急") == query_orders(status="打印中")
 
 
 def test_query_orders_by_customer_name():
@@ -116,3 +117,11 @@ def test_query_orders_csv_mode_fields_and_new_enum(monkeypatch):
     assert "ORD005" in queued and "ORD007" in queued   # 排期中/待排产→待排队
     printing = query_orders(status="打印中")
     assert "ORD001" in printing and "ORD002" in printing  # 生产中/即将完成→打印中
+
+
+def test_query_orders_status_old_vocab(monkeypatch):
+    """csv 模式：LLM 传旧枚举/口吻词（排期中/待排产/排队）宽容归一为待排队命中。"""
+    monkeypatch.setenv("DEMO_DATA_SOURCE", "csv")
+    for old in ("排期中", "待排产", "排队", "排队中", "排产中"):
+        out = query_orders(status=old)
+        assert "ORD005" in out and "ORD007" in out, f"status={old} 应归一为待排队"

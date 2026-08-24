@@ -136,7 +136,21 @@ _ORDERS_CSV_STATUS = {
     "紧急": "打印中",      # 质检/收尾在产
     "排期中": "待排队",    # 排队等待排产
     "待排产": "待排队",    # 排队等待排产
+    "排队": "待排队",      # LLM/用户口吻词
+    "排队中": "待排队",    # LLM/用户口吻词
+    "排产中": "待排队",    # LLM/用户口吻词
+    "打印完成": "完成",    # LLM/用户口吻词
+    "已完成": "完成",      # LLM/用户口吻词
 }
+
+
+def normalize_order_status(status: str) -> str:
+    """订单状态宽容归一：旧枚举/口吻词 -> 新枚举（待排队/已审核/打印中/完成）。
+
+    load_orders（csv 行）与 query_orders（LLM status 实参）共用：
+    LLM 常按用户口吻传旧词（排期中/待排产/排队），归一后再过滤避免空结果。
+    未知值原样返回。"""
+    return _ORDERS_CSV_STATUS.get(status, status)
 
 
 def _normalize_orders_row(row: dict[str, str]) -> dict[str, str]:
@@ -145,8 +159,8 @@ def _normalize_orders_row(row: dict[str, str]) -> dict[str, str]:
         if src in out and dst not in out:
             out[dst] = out[src]
     st = out.get("status")
-    if st in _ORDERS_CSV_STATUS:
-        out["status"] = _ORDERS_CSV_STATUS[st]
+    if st:
+        out["status"] = normalize_order_status(st)
     return out
 
 
