@@ -12,7 +12,10 @@ import uuid
 
 from ..cache import semantic_cache
 from ..graph.checkpointer import build_checkpointer
-from ..graph.single_agent_graph import build_single_agent_graph
+from ..graph.single_agent_graph import (
+    _looks_like_tool_markup,
+    build_single_agent_graph,
+)
 from ..graph.state import AgentState
 from ..observability import tracer
 from ..prompts.versioning import load_system_prompt
@@ -99,6 +102,8 @@ def run_single_agent(query: str, registry=None, thread_id: str | None = None) ->
 
     # 缓存写入：仅无多轮上下文（首轮独立问题才有复用价值）
     if thread_id is None and result.get("final_answer"):
-        semantic_cache.put(query, result["final_answer"])
+        # 缓存投毒纵深防御：标记文本（未解析工具调用）不得写入语义缓存
+        if not _looks_like_tool_markup(result["final_answer"]):
+            semantic_cache.put(query, result["final_answer"])
 
     return result

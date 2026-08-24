@@ -11,6 +11,7 @@
   4. 汇总报告 + 回归基线
 """
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -47,7 +48,12 @@ def _run_case(scenario: dict) -> dict:
 
 
 def run_backtest(case_filter: str | None = None) -> list[dict]:
-    """跑全部回测场景。"""
+    """跑全部回测场景。
+
+    语义缓存默认禁用（2026-08-24，同 eval）：缓存命中跳过整图执行，回测
+    测的是回放而非复盘能力；且缓存曾被陈旧（含 DSML 标记）答案污染。
+    """
+    os.environ["SEMANTIC_CACHE"] = "off"
     scenarios = load_scenarios()
     if case_filter:
         scenarios = [s for s in scenarios if s["id"] == case_filter]

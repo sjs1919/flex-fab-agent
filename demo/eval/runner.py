@@ -13,6 +13,7 @@
   python -m demo.eval.runner --report          # 生成 HTML 报告
 """
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -110,7 +111,13 @@ def _evaluate_single_case(case: dict, mode: str = "single", use_judge: bool = Tr
 
 def run_eval(mode: str = "single", case_filter: str | None = None,
              use_judge: bool = True) -> list[dict]:
-    """运行评估。mode: "single" | "multi"。"""
+    """运行评估。mode: "single" | "multi"。
+
+    语义缓存默认禁用（2026-08-24）：缓存命中会跳过整图执行，评估测的是
+    回放而非当前能力；且缓存不随代码/数据/提示词变化失效，曾被陈旧（含
+    DSML 标记）缓存污染导致 eval 首跑 3/10 vs 重跑 10/10。L1 精确缓存不受影响。
+    """
+    os.environ["SEMANTIC_CACHE"] = "off"
     cases = load_cases()
     if case_filter:
         cases = [c for c in cases if c["id"] == case_filter]

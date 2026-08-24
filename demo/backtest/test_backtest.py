@@ -56,3 +56,24 @@ def test_score_forbidden_word():
     scenario = {"expected_keypoints": ["设备"], "must_not": ["不知道"]}
     score = score_backtest("设备问题我不知道怎么处理", scenario)
     assert score["forbidden_hit"] is True
+
+
+def test_run_backtest_disables_semantic_cache(monkeypatch):
+    """① backtest runner 默认禁用语义缓存（避免陈旧缓存回放污染复盘）。
+
+    测试后须还原 SEMANTIC_CACHE（run_backtest 直接改 os.environ，单进程 pytest
+    共享 env，否则污染 test_is_semantic_enabled_default）。
+    """
+    import os
+    from demo.backtest import runner as runner_mod
+    orig = os.environ.get("SEMANTIC_CACHE")
+    try:
+        os.environ.pop("SEMANTIC_CACHE", None)
+        monkeypatch.setattr(runner_mod, "load_scenarios", lambda: [])
+        runner_mod.run_backtest()
+        assert os.environ.get("SEMANTIC_CACHE") == "off", "backtest 必须默认禁语义缓存"
+    finally:
+        if orig is None:
+            os.environ.pop("SEMANTIC_CACHE", None)
+        else:
+            os.environ["SEMANTIC_CACHE"] = orig

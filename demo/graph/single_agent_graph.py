@@ -47,6 +47,49 @@ _DELAY_TOOLS = frozenset({
 _DELAY_MARKERS = ("延期", "逾期", "超期", "延后", "预警", "⚠️", "红", "无法满足")
 _DELAY_VERSION_RE = re.compile(r"排产版本\s*(\d+)")
 
+# 缓存投毒根因修复（2026-08-24）：模型偶发把工具调用意图写成 DSML 标记文本
+# （如 <|tool_calls|> / <invoke name=...>），同时 tool_calls 字段为空。若被当作
+# 普通答案进入 final_answer 会污染语义缓存（eval 首跑 3/10 即此因）。识别后
+# 注入纠错提示重试，而不是接受为答案。
+_TOOL_MARKUP_MARKERS = ("<|tool_calls|>", "<|tool_call|>", "<|/tool_calls|>", "<invoke ")
+
+
+def _looks_like_tool_markup(text: str) -> bool:
+    return any(m in text for m in _TOOL_MARKUP_MARKERS)
+
+
+def _sanitize_answer(text: str) -> str:
+    """最终答案出口兜底：标记文本（未解析工具调用）替换为优雅提示，绝不透传给用户/缓存。"""
+    if _looks_like_tool_markup(text):
+        return _GRACEFUL_FALLBACK
+    return text
+
+
+class ToolMarkupOutput(Exception):
+    """LLM 输出含未解析工具调用标记（DSML 文本）且 tool_calls 为空时抛出。
+
+    调用方（select_and_execute / generate_answer）按需重试或兜底。
+    """
+
+
+_NUDGE = ("（系统提示：上一轮输出是未解析的工具调用标记文本，未产生任何工具调用。"
+          "请改用标准 tool_calls 发起调用，或直接用中文回答。）")
+_GRACEFUL_FALLBACK = "（抱歉，本次回答生成异常，请重试或换个问法。）"
+
+
+def call_llm_agentic(messages, tools=None, **kwargs):
+    """编排层公共 LLM 调用：检出 DSML 标记文本（tool_calls 空）即抛 ToolMarkupOutput。
+
+    DSML 归属（2026-08-24 决策）：根因在推理服务（应服务端解析）；llm-client 保持
+    纯 OpenAI 兼容不解析私有标记；兼容逻辑收敛在本编排层 wrapper，业务层无感知。
+    此函数被 select_and_execute / generate_answer 共用，不散落到各节点。
+    """
+    resp = call_llm(messages, tools, **kwargs)
+    msg = resp.choices[0].message
+    if not msg.tool_calls and _looks_like_tool_markup(msg.content or ""):
+        raise ToolMarkupOutput(msg.content or "")
+    return resp
+
 
 def _extract_delay_context(results: list[dict], max_lines: int = 15) -> str:
     """从排产工具结果抽取结构化延期数据：延期行（清单+天数）+ 排产版本号。
@@ -98,15 +141,25 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
         # ---- 原有逻辑 ----
         tool_names = {t.get("function", {}).get("name", "") for t in tools_schema}
         task_type = "complex" if _COMPLEX_TOOLS.intersection(tool_names) else "simple"
-        response = call_llm(state["messages"], tools_schema, task_type=task_type)
+        try:
+            response = call_llm_agentic(state["messages"], tools_schema, task_type=task_type)
+        except ToolMarkupOutput:
+            # 缓存投毒根因修复：识别到工具调用标记文本（tool_calls 为空）时不当作答案，
+            # 注入纠错提示并 needs_retry 重试，避免标记进入 final_answer / 语义缓存。
+            state["iteration"] += 1
+            state["needs_retry"] = True
+            state["messages"].append({"role": "user", "content": _NUDGE})
+            return state
         msg = response.choices[0].message
 
-        # LLM 未调工具 -> 直接返回文本
+        # LLM 未调工具 -> 直接返回文本（wrapper 已保证此处非标记文本）
         if not msg.tool_calls:
             state["messages"].append({"role": "assistant", "content": msg.content or ""})
             # 坑 22：纯文本轮也必须递增 iteration，否则 iteration 卡死、
             # needs_more 永真 -> should_continue 死循环（真实 RAG 场景暴露）
             state["iteration"] += 1
+            # 模型给出了干净文本答案 -> 终止此前的重试标记（标记重试后干净文本应直接收尾）
+            state["needs_retry"] = False
             return state
 
         # 执行每个 tool_call
@@ -259,7 +312,7 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
         last_msg = state["messages"][-1] if state["messages"] else {}
         # 上一条已是最终回复 -> 直接复用
         if last_msg.get("role") == "assistant" and last_msg.get("content") and not last_msg.get("tool_calls"):
-            state["final_answer"] = last_msg["content"]
+            state["final_answer"] = _sanitize_answer(last_msg["content"])
             return state
 
         # 追加综合指令让 LLM 汇总（C2：已获取排产数据时引用排产结果作依据；
@@ -289,9 +342,13 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
         MAX_RETRIES = 2
         for retry in range(MAX_RETRIES + 1):
             try:
-                response = call_llm(state["messages"] + [summary_prompt],
-                                    task_type="complex")
+                response = call_llm_agentic(state["messages"] + [summary_prompt],
+                                            task_type="complex")
                 answer = response.choices[0].message.content or ""
+            except ToolMarkupOutput:
+                # 编排层 wrapper 兜底：综合指令仍产出标记文本 -> 优雅提示，不进入答案/缓存
+                answer = _GRACEFUL_FALLBACK
+                break
             except Exception as e:
                 # 兜底：LLM 失败时返回原始工具数据
                 answer = f"调度建议生成失败：{e}\n\n已收集的工具数据：\n"
@@ -317,7 +374,7 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
                     answer = (f"抱歉，生成排产建议时遇到问题（{gr.blocked_by}）。\n"
                               "请稍后重试或联系管理员。")
 
-        state["final_answer"] = answer
+        state["final_answer"] = _sanitize_answer(answer)
         state["messages"].append({"role": "assistant", "content": answer})
         return state
 

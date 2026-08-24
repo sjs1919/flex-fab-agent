@@ -231,6 +231,69 @@ def test_graph_no_tool_calls_generates_direct_answer(monkeypatch):
     assert result["final_answer"] == "直接回答，无需工具"
 
 
+# ---- 缓存投毒根因修复：DSML 标记文本误作答案 ----
+
+_MARKUP = ('<|tool_calls|>\n<invoke name="query_orders">\n'
+           '{"status": "pending"}\n</invoke>')
+
+
+def test_tool_markup_content_retries_not_answered(monkeypatch):
+    """坑（缓存投毒）：LLM 把工具调用意图写成 DSML 标记文本且 tool_calls 为空 ->
+    不得作为最终答案；应注入纠错提示重试，第二轮干净文本才作答案。"""
+    from demo.graph import single_agent_graph as sag
+    _disable_compression(monkeypatch)
+
+    responses = iter([
+        FakeResponse(content=_MARKUP),                # 第一轮：DSML 标记文本，无 tool_calls
+        FakeResponse(content="ORD003 今天优先排产"),  # 第二轮：干净文本答案
+    ])
+    seen: list = []
+
+    def fake_call_llm(messages, tools=None, **kwargs):
+        seen.append(messages[-1]["content"])
+        return next(responses)
+
+    monkeypatch.setattr(sag, "call_llm", fake_call_llm)
+
+    app = build_single_agent_graph(FakeRegistry(), checkpointer=None)
+    result = app.invoke({
+        "messages": [{"role": "user", "content": "今天先做哪些订单？"}],
+        "tool_results": [],
+        "iteration": 0,
+        "final_answer": "",
+    })
+
+    assert result["final_answer"] == "ORD003 今天优先排产"
+    assert "tool_calls" not in result["final_answer"]
+    assert any("未解析的工具调用标记" in m for m in seen), "应注入纠错提示后重试"
+    # select_and_execute 共 2 次 LLM 调用：首轮带用户问题、重试轮带纠错提示
+    assert len(seen) == 2, f"应恰好重试一次，实际 {len(seen)} 轮"
+
+
+def test_tool_markup_persistent_bounded_by_iteration(monkeypatch):
+    """坑（缓存投毒）：LLM 持续输出 DSML 标记 -> 安全阀（iteration>=5）强制结束，
+    不产出含标记的答案、不死循环。"""
+    from demo.graph import single_agent_graph as sag
+    _disable_compression(monkeypatch)
+
+    def fake_call_llm(messages, tools=None, **kwargs):
+        return FakeResponse(content=_MARKUP)
+
+    monkeypatch.setattr(sag, "call_llm", fake_call_llm)
+
+    app = build_single_agent_graph(FakeRegistry(), checkpointer=None)
+    result = app.invoke({
+        "messages": [{"role": "user", "content": "q"}],
+        "tool_results": [],
+        "iteration": 0,
+        "final_answer": "",
+    })
+
+    assert result["iteration"] >= 3, f"标记轮应多次重试后由安全阀收口，实际 {result['iteration']}"
+    assert "<invoke" not in result["final_answer"], "标记文本不得进入最终答案"
+    assert result["final_answer"] != ""
+
+
 def test_pure_text_round_increments_iteration(monkeypatch):
     """纯文本轮（LLM 返回文本不调工具）也应递增 iteration。
 
