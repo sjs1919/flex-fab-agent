@@ -93,23 +93,39 @@ class SupervisorAgent:
         review_results, production_result = [], {}
         targets = route_result["targets"]
 
-        if "review" in targets or "full" in targets:
-            print(f"\n -> 调度 [审核 Agent] 评估 {len(sample_orders)} 笔订单风险...")
-            review_results = self.dispatch_review(sample_orders)
+        # R-8（M5a）：包裹 registry.execute 记录子 Agent 工具调用 → tool_results，
+        # 供 eval multi 模式重建 trajectory（修复轨迹层/语义层空洞）。
+        self._tool_calls: list[dict] = []
+        _orig_execute = self.registry.execute
 
-        if "production" in targets or "full" in targets:
-            print(f"\n -> 调度 [生产 Agent] 评估产能...")
-            production_result = self.dispatch_production(sample_orders)
+        def _recorded_execute(name, arguments, token=None, audit=None):
+            result = _orig_execute(name, arguments, token, audit)
+            self._tool_calls.append({"tool": name, "arguments": arguments or {},
+                                     "result": result or ""})
+            return result
 
-        if "query" in targets:
-            print("\n -> 直接查询（建议走单 Agent 模式）")
+        self.registry.execute = _recorded_execute
+        try:
+            if "review" in targets or "full" in targets:
+                print(f"\n -> 调度 [审核 Agent] 评估 {len(sample_orders)} 笔订单风险...")
+                review_results = self.dispatch_review(sample_orders)
 
-        # 4. 结果汇总
+            if "production" in targets or "full" in targets:
+                print(f"\n -> 调度 [生产 Agent] 评估产能...")
+                production_result = self.dispatch_production(sample_orders)
+
+            if "query" in targets:
+                print("\n -> 直接查询（建议走单 Agent 模式）")
+        finally:
+            self.registry.execute = _orig_execute
+
+        # 4. 结果汇总（R-8：回传子 Agent 工具调用序列）
         summary = {
             "query": query,
             "route": route_result,
             "review_results": review_results,
             "production_result": production_result,
+            "tool_results": self._tool_calls,
         }
 
         # 5. LLM 综合

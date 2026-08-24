@@ -48,7 +48,8 @@ def _evaluate_single_case(case: dict, mode: str = "single", use_judge: bool = Tr
         from ..agents.supervisor import run_supervisor
         result = run_supervisor(case["query"])
         answer = result.get("synthesis", "")
-        tool_results = []
+        # R-8（M5a）：multi 模式回传子 Agent 工具调用序列 → 轨迹层/工具层/语义层可用
+        tool_results = result.get("tool_results", [])
     else:
         result = run_single_agent(case["query"])
         answer = result.get("final_answer", "")

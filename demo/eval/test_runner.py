@@ -153,6 +153,63 @@ def test_evaluate_single_case_no_context_uses_only_relevancy(monkeypatch):
     assert abs(sem_contrib - 0.8 * 0.2) < 1e-6, f"语义贡献应为 0.16，实际 {sem_contrib}"
 
 
+def test_evaluate_single_case_multi_returns_trajectory(monkeypatch):
+    """T5a.14（R-8）：multi 模式 case 结果回传 trajectory（工具调用序列/重试/循环指标）。
+
+    修复前 multi 分支 tool_results=[]，轨迹层拿不到参数/结果（空洞），
+    工具层 actual_tools 空置、语义层无 RAG 上下文。
+    """
+    from demo.eval import runner as runner_mod
+
+    def fake_run_supervisor(query):
+        return {
+            "synthesis": "多 Agent 综合排产建议：ORD003 优先，深圳精密订单紧急",
+            "tool_results": [
+                {"tool": "get_order_detail", "arguments": {"order_id": "ORD001"},
+                 "result": "ORD001 深圳精密 客户 A 级"},
+                {"tool": "query_inventory", "arguments": {},
+                 "result": "SLA 库存 500kg，PEEK 库存 120kg"},
+            ],
+        }
+
+    from demo.agents import supervisor as supervisor_mod
+    monkeypatch.setattr(supervisor_mod, "run_supervisor", fake_run_supervisor)
+
+    class FakeTracer:
+        trace_id = "multi-trace"
+        def reset(self): pass
+        def get_summary(self):
+            return {
+                "spans": [
+                    {"name": "tool:get_order_detail", "ms": 40, "attrs": {"tool_success": True, "tool_retries": 0}},
+                    {"name": "tool:query_inventory", "ms": 60, "attrs": {"tool_success": True, "tool_retries": 1}},
+                ],
+                "total_ms": 100, "span_count": 2, "by_kind": {"tool": 2},
+            }
+        def flush(self): pass
+    class FakeCost:
+        def reset(self): pass
+        def get_summary(self): return {"total_tokens": 0, "total_cost": 0}
+    monkeypatch.setattr(runner_mod, "tracer", FakeTracer())
+    monkeypatch.setattr(runner_mod, "cost_tracker", FakeCost())
+
+    case = {
+        "id": "eval_multi", "scenario": "多Agent", "query": "今天先做哪些订单？",
+        "expected_tools": ["get_order_detail", "query_inventory"],
+        "checks": {"min_tools_called": 2},
+    }
+    result = _evaluate_single_case(case, mode="multi", use_judge=False)
+
+    # 轨迹层：total_tool_calls/trajectory_score 落位（验收条）
+    assert result["trajectory"]["total_tool_calls"] == 2
+    assert result["trajectory"]["trajectory_score"] is not None
+    assert result["trajectory"]["distinct_tools"] == 2
+    # 工具层不再空洞：子 Agent 工具调用序列回传（R-8 修复前 multi 为 []）
+    assert result["tool"]["tools_called"] == ["get_order_detail", "query_inventory"], \
+        "multi 工具调用序列应回传（R-8 修复前 tool_results=[] 空置）"
+    assert result["tool"]["min_tools_called"] == 2
+
+
 def test_print_summary_layer_health(monkeypatch, capsys):
     """print_summary 输出分层健康度：工具/轨迹/语义各设阈值，语义层仅统计有 context case。"""
     from demo.eval import runner as runner_mod

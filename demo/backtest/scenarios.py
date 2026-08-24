@@ -9,10 +9,6 @@
   - expected_keypoints: 人工复盘里的关键要点（Agent 答案应覆盖）
   - context_hint: 数据层提示（可选，引导 Agent 查哪些工具）
 """
-from pathlib import Path
-
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
-
 
 def load_scenarios() -> list[dict]:
     """从历史延期记录提取回测场景。当前为手写 5 个（对应案例 1-5）。"""
@@ -23,7 +19,7 @@ def load_scenarios() -> list[dict]:
             "query": "复盘：2025 年深圳精密 CNC 设备主轴故障导致 4 个订单连带逾期。"
                      "作为排产助手，你会如何提前识别并规避此类设备故障风险？",
             "expected_keypoints": ["设备故障", "预防性维护", "备件库存", "风险预警"],
-            "context": "设备负载 data/machines.csv 含预计空闲时间/状态；历史延期记录有故障复盘。",
+            "context": "设备负载 machines 表含预计空闲时间/状态，经 data.py load_machines 读取；历史延期记录有故障复盘。",
             "must_not": ["不知道", "无法识别"],
         },
         {
@@ -32,7 +28,7 @@ def load_scenarios() -> list[dict]:
             "query": "复盘：2025 年东莞模具厂因客户物料（Cr12MoV）延迟到货 5 天导致订单顺延。"
                      "排产时如何规避物料到货风险？",
             "expected_keypoints": ["物料到货", "预警", "提前备料", "顺延"],
-            "context": "库存 data/inventory.csv 含安全库存/采购周期；可查材料库存。",
+            "context": "库存 inventory 表含安全库存/采购周期，经 data.py load_inventory 读取；可查材料库存。",
             "must_not": ["不知道"],
         },
         {
@@ -50,7 +46,7 @@ def load_scenarios() -> list[dict]:
             "query": "复盘：2025 年深圳精密加急订单在热处理排队险些逾期，调度组紧急插队才按期交付。"
                      "排产如何为加急订单设绿色通道？",
             "expected_keypoints": ["加急", "绿色通道", "插队", "预留产能"],
-            "context": "设备负载可查当前任务；紧急订单状态在 orders.csv。",
+            "context": "设备负载可查当前任务；紧急订单状态在 orders 表（经 data.py load_orders 读取）。",
             "must_not": ["不知道"],
         },
         {
@@ -59,7 +55,7 @@ def load_scenarios() -> list[dict]:
             "query": "复盘：2025 年东莞模具厂因客户中途变更模具设计，报废 30 件、交期顺延 10 天。"
                      "排产如何评估设计变更对交期的影响？",
             "expected_keypoints": ["设计变更", "交期影响", "顺延", "评估"],
-            "context": "订单交期在 orders.csv；历史延期记录有变更复盘。",
+            "context": "订单交期在 orders 表（经 data.py load_orders 读取）；历史延期记录有变更复盘。",
             "must_not": ["不知道"],
         },
     ]

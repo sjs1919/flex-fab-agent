@@ -16,6 +16,14 @@ def test_scenario_has_required_fields():
         assert s["id"].startswith("bt_")
 
 
+def test_scenario_context_no_csv_reference():
+    """T5a.13（E3）：场景 context 数据源描述为 MySQL 表口径（data.py 读取），无 CSV 引用。"""
+    for s in load_scenarios():
+        ctx = s.get("context", "")
+        assert "data/" not in ctx, f"{s['id']} context 含 data/ 路径: {ctx}"
+        assert ".csv" not in ctx, f"{s['id']} context 含 .csv 引用: {ctx}"
+
+
 def test_score_full_coverage():
     """答案覆盖全部关键要点 = 1.0。"""
     scenario = {
