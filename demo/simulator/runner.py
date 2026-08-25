@@ -11,11 +11,11 @@ SIM_TICK_SECONDS 环境变量控制心跳间隔（默认 60s = 1 sim 小时；�
 from __future__ import annotations
 
 import logging
-import os
 import threading
 import time
 
-from demo.cache import llm_cache
+from demo.cache.manager import cache_manager
+from demo.config import SIM_TICK_SECONDS
 from demo.observability import dashboard
 from demo.observability.tracer import Tracer
 from demo.simulator import clock, engine
@@ -34,7 +34,7 @@ class SimulatorRunner:
 
     def __init__(self, tick_seconds: float | None = None) -> None:
         self.tick_seconds = (tick_seconds if tick_seconds is not None
-                             else float(os.getenv("SIM_TICK_SECONDS", "60")))
+                             else SIM_TICK_SECONDS)
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._tracer = Tracer()  # D2：线程私有，不碰全局 tracer
@@ -54,7 +54,7 @@ class SimulatorRunner:
             stats = engine.advance_tick(conn, sim_time)
         self.tick_count += 1
         self.consecutive_failures = 0
-        llm_cache.bump_scene_version()  # R-3：状态相关缓存失效
+        cache_manager.bump_scene_version()  # R-3：状态相关缓存失效
         self._record_kpi_snapshot(sim_time)
         duration_ms = round((time.perf_counter() - t0) * 1000, 1)
         self._tracer.record(

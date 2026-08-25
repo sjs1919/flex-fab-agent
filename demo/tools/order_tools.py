@@ -14,6 +14,7 @@ M1 T3.1 字段/枚举对齐（v2 重构）：
 import json
 
 from .data import load_customers, load_orders, load_parts, format_table, normalize_order_status
+from ..core.utils import CUSTOMER_LEVEL_ORDER, fmt_date
 
 
 def _orders_table(orders: list[dict]) -> str:
@@ -37,7 +38,7 @@ def _enrich(orders: list[dict]) -> list[dict]:
         o["工艺"] = ",".join(sorted(parts_by_order.get(o["id"], set())))
         # 数据库原生类型 → 字符串/整数，统一展示与筛选（Decimal/date 不可直接比较）
         if o.get("due_date") is not None:
-            o["due_date"] = o["due_date"].strftime("%Y-%m-%d") if hasattr(o["due_date"], "strftime") else str(o["due_date"])
+            o["due_date"] = fmt_date(o["due_date"]) if o["due_date"] else ""
         if o.get("amount") is not None:
             o["amount"] = str(o["amount"])
         if o.get("urgent") is not None:
@@ -87,8 +88,7 @@ def query_orders(
     if sort_by == "due":
         orders.sort(key=lambda x: x.get("due_date", "9999-99-99"))
     elif sort_by == "level":
-        level_order = {"S": 0, "A": 1, "B": 2, "C": 3}
-        orders.sort(key=lambda x: level_order.get(x.get("客户等级", ""), 9))
+        orders.sort(key=lambda x: CUSTOMER_LEVEL_ORDER.get(x.get("客户等级", ""), 9))
     elif sort_by == "priority":
         orders.sort(key=lambda x: (-x.get("priority", 0), x.get("due_date", "9999-99-99")))
 

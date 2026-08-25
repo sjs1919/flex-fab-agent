@@ -13,10 +13,10 @@ handler；machine_failure 触发硬性不可行检测（修不回交期 -> 强�
 """
 from __future__ import annotations
 
-import json
 import random
 from datetime import datetime, timedelta
 
+from demo.core.utils import json_list
 from demo.simulator import events, states
 
 # 班次/换班：3 班倒 × 8h，每班换班 30min 无产出 -> 净 22.5h/天
@@ -100,7 +100,7 @@ def _scrap_inspect(cur, sim_time: datetime, batch_id: str, params: dict) -> None
     machine_id, process, order_ids = row if row else (None, None, None)
     # 件数：批次关联订单的 parts 量合计；查不到回落 1
     part_count = 1
-    oids = _json_list(order_ids)
+    oids = json_list(order_ids)
     if oids:
         cur.execute(
             f"SELECT COALESCE(SUM(quantity), 0) FROM parts WHERE order_id IN "
@@ -119,19 +119,6 @@ def _scrap_inspect(cur, sim_time: datetime, batch_id: str, params: dict) -> None
         "related_event_id, sim_time) VALUES (%s,%s,%s,%s,%s,%s)",
         (batch_id, machine_id or "", process or "", part_count, event_id, sim_time))
     states.log_state_change(cur, sim_time, "batch", batch_id, "scrap", "完成", "坏件需重打")
-
-
-def _json_list(raw) -> list:
-    """order_ids 字段（JSON 字符串/列表）-> list（坏件件数统计用）。"""
-    if not raw:
-        return []
-    if isinstance(raw, list):
-        return raw
-    try:
-        v = json.loads(raw)
-        return v if isinstance(v, list) else []
-    except (TypeError, ValueError):
-        return []
 
 
 def advance_preprocess(conn, cur, sim_time: datetime) -> int:

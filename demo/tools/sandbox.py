@@ -32,14 +32,11 @@
 治理侧（只读/写标记、写工具强制 token+权限）见 tools/registry.py execute。
 =============================================================
 """
-import os
 import time
 import traceback
 from typing import Any, Callable
 
-
-TOOL_TIMEOUT = float(os.getenv("TOOL_TIMEOUT", "10"))
-TOOL_MAX_RETRIES = int(os.getenv("TOOL_MAX_RETRIES", "3"))
+from ..config import TOOL_TIMEOUT, TOOL_MAX_RETRIES  # noqa: F401  (供外部 import)
 
 
 class ToolExecutionError(Exception):

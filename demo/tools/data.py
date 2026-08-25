@@ -58,6 +58,29 @@ def get_connection() -> pymysql.connections.Connection:
     return _get_pool().connection()
 
 
+def create_raw_connection(multi_statements: bool = False) -> pymysql.connections.Connection:
+    """创建 pymysql 裸连接（不走连接池），供 DDL / 批量 DML 运维脚本使用。
+
+    复用连接池相同的 DSN 解析逻辑（urlparse），比正则更可靠。
+
+    Args:
+        multi_statements: 是否启用 CLIENT.MULTI_STATEMENTS flag（批量 SQL 脚本需要）
+    """
+    parsed = urllib.parse.urlparse(get_mysql_dsn().replace("mysql+pymysql://", "mysql://"))
+    client_flag = 0
+    if multi_statements:
+        client_flag |= pymysql.constants.CLIENT.MULTI_STATEMENTS
+    return pymysql.connect(
+        host=parsed.hostname,
+        port=parsed.port or 3306,
+        user=parsed.username,
+        password=parsed.password,
+        database=parsed.path.lstrip("/"),
+        charset="utf8mb4",
+        client_flag=client_flag,
+    )
+
+
 @contextmanager
 def transaction() -> Iterator[pymysql.connections.Connection]:
     """事务原子提交 contextmanager（R-D3，模拟器 tick 多写基础）。

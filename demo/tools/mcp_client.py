@@ -11,15 +11,13 @@
   - 超时/重试由 R1 的 sandbox 层统一处理。
 """
 import json
-import os
 import subprocess
 import sys
 import time
 import uuid
 from typing import Any
 
-
-MCP_MODE = os.getenv("MCP_MODE", "local")  # local | mcp
+from ..config import MCP_MODE  # noqa: F401
 
 
 class MCPToolClient:

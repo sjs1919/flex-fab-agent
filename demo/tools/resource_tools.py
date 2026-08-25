@@ -8,6 +8,7 @@ R7 缺陷修复（2026-08-07）：query_inventory 和 query_customer 增强为�
 import json
 
 from .data import load_inventory, load_machines, load_customers, filter_by, format_table
+from ..core.utils import CUSTOMER_LEVEL_ORDER
 
 
 def query_inventory(material_name: str = "", category: str = "",
@@ -66,12 +67,10 @@ def query_customer(customer_id: str = "", customer_name: str = "",
     if customer_name:
         customers = [c for c in customers if customer_name in c.get("name", "")]
     if min_level:
-        level_order = {"S": 0, "A": 1, "B": 2, "C": 3}
-        min_val = level_order.get(min_level, 9)
-        customers = [c for c in customers if level_order.get(c.get("level", ""), 9) <= min_val]
+        min_val = CUSTOMER_LEVEL_ORDER.get(min_level, 9)
+        customers = [c for c in customers if CUSTOMER_LEVEL_ORDER.get(c.get("level", ""), 9) <= min_val]
     if sort_by == "level":
-        level_order = {"S": 0, "A": 1, "B": 2, "C": 3}
-        customers.sort(key=lambda x: level_order.get(x.get("level", ""), 9))
+        customers.sort(key=lambda x: CUSTOMER_LEVEL_ORDER.get(x.get("level", ""), 9))
     elif sort_by == "credit":
         customers.sort(key=lambda x: int(x.get("credit_score", 0)), reverse=True)
     if not customers:

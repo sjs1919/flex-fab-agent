@@ -20,6 +20,9 @@ import random
 from datetime import datetime, timedelta
 
 from demo.simulator import states
+from demo.simulator.constants import (
+    LEVEL_SCORE, PART_DIM_RANGE, PART_WEIGHT_RANGE, calc_priority,
+)
 
 PARAMS_DEFAULT = {
     "machine_mtbf_h": 96,
@@ -32,11 +35,9 @@ PARAMS_DEFAULT = {
     "new_order_max": 10,
 }
 
-# 每材料 part 尺寸/件重范围（与 seed 口径一致，保证可装舱）
-PART_DIM_RANGE = {"SLA": (80, 400), "MJS": (150, 500), "SLM": (50, 300)}
-PART_WEIGHT_RANGE = {"SLA": (0.5, 8), "MJS": (2, 25), "SLM": (1, 30)}
 
-LEVEL_SCORE = {"S": 50, "A": 40, "B": 25, "C": 10}
+# — 以下常量已迁移到 simulator/constants.py，通过 import 复用 —
+# 保留 re-export 便于外部 import（向后兼容）
 
 
 def get_sim_params(conn) -> dict:
@@ -110,7 +111,7 @@ def generate_new_order(conn, cur, sim_time: datetime, params: dict | None = None
         cid, level = random.choice(customers)
         amount = round(random.uniform(5000, 800000), 2)
         urgent = 1 if random.random() < 1 / 7 else 0
-        priority = LEVEL_SCORE.get(level, 10) + urgent * 30 + (20 if amount >= 50000 else 0)
+        priority = calc_priority(level, bool(urgent), amount, default_score=10)
         due = sim_time.date() + timedelta(days=random.randint(7, 30))
         oid = f"SIM{order_seq:05d}"
         order_seq += 1

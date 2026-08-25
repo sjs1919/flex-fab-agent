@@ -14,14 +14,16 @@ CLI：`python -m demo.simulator.seed --reset | --seed`
 from __future__ import annotations
 
 import random
-import re
 import sys
 from datetime import date, timedelta
 
 import pymysql
 
-from demo.config import get_mysql_dsn
 from demo.schema import migrate
+from demo.simulator.constants import (
+    LEVEL_SCORE, PART_DIM_RANGE, PART_WEIGHT_RANGE, calc_priority,
+)
+from demo.tools.data import create_raw_connection
 
 # 固定种子 → 幂等（两次执行数据一致）
 random.seed(42)
@@ -37,7 +39,7 @@ CUSTOMERS = [
     ("C004", "惠州医疗器械", "C", 65, 0.95, "医疗器械", 0.003),
     ("C005", "佛山智能家居", "B", 82, 0.90, "智能家居", 0.003),
 ]
-LEVEL_SCORE = {"S": 50, "A": 40, "B": 25, "C": 10}
+# LEVEL_SCORE 从 simulator.constants import（下同）
 
 # 设备 7 台（id / name / process / model_type / cabin_size / max_weight）
 MACHINES = [
@@ -89,22 +91,14 @@ INVENTORY = [
     ("MAT010", "碳纤维预浸料", "碳纤维", 12, "卷", 8, 15, 1800),
 ]
 
-# 每材料 part 尺寸范围（包络盒 mm，长边 ≤550 保证可装舱；超尺寸样例单独注入）
-PART_DIM_RANGE = {"SLA": (80, 400), "MJS": (150, 500), "SLM": (50, 300)}
-PART_WEIGHT_RANGE = {"SLA": (0.5, 8), "MJS": (2, 25), "SLM": (1, 30)}
+# — 尺寸/重量范围已迁移到 simulator/constants.py —
+
 ORDER_COUNT = 40  # 30-50 内
 
 
 def _connect() -> pymysql.connections.Connection:
-    """解析 config 合成的 DSN，返回 pymysql 连接（autocommit=False）。"""
-    m = re.match(r"mysql\+pymysql://([^:]+):([^@]*)@([^:]+):(\d+)/([^?]+)", get_mysql_dsn())
-    if not m:
-        raise RuntimeError("MYSQL_DSN 解析失败，请检查 config.get_mysql_dsn()")
-    user, pw, host, port, db = m.groups()
-    return pymysql.connect(
-        host=host, port=int(port), user=user, password=pw, database=db,
-        client_flag=pymysql.constants.CLIENT.MULTI_STATEMENTS, autocommit=False,
-    )
+    """返回 pymysql 裸连接（批量 DML 用，不走连接池，支持 MULTI_STATEMENTS）。"""
+    return create_raw_connection(multi_statements=True)
 
 
 def _clear(conn: pymysql.connections.Connection) -> None:
@@ -169,7 +163,7 @@ def _seed_orders(cur) -> None:
         cid, name, lv, *_ = CUSTOMERS[(i - 1) % len(CUSTOMERS)]
         amount = round(random.uniform(5000, 800000), 2)
         urgent = 1 if i % 7 == 0 else 0  # 每 7 单 1 单加急
-        priority = LEVEL_SCORE[lv] + urgent * 30 + (20 if amount >= 50000 else 0)
+        priority = calc_priority(lv, bool(urgent), amount)
         ordered = start - timedelta(days=random.randint(1, 30))
         due = start + timedelta(days=random.randint(7, 30))
         rows.append((f"ORD{i:03d}", cid, amount, urgent, priority, ordered, due, "待排队", "default"))

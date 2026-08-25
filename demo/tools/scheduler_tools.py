@@ -19,6 +19,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from demo.config import get_config
+from demo.core.utils import fmt_dt, json_list
 from demo.forecast import forecaster
 from demo.scheduler import assessment
 from demo.scheduler.snapshot import load_snapshot
@@ -134,29 +135,18 @@ def approve_schedule(version_id: int, action: str, note: str = "",
     return f"✅ 版本 {version_id} 审批{action}（{version_status}），批次同步更新"
 
 
-def _fmt(value) -> str:
-    """datetime/date → 展示字符串（MySQL DATE 返回 date 对象，datetime 带微秒）。"""
-    if value is None:
-        return ""
-    if isinstance(value, datetime):
-        return value.strftime("%Y-%m-%d %H:%M")
-    if isinstance(value, date):
-        return value.strftime("%Y-%m-%d")
-    return str(value)
-
-
 def query_load_assessment() -> str:
     """产能负载评估（M4b 实装）：四段报告——订单分布 → 各订单预计完成 →
     满负荷超期预警 → T 窗口消化 + 三区制 + 前道人池。只读，无参数。"""
     a = assessment.load_assessment()
-    lines = [f"📊 产能负载评估（生成 {_fmt(a['generated_at'])}，T 窗口 {a['t_window_h']:.0f}h）"]
+    lines = [f"📊 产能负载评估（生成 {fmt_dt(a['generated_at'])}，T 窗口 {a['t_window_h']:.0f}h）"]
 
     dist = a["distribution"]
     lines.append(f"1️⃣ 订单分布：在途 {len(dist['在途'])} | 排队 {len(dist['排队'])} | 完成 {len(dist['完成'])}")
 
     eta_rows = [{
-        "订单": e["order_id"], "工艺": e["process"], "交期": _fmt(e["due_date"]),
-        "预计完成": _fmt(e["eta"]),
+        "订单": e["order_id"], "工艺": e["process"], "交期": fmt_dt(e["due_date"]),
+        "预计完成": fmt_dt(e["eta"]),
         "状态": "✅ 按期" if e["on_time"] else f"⚠️ 延期 {e['delay_days']} 天",
     } for e in a["orders_eta"]]
     lines.append("2️⃣ 各订单预计完成（满负荷粗算，交期升序→优先级降序）：")
@@ -165,8 +155,8 @@ def query_load_assessment() -> str:
     lines.append("3️⃣ 满负荷超期预警：")
     if a["overdue_alerts"]:
         alert_rows = [{
-            "订单": x["order_id"], "工艺": x["process"], "交期": _fmt(x["due_date"]),
-            "预计完成": _fmt(x["eta"]), "延期": f"{x['delay_days']} 天",
+            "订单": x["order_id"], "工艺": x["process"], "交期": fmt_dt(x["due_date"]),
+            "预计完成": fmt_dt(x["eta"]), "延期": f"{x['delay_days']} 天",
         } for x in a["overdue_alerts"]]
         lines.append(format_table(alert_rows))
     else:
@@ -185,7 +175,7 @@ def query_load_assessment() -> str:
            f"（换班 {pp['changeover_min']}min）→ 净产能 {pp['net_capacity_h_per_day']:.1f} 人·时/天")
     load = (f"待处理 {pp['pending_tasks']} 任务 / {pp['remaining_man_hours']:.1f} 人·时"
             f"（占用率 {pp['utilization'] * 100:.0f}%）")
-    clear = f"预计清空 {_fmt(pp['eta_clear'])}" if pp["eta_clear"] else "暂无排队任务"
+    clear = f"预计清空 {fmt_dt(pp['eta_clear'])}" if pp["eta_clear"] else "暂无排队任务"
     bottle = "⚠️ 已成前道瓶颈" if pp["bottleneck"] else "未成瓶颈"
     lines.append(f"5️⃣ 前道人池：{cap} | {load} | {clear} | {bottle}")
     return "\n".join(lines)
@@ -203,12 +193,12 @@ def query_ctp(material: str = "", quantity: int = 0, height_mm: float = 0,
     except ValueError as e:
         return f"❌ {e}"
     lines = [
-        f"📅 CTP（最短可交付）：{_fmt(r['ctp'])}",
-        f"承诺期（含预测预留）：{_fmt(r['calibrated_ctp'])}"
+        f"📅 CTP（最短可交付）：{fmt_dt(r['ctp'])}",
+        f"承诺期（含预测预留）：{fmt_dt(r['calibrated_ctp'])}"
         f"（预测预留 {r.get('forecast_reserved_days', 0):.0f} 天，"
         "预测机时按 90% 日产能折算，不扰动已下单订单）",
         f"瓶颈：{r['bottleneck']} | 新单机时 {r['machine_hours']:.2f}h"
-        f"（该工艺现有占用完成 {_fmt(r['machine_ctp'])} / 前道人池完成 {_fmt(r['preprocess_ctp'])}）",
+        f"（该工艺现有占用完成 {fmt_dt(r['machine_ctp'])} / 前道人池完成 {fmt_dt(r['preprocess_ctp'])}）",
     ]
     try:
         threshold = float(get_config("预测", "large_order_amount", "50000"))
@@ -225,20 +215,8 @@ def query_ctp(material: str = "", quantity: int = 0, height_mm: float = 0,
         if r.get("meet_due"):
             lines.append(f"✅ 可满足交期 {due_date}")
         else:
-            lines.append(f"⚠️ 无法满足交期 {due_date}，最早可交付 {_fmt(r['ctp'])}")
+            lines.append(f"⚠️ 无法满足交期 {due_date}，最早可交付 {fmt_dt(r['ctp'])}")
     return "\n".join(lines)
-
-
-def _json_list(raw) -> list:
-    """order_ids 字段（JSON 字符串/列表）→ list。"""
-    if not raw:
-        return []
-    if isinstance(raw, list):
-        return raw
-    try:
-        return json.loads(raw)
-    except (TypeError, ValueError):
-        return []
 
 
 def query_order_tracking(order_id: str = "") -> str:
@@ -253,19 +231,19 @@ def query_order_tracking(order_id: str = "") -> str:
     process = parts[0].get("material") if parts else "SLA"
 
     mine = [b for b in assessment._latest_batches()
-            if order_id in _json_list(b.get("order_ids"))]
+            if order_id in json_list(b.get("order_ids"))]
 
     lines = [f"🔍 订单 {order_id} 跟踪（工艺 {process}）",
-             f"状态 {order['status']} | 交期 {_fmt(order['due_date'])} | "
-             f"优先级 {order['priority']} | 金额 {_fmt(order['amount'])}"]
+             f"状态 {order['status']} | 交期 {fmt_dt(order['due_date'])} | "
+             f"优先级 {order['priority']} | 金额 {fmt_dt(order['amount'])}"]
 
     if mine:
         lines.append("📦 关联批次：")
         for b in mine:
-            done = _fmt(b.get("post_process_end") or b.get("end_time"))
+            done = fmt_dt(b.get("post_process_end") or b.get("end_time"))
             tag = "预计完成" if b.get("status") != "完成" else "完成"
             lines.append(f"批次 {b['id']} | {b['status']}/{b['approval_status']} | "
-                         f"设备 {b['machine_id']} | 开工 {_fmt(b['start_time'])} | {tag} {done}")
+                         f"设备 {b['machine_id']} | 开工 {fmt_dt(b['start_time'])} | {tag} {done}")
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -281,7 +259,7 @@ def query_order_tracking(order_id: str = "") -> str:
 
     ahead = _ahead_orders(order, process, orders)
     if ahead:
-        rows = [{"订单": o["id"], "交期": _fmt(o["due_date"]),
+        rows = [{"订单": o["id"], "交期": fmt_dt(o["due_date"]),
                  "优先级": o["priority"], "状态": o["status"]} for o in ahead]
         lines.append(f"⏳ 前面单据（{len(ahead)} 单，交期升序→优先级降序）：")
         lines.append(format_table(rows))
@@ -321,7 +299,7 @@ def query_preprocess_load() -> str:
         f"池占用率：{pp['utilization'] * 100:.0f}%",
     ]
     if pp["eta_clear"]:
-        lines.append(f"预计清空：{_fmt(pp['eta_clear'])}")
+        lines.append(f"预计清空：{fmt_dt(pp['eta_clear'])}")
     else:
         lines.append("预计清空：暂无排队任务")
     lines.append("状态：⚠️ 已成前道瓶颈" if pp["bottleneck"] else "状态：未成瓶颈")
@@ -361,7 +339,7 @@ def _kpi_cabin_utilization(batches: list, parts_by_order: dict, machines: dict) 
         if not cs:
             continue
         batch_proj = Decimal("0.00")
-        for oid in _json_list(b.get("order_ids")):
+        for oid in json_list(b.get("order_ids")):
             for p in parts_by_order.get(oid, []):
                 batch_proj += (Decimal(str(p.get("length") or 0))
                                * Decimal(str(p.get("width") or 0))
@@ -378,7 +356,7 @@ def _kpi_done_parts(batches: list, parts_by_order: dict) -> int:
     return sum(
         int(p.get("quantity") or 0)
         for b in batches if b.get("status") == "完成"
-        for oid in _json_list(b.get("order_ids"))
+        for oid in json_list(b.get("order_ids"))
         for p in parts_by_order.get(oid, []))
 
 
@@ -419,7 +397,7 @@ def kpi_metrics() -> dict:
         t = b.get("post_process_end") or b.get("end_time")
         if not t:
             continue
-        for oid in _json_list(b.get("order_ids")):
+        for oid in json_list(b.get("order_ids")):
             if oid not in batch_end or t > batch_end[oid]:
                 batch_end[oid] = t
     completion = {oid: done_log.get(oid, batch_end.get(oid))
@@ -466,7 +444,7 @@ def query_kpi() -> str:
     yr = m["yield_rate"]
     yr_txt = f"{yr * 100:.1f}%" if yr is not None else "暂无完工批次"
     pp = m["preprocess"]
-    lines = [f"📈 排产 KPI（生成 {_fmt(m['generated_at'])}）"]
+    lines = [f"📈 排产 KPI（生成 {fmt_dt(m['generated_at'])}）"]
     lines.append(f"1️⃣ 准交率：{ot_txt}（{m['on_time']}/{m['sample']} 单按期）")
     lines.append(f"2️⃣ 延期金额：¥{m['delay_total']:.2f}（Σ金额×违约金日费率×延期天数）")
     cabin = m["cabin_utilization"]
@@ -524,7 +502,7 @@ def _done_parts_by_machine() -> dict[str, int]:
         if b.get("status") != "完成" or not b.get("machine_id"):
             continue
         total = sum(int(p.get("quantity") or 0)
-                    for oid in _json_list(b.get("order_ids"))
+                    for oid in json_list(b.get("order_ids"))
                     for p in by_order.get(oid, []))
         result[b["machine_id"]] = result.get(b["machine_id"], 0) + total
     return result
@@ -600,7 +578,7 @@ def query_yield() -> str:
     total_done = sum(done.values())
     failures = _machine_failure_counts()
 
-    lines = [f"🛡️ 打印良率（生成 {_fmt(datetime.now())}）"]
+    lines = [f"🛡️ 打印良率（生成 {fmt_dt(datetime.now())}）"]
     if not rows:
         lines.append("（暂无坏件记录，全部批次良率 100%，无需归因）")
         return "\n".join(lines)

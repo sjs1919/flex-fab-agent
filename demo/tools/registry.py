@@ -12,9 +12,10 @@ R1 缺陷修复（2026-08-07）：execute 集成 sandbox.run_with_retry（超时
 R5 缺陷修复（2026-08-07）：execute 支持 mode="mcp" 走 MCP 协议调用
 R8 缺陷修复（2026-08-07）：execute 自动注入 tenant_id（如有 Token）
 """
-import os
 from dataclasses import dataclass, field
 from typing import Any, Callable
+
+from ..config import MCP_MODE
 
 from .order_tools import query_orders, get_order_detail, get_production_status
 from .resource_tools import query_inventory, query_machine_load, query_customer
@@ -144,8 +145,7 @@ class ToolRegistry:
                 filtered.setdefault("token", token)
 
             # R5：MCP mode 路由
-            mode = os.getenv("MCP_MODE", "local")
-            if mode == "mcp" and schema.server in self._mcp_clients:
+            if MCP_MODE == "mcp" and schema.server in self._mcp_clients:
                 client = self._mcp_clients[schema.server]
                 return client.call_tool(name, filtered)
 
