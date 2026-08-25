@@ -5,20 +5,25 @@
   历史延期记录.txt        历史延期案例
   chroma_db/             已灌好的 Chroma 向量库（直接复用，无需重建）
 
-为什么复用现成向量库：
-  灌库要跑 onnx embedding（~80MB），首次构建慢。chroma_db/ 已有数据，
-  get_or_build_vectorstore 检测到非空直接复用，开箱即跑。
+Embedding 模型：BAAI/bge-small-zh-v1.5（中文效果好，与语义缓存层统一，
+避免 Chroma 默认 all-MiniLM-L6-v2（英文）对中文检索质量差的问题。
+首次构建自动灌库，已缓存模型则零联网。
 """
+import logging
 from pathlib import Path
 
 import chromadb
 
 from ..config import DATA_DIR, RUNTIME_DIR
+from ..core.hf_utils import load_st_embedding
+
+logger = logging.getLogger(__name__)
 
 DB_DIR = RUNTIME_DIR / "chroma_db"
 CONTRACTS_DIR = DATA_DIR / "contracts"
 DELAY_RECORD = DATA_DIR / "历史延期记录.txt"
 COLLECTION_NAME = "kb_contracts_delay"
+EMBEDDING_MODEL = "BAAI/bge-small-zh-v1.5"
 
 # E6（M5a）：文档级权限映射。缺省 public，仅列出的文件受限。
 # 广州航天精工合同特殊条款含违约金等敏感条款，仅 admin/reviewer 可检索。
@@ -28,6 +33,17 @@ DOC_PERMISSION: dict[str, str] = {"广州航天精工_合同特殊条款.txt": "
 def doc_permission(source: str) -> str:
     """返回文档权限：confidential（机密）或 public（公开）。"""
     return DOC_PERMISSION.get(source, "public")
+
+
+_embedding_function = None
+
+
+def _get_ef():
+    """单例懒加载 embedding function。"""
+    global _embedding_function
+    if _embedding_function is None:
+        _embedding_function = load_st_embedding(EMBEDDING_MODEL)
+    return _embedding_function
 
 
 def load_documents() -> list[tuple[str, str]]:
@@ -57,14 +73,17 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 100) -> list[str
 
 def get_or_build_vectorstore():
     """获取或构建 Chroma 向量库：已有数据则复用，否则加载->分块->灌入。"""
+    ef = _get_ef()
     client = chromadb.PersistentClient(path=str(DB_DIR))
-    collection = client.get_or_create_collection(COLLECTION_NAME)
+    collection = client.get_or_create_collection(
+        COLLECTION_NAME, embedding_function=ef
+    )
 
     if collection.count() > 0:
-        print(f"  ♻️  向量库已有 {collection.count()} 条向量，直接复用（{DB_DIR.name}/）")
+        logger.info("向量库已有 %d 条向量，直接复用（%s/）", collection.count(), DB_DIR.name)
         return collection
 
-    print("  📥 首次构建向量库：加载文档 -> 分块 -> 向量化 -> 灌入")
+    logger.info("首次构建向量库：加载文档 -> 分块 -> 向量化 -> 灌入")
     docs = load_documents()
     if not docs:
         raise RuntimeError(f"知识库为空，请检查 {DATA_DIR}")
@@ -75,7 +94,7 @@ def get_or_build_vectorstore():
             texts.append(chunk)
             metas.append({"source": filename})
     collection.add(ids=ids, documents=texts, metadatas=metas)
-    print(f"  ✅ 灌入 {len(ids)} 个文本块（来自 {len(docs)} 个文档）")
+    logger.info("灌入 %d 个文本块（来自 %d 个文档）", len(ids), len(docs))
     return collection
 
 

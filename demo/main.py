@@ -16,10 +16,12 @@ import sys
 import uuid
 
 from .config import available_providers, get_data_source
+from .core.logging_setup import setup_logging
 from .agents.single_agent import run_single_agent
 from .tools.data import load_orders
 from .tools.registry import build_default_registry
 from .observability import tracer, cost_tracker
+from .observability.request_context import new_trace_id
 
 DEMO_SCENARIOS = [
     "今天先做哪些订单？帮我综合考虑交期紧迫度、客户等级、材料库存和设备负载情况，给出优先级排序。",
@@ -54,6 +56,7 @@ def selfcheck():
 
 
 def main():
+    setup_logging()
     args = sys.argv[1:]
 
     if "--check" in args:
@@ -182,6 +185,7 @@ def _rollback_prompt(version: str) -> None:
 
 def _run_with_trace(fn, query, thread_id=None):
     """每轮查询：重置 tracer + cost -> 执行 -> 打印 trace + 费用摘要 -> 导出（观测层）。"""
+    new_trace_id()  # CLI 入口：每轮生成新 trace_id
     tracer.reset()
     cost_tracker.reset()
     if thread_id is not None:

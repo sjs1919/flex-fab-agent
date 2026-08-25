@@ -13,19 +13,24 @@
 run_single_agent 运行时的 print 进容器 stdout（docker logs 可见），
 本接口只把结构化结果以 JSON 返回。trace 摘要复用 tracer.get_summary()。
 """
-import os
-import uuid
 from datetime import datetime
+import json
+import logging
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from .agents.single_agent import _get_app, run_single_agent
-from .cache import semantic_cache
-from .config import available_providers
+from .cache.manager import cache_manager
+from .config import available_providers, CHECKPOINTER, SIM_TICK_SECONDS
+from .core.utils import cap_limit
+from .core.logging_setup import setup_logging
 from .observability import tracer, cost_tracker
+from .observability.request_context import get_trace_id, new_trace_id
 from .tools.registry import build_default_registry
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="demo 排产助手 API", version="0.1.0")
 app.add_middleware(
@@ -34,6 +39,60 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 统一日志配置（入口初始化一次）
+setup_logging()
+
+
+@app.middleware("http")
+async def trace_id_middleware(request: Request, call_next):
+    """全链路 trace_id 中间件：请求入口生成，响应头回传 X-Trace-Id。
+
+    - 优先从 X-Trace-Id 请求头取（前端/上游透传），没有则新生成
+    - 存入 contextvars，tracer / audit_logger 全链路共享
+    - 响应头带 X-Trace-Id，便于前端排查
+    """
+    incoming = request.headers.get("X-Trace-Id", "").strip()
+    if incoming:
+        from .observability.request_context import set_trace_id
+        set_trace_id(incoming)
+    else:
+        new_trace_id()
+    response: Response = await call_next(request)
+    response.headers["X-Trace-Id"] = get_trace_id()
+    return response
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """HTTPException 统一包装成带 code/message/trace_id 的响应。"""
+    detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+    return Response(
+        content=json.dumps({
+            "code": exc.status_code,
+            "message": detail,
+            "data": None,
+            "trace_id": get_trace_id(),
+        }, ensure_ascii=False),
+        status_code=exc.status_code,
+        media_type="application/json",
+    )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """全局异常兜底：未捕获异常 → 500 + 结构化错误 + trace_id。"""
+    logger.error("未捕获异常: %s", exc, exc_info=True)
+    return Response(
+        content=json.dumps({
+            "code": 500,
+            "message": f"服务器内部错误：{exc}",
+            "data": None,
+            "trace_id": get_trace_id(),
+        }, ensure_ascii=False),
+        status_code=500,
+        media_type="application/json",
+    )
 
 # 工具注册表进程级单例（首次构建后复用，免去每请求重建）
 _registry = build_default_registry()
@@ -72,8 +131,8 @@ def health() -> dict:
         "providers": [p["name"] for p in available_providers()],
         "tools": len(_registry),
         "tool_names": _registry.list_all(),
-        "cache": "on" if semantic_cache.is_enabled() else "off",
-        "checkpointer": os.getenv("CHECKPOINTER", "sqlite"),
+        "cache": "on" if cache_manager.semantic_enabled() else "off",
+        "checkpointer": CHECKPOINTER,
         "sim": {"running": runner.is_alive(), "tick_count": runner.tick_count},
     }
 
@@ -156,23 +215,27 @@ def schedule_latest() -> dict:
 
 
 @app.post("/schedule/load")
-def schedule_load(x_admin_token: str = Header(default="")) -> dict:
+def schedule_load(_admin: str = Depends(require_admin)) -> dict:
     """触发一轮排产求解并落库（写端点，强制 admin token，R-7）。"""
-    _require_admin(x_admin_token)
     from .tools.scheduler_tools import run_scheduling
     return {"result": run_scheduling(triggered_by="api")}
 
 
-def _require_admin(token_id: str) -> None:
-    """写端点鉴权（R-7）：X-Admin-Token 头必须是有效且未过期的 admin token。"""
-    if not token_id:
+def require_admin(x_admin_token: str = Header(default="")) -> str:
+    """写端点鉴权（R-7）：Depends 形式，验证 admin token 有效性。
+
+    用法：def my_endpoint(admin_role: str = Depends(require_admin)): ...
+    返回 token 的 role（目前只有 admin），便于后续扩展。
+    """
+    if not x_admin_token:
         raise HTTPException(401, "写端点需要 admin token（R-7）：缺 X-Admin-Token 头")
     from .auth.token_exchange import STS
-    token = STS().get_token(token_id)
+    token = STS().get_token(x_admin_token)
     if token is None or token.is_expired():
         raise HTTPException(401, "admin token 无效或已过期")
     if token.role != "admin":
         raise HTTPException(403, f"需要 admin 角色（当前 {token.role}）")
+    return token.role
 
 
 # ---- 订单跟踪 + KPI（M4b，v2 C6；只读，与 /schedule/latest 同级） ----
@@ -196,30 +259,26 @@ def kpi() -> dict:
 
 # ---- 看板只读端点（M5b T5b.7；匿名可读，B8 前端消费） ----
 
-def _cap_limit(limit: int, max_limit: int = 2000) -> int:
-    """limit 参数夹取（只读端点防全表拉取）。"""
-    return min(max(limit, 1), max_limit)
-
 
 @app.get("/dashboard/kpi-history")
 def dashboard_kpi_history(limit: int = 500) -> dict:
     """KPI 快照历史（只读，升序）：sim tick 落点 + kpi_metrics 全量。"""
     from .observability import dashboard
-    return {"items": dashboard.kpi_history(limit=_cap_limit(limit))}
+    return {"items": dashboard.kpi_history(limit=cap_limit(limit))}
 
 
 @app.get("/dashboard/costs")
 def dashboard_costs(limit: int = 500) -> dict:
     """成本历史（只读，倒序）+ 跨记录按 model 聚合。"""
     from .observability import dashboard
-    return dashboard.cost_by_model(limit=_cap_limit(limit))  # 已含 items + by_model
+    return dashboard.cost_by_model(limit=cap_limit(limit))  # 已含 items + by_model
 
 
 @app.get("/dashboard/traces")
 def dashboard_traces(limit: int = 200) -> dict:
     """trace 摘要历史（只读，倒序）。"""
     from .observability import dashboard
-    return {"items": dashboard.trace_summary(limit=_cap_limit(limit))}
+    return {"items": dashboard.trace_summary(limit=cap_limit(limit))}
 
 
 def _persist_dashboard(trace_id: str, trace: dict, cost: dict) -> None:
@@ -232,7 +291,7 @@ def _persist_dashboard(trace_id: str, trace: dict, cost: dict) -> None:
         dashboard.record_cost(cost, trace_id=trace_id)
         dashboard.record_trace(trace, trace_id=trace_id)
     except Exception as e:
-        print(f"⚠️ 看板落库失败（不影响 /ask 响应）：{e}")
+        logger.warning("看板落库失败（不影响 /ask 响应）：%s", e)
 
 
 def _record_case(query: str, answer: str, tool_results: list[dict],
@@ -247,29 +306,45 @@ def _record_case(query: str, answer: str, tool_results: list[dict],
                                    [t.get("tool", "") for t in tool_results],
                                    trace_id)
     except Exception as e:
-        print(f"⚠️ case 落盘失败（不影响 /ask 响应）：{e}")
+        logger.warning("case 落盘失败（不影响 /ask 响应）：%s", e)
+
+
+def _run_agent_round(query: str, thread_id: str | None = None) -> dict:
+    """统一跑一轮 Agent：重置观测 → 执行 → 落看板 → 返回结果。
+
+    /ask 和 /debug/rerun 都走这段逻辑，避免重复样板。
+    返回：{"answer": str, "tool_results": list, "trace_id": str, "trace": dict}
+    """
+    tracer.reset()
+    cost_tracker.reset()
+    result = run_single_agent(query, registry=_registry, thread_id=thread_id)
+    trace = tracer.get_summary()
+    cost = cost_tracker.get_summary()
+    tracer.flush()
+    _persist_dashboard(tracer.trace_id, trace, cost)
+    answer = result.get("final_answer", "")
+    tool_results = result.get("tool_results", [])
+    _record_case(query, answer, tool_results, tracer.trace_id)
+    # 成本摘要输出到 stdout（docker logs 可见）
+    logger.info("%s", cost_tracker.format_text())
+    return {
+        "answer": answer,
+        "tool_results": tool_results,
+        "trace_id": tracer.trace_id,
+        "trace": trace,
+    }
 
 
 @app.post("/ask", response_model=AskResponse)
 def ask(req: AskRequest) -> AskResponse:
     """单次或多轮提问。带 thread_id 即多轮（checkpointer 恢复历史）。"""
-    tracer.reset()
-    cost_tracker.reset()
-    result = run_single_agent(req.query, registry=_registry, thread_id=req.thread_id)
-    trace = tracer.get_summary()
-    cost = cost_tracker.get_summary()
-    tracer.flush()
-    _persist_dashboard(tracer.trace_id, trace, cost)
-    _record_case(req.query, result.get("final_answer", ""),
-                 result.get("tool_results", []), tracer.trace_id)
-    # 成本摘要输出到 stdout（docker logs 可见）
-    print(cost_tracker.format_text())
+    round_result = _run_agent_round(req.query, thread_id=req.thread_id)
     return AskResponse(
-        answer=result.get("final_answer", ""),
-        tool_results=result.get("tool_results", []),
+        answer=round_result["answer"],
+        tool_results=round_result["tool_results"],
         thread_id=req.thread_id,
-        trace_id=tracer.trace_id,
-        trace=trace,
+        trace_id=round_result["trace_id"],
+        trace=round_result["trace"],
     )
 
 
@@ -281,7 +356,7 @@ def debug_cases(type: str | None = None, good: str | None = None,
     """case 列表（只读）：type=normal/chitchat/empty、good=true/false/null 过滤。"""
     from .observability import case_collector
     items = case_collector.load_cases(case_type=type, good=good,
-                                      limit=_cap_limit(limit))
+                                      limit=cap_limit(limit))
     return {"items": items}
 
 
@@ -308,30 +383,25 @@ def _get_case(trace_id: str) -> dict:
 
 
 @app.post("/debug/rerun/{trace_id}")
-def debug_rerun(trace_id: str, x_admin_token: str = Header(default="")) -> dict:
+def debug_rerun(trace_id: str, _admin: str = Depends(require_admin)) -> dict:
     """重跑（admin，真实 LLM 花钱）：case.query 重走 run_single_agent，
     返回新结果（新 trace_id），rerun 结果写回 case。"""
-    _require_admin(x_admin_token)
     case = _get_case(trace_id)
     from .observability import case_collector
-    tracer.reset()
-    cost_tracker.reset()
-    result = run_single_agent(case["query"], registry=_registry)
-    trace = tracer.get_summary()
-    cost = cost_tracker.get_summary()
-    tracer.flush()
-    _persist_dashboard(tracer.trace_id, trace, cost)
-    answer = result.get("final_answer", "")
-    case_collector.attach_rerun(trace_id, {"trace_id": tracer.trace_id,
-                                           "answer": answer})
-    return {"trace_id": trace_id, "new_trace_id": tracer.trace_id, "answer": answer}
+    round_result = _run_agent_round(case["query"])
+    case_collector.attach_rerun(trace_id, {
+        "trace_id": round_result["trace_id"],
+        "answer": round_result["answer"],
+    })
+    return {"trace_id": trace_id,
+            "new_trace_id": round_result["trace_id"],
+            "answer": round_result["answer"]}
 
 
 @app.post("/debug/judge/{trace_id}")
-def debug_judge(trace_id: str, x_admin_token: str = Header(default="")) -> dict:
+def debug_judge(trace_id: str, _admin: str = Depends(require_admin)) -> dict:
     """手动打分（admin，LLM 花钱）：judge_semantic_quality，分数写回 case.judge。
     有 rerun 优先评 rerun 答案（支持 bad->good 转化率统计）。"""
-    _require_admin(x_admin_token)
     case = _get_case(trace_id)
     from .eval.judge import judge_semantic_quality
     from .observability import case_collector
@@ -368,9 +438,8 @@ def debug_stats() -> dict:
 
 @app.put("/debug/cases/{trace_id}/label")
 def debug_label(trace_id: str, good: dict,
-                x_admin_token: str = Header(default="")) -> dict:
+                _admin: str = Depends(require_admin)) -> dict:
     """人工标注 good/bad（admin，运营动作），仅 normal case 生效。"""
-    _require_admin(x_admin_token)
     from .observability import case_collector
     if "good" not in good:
         raise HTTPException(400, "body 需含 good: true/false")
@@ -408,7 +477,7 @@ def get_config_view() -> dict:
     from .config import get_config, get_data_source
     return {
         "data_source": get_data_source(),
-        "sim_tick_seconds": float(os.getenv("SIM_TICK_SECONDS", "60")),
+        "sim_tick_seconds": SIM_TICK_SECONDS,
         "solver_timeout_override": _registry.get_schema("run_scheduling").timeout_override,
         "调试台": {
             "case_collection_enabled": get_config("调试台", "case_collection_enabled", "on"),
@@ -419,9 +488,8 @@ def get_config_view() -> dict:
 
 
 @app.put("/config")
-def put_config(body: dict, x_admin_token: str = Header(default="")) -> dict:
+def put_config(body: dict, _admin: str = Depends(require_admin)) -> dict:
     """写 system_config（admin）：{category, key, value}，白名单键校验。"""
-    _require_admin(x_admin_token)
     category, key = body.get("category", ""), body.get("key", "")
     if (category, key) not in _CONFIG_WHITELIST:
         raise HTTPException(400, f"键不在白名单：{category}.{key}")
@@ -433,7 +501,7 @@ def put_config(body: dict, x_admin_token: str = Header(default="")) -> dict:
 @app.get("/threads/{thread_id}/history")
 def thread_history(thread_id: str) -> dict:
     """读某多轮会话的 checkpoint 历史 messages（仅 sqlite/memory checkpointer 有数据）。"""
-    if os.getenv("CHECKPOINTER", "sqlite").lower() == "none":
+    if CHECKPOINTER.lower() == "none":
         raise HTTPException(400, "checkpointer=none，无持久化历史")
     app_graph = _get_app(_registry)
     state = app_graph.get_state({"configurable": {"thread_id": thread_id}})

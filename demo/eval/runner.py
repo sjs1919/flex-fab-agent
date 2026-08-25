@@ -20,6 +20,7 @@ from pathlib import Path
 
 from ..agents.single_agent import run_single_agent
 from ..observability import tracer, cost_tracker
+from ..observability.request_context import new_trace_id
 from .metrics import compute_all_metrics
 from .trajectory import compute_trajectory_score
 from .trajectory_capture import rebuild_trajectory
@@ -39,6 +40,7 @@ def load_cases() -> list[dict]:
 
 def _evaluate_single_case(case: dict, mode: str = "single", use_judge: bool = True) -> dict:
     """跑单个 case，产出三层指标。"""
+    new_trace_id()  # 每个 case 独立 trace_id
     tracer.reset()
     cost_tracker.reset()
     print(f"\n{'=' * 60}\n 评估: {case['id']} — {case['scenario']}\n{'=' * 60}")

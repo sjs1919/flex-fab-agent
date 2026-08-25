@@ -9,11 +9,15 @@
   - 中文约 1.5 字符/token
   - 默认 8000 字符 → 约 5300 tokens（远低于模型 128K 上下文但有效控制成本）
 """
-import os
+import logging
 
-MAX_CHARS = int(os.getenv("CONTEXT_MAX_CHARS", "8000"))
-KEEP_RECENT = int(os.getenv("CONTEXT_KEEP_RECENT", "6"))       # 保留最近 N 条原始消息
-COMPRESS_CHUNK_SIZE = int(os.getenv("CONTEXT_COMPRESS_CHUNK", "10"))  # 每次压缩 N 条
+from ..config import CONTEXT_MAX_CHARS, CONTEXT_KEEP_RECENT, CONTEXT_COMPRESS_CHUNK
+
+logger = logging.getLogger(__name__)
+
+MAX_CHARS = CONTEXT_MAX_CHARS
+KEEP_RECENT = CONTEXT_KEEP_RECENT
+COMPRESS_CHUNK_SIZE = CONTEXT_COMPRESS_CHUNK
 
 
 def estimate_chars(messages: list[dict]) -> int:
@@ -129,7 +133,7 @@ def compress_messages(messages: list[dict], llm_call) -> list[dict]:
         # 消息数没超过保留窗口（如单条 RAG tool 结果巨大），但仍超预算：
         # 直接截断 recent 里的大消息保证收敛，不能原样返回（否则上下文持续膨胀）
         if estimate_chars(other_msgs) > MAX_CHARS:
-            print(f"  📦 [上下文压缩] 消息数少但单条超预算，截断 recent 大消息...")
+            logger.debug("消息数少但单条超预算，截断 recent 大消息...")
             return _sanitize_tool_messages(_truncate_large_messages(messages, MAX_CHARS))
         return messages
 
@@ -160,11 +164,12 @@ def compress_messages(messages: list[dict], llm_call) -> list[dict]:
     # 5. 幂等校验：压缩后仍超阈值说明 recent 里大消息主导（如超大 tool 结果），
     #    截断这些消息保证收敛，避免下次 select 又触发压缩导致摘要无限叠加
     if estimate_chars(compressed) > MAX_CHARS:
-        print(f"  📦 [上下文压缩] 压缩后仍超阈值，截断 recent 大消息保证收敛...")
+        logger.debug("压缩后仍超阈值，截断 recent 大消息保证收敛...")
         compressed = _truncate_large_messages(compressed, MAX_CHARS)
 
     old_chars = estimate_chars(other_msgs)
     new_chars = estimate_chars(compressed)
-    print(f"  📦 [上下文压缩] {len(old)} 条历史消息 → {len(summaries)} 段摘要（{old_chars} → {new_chars} 字符）")
+    logger.info("%d 条历史消息 → %d 段摘要（%d → %d 字符）",
+                len(old), len(summaries), old_chars, new_chars)
 
     return compressed

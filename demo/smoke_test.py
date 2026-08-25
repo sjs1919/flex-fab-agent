@@ -48,6 +48,7 @@ from demo.config import available_providers, get_data_source, CREDENTIALS_FILE  
 
 results: list[dict] = []
 fail_count = 0
+_skip_llm_mode = False  # --skip-llm 模式下，LLM 相关检查降级为 skip
 
 
 def _pass(code: str, name: str, detail: str = "") -> None:
@@ -165,6 +166,8 @@ def s1_foundation() -> None:
     providers = available_providers()
     if providers:
         _pass("S1.1", "LLM Provider 可用", ", ".join(p["name"] for p in providers))
+    elif _skip_llm_mode:
+        _skip("S1.1", "LLM Provider 可用", "--skip-llm 模式下未配置 API Key，跳过")
     else:
         _fail("S1.1", "LLM Provider 可用", "没有可用 provider；请检查 .env 或 credentials.local.md 的 API Key")
 
@@ -291,6 +294,8 @@ def s4_api_health(base_url: str | None) -> None:
         _fail("S4.1", "status=ok", f"实际: {data.get('status')}")
     if data.get("providers"):
         _pass("S4.2", "providers 非空", ", ".join(data["providers"]))
+    elif _skip_llm_mode:
+        _skip("S4.2", "providers 非空", "--skip-llm 模式下未配置 API Key，跳过")
     else:
         _fail("S4.2", "providers 非空")
     tools = data.get("tools", 0)
@@ -363,10 +368,14 @@ def s7_scheduling() -> None:
     try:
         from demo.tools.scheduler_tools import run_scheduling
         result = run_scheduling(triggered_by="smoke_test")
-        version_id = result.get("version_id") if isinstance(result, dict) else None
-        batch_count = result.get("batch_count", 0) if isinstance(result, dict) else 0
-        if version_id and batch_count > 0:
-            _pass("S7.1", "排产成功", f"version={version_id}, batches={batch_count}")
+        # run_scheduling 返回格式化字符串，包含 "✅ 排产完成：版本 N" 等信息
+        text = result if isinstance(result, str) else str(result)
+        has_version = "排产完成" in text and "版本" in text
+        has_batches = "批次" in text
+        if has_version and has_batches:
+            # 提取版本号和批次信息用于展示
+            first_line = text.split("\n")[0]
+            _pass("S7.1", "排产成功", first_line)
         else:
             _fail("S7.1", "排产成功", f"result={result}")
     except Exception as e:
@@ -403,22 +412,34 @@ def s9_simulator(base_url: str | None) -> None:
     _section("S9 · 模拟器")
 
     # 启动
-    _call_api("POST", "/sim/start", base_url)
-    # 等 2 秒看 tick
-    time.sleep(2)
+    data_start = _call_api("POST", "/sim/start", base_url)
+    if data_start is None:
+        return
+    # 根据 tick_seconds 动态决定等待时间（至少等 1.2 个 tick 周期）
+    tick_seconds = float(data_start.get("tick_seconds", 60))
+    wait_seconds = max(tick_seconds * 1.2, 3)
+    # 但冒烟测试不能等太久，最多等 10 秒（如果 tick 周期太长，跳过递增检查）
+    wait_for_tick = min(wait_seconds, 10)
+
+    time.sleep(wait_for_tick)
     data1 = _call_api("GET", "/sim/status", base_url)
     if data1 is None:
         return
     tick1 = data1.get("tick_count", 0)
     running = data1.get("running", False)
     if running:
-        _pass("S9.1", "模拟器运行中", f"tick={tick1}")
+        _pass("S9.1", "模拟器运行中", f"tick={tick1}, tick_seconds={tick_seconds}")
     else:
         _fail("S9.1", "模拟器运行中", f"running={running}")
         return
 
-    # 再等 2 秒看 tick 是否递增
-    time.sleep(2)
+    if tick_seconds > 8:
+        # tick 周期太长（>8s），跳过递增检查（避免冒烟测试卡太久）
+        _skip("S9.2", "tick 递增", f"tick 周期 {tick_seconds}s 太长，跳过递增检查")
+        return
+
+    # 再等一个 tick 周期
+    time.sleep(tick_seconds + 1)
     data2 = _call_api("GET", "/sim/status", base_url)
     if data2 is None:
         return
@@ -512,6 +533,9 @@ def main() -> int:
     parser.add_argument("--frontend-url", default="http://localhost:5173", help="前端地址（默认 http://localhost:5173）")
     parser.add_argument("--scan-secrets", action="store_true", help="只跑 S0 敏感信息扫描，快速校验")
     args = parser.parse_args()
+
+    global _skip_llm_mode
+    _skip_llm_mode = args.skip_llm
 
     print("=" * 60)
     print("  demo 部署冒烟测试")

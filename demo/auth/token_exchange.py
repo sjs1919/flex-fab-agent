@@ -10,14 +10,13 @@
   - 持久化：SQLite 存储（重启不丢），由 TOKEN_STORE 环境变量控制（sqlite 默认 / memory）
 """
 import json
-import os
 import sqlite3
 import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Literal
 
-from ..config import RUNTIME_DIR
+from ..config import RUNTIME_DIR, TOKEN_STORE
 
 RoleType = Literal["admin", "scheduler", "reviewer", "operator", "viewer"]
 
@@ -160,7 +159,7 @@ class SqliteTokenStore(TokenStore):
 
 def _build_token_store() -> TokenStore:
     """按 TOKEN_STORE 环境变量构建存储后端（默认 sqlite）。"""
-    mode = os.getenv("TOKEN_STORE", "sqlite").lower()
+    mode = TOKEN_STORE.lower()
     if mode == "memory":
         return MemoryTokenStore()
     db_path = str(RUNTIME_DIR / "tokens.db")

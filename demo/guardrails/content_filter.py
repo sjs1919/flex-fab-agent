@@ -5,11 +5,8 @@
   2. 可选：小模型分类器（有害内容检测，按需启用，当前未实现）
   3. 降级策略：原样返回 + 告警 或 替换敏感部分
 """
-import os
+from ..config import GUARDRAILS_MODE  # noqa: F401
 from .rules import check_blocked_content, check_sensitive_info
-
-
-GUARDRAILS_MODE = os.getenv("GUARDRAILS_MODE", "warn")  # block | warn | off
 
 
 class GuardrailsViolation(Exception):

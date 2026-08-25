@@ -6,22 +6,21 @@ WRITE_QUOTA_LIMIT / WRITE_QUOTA_WINDOW 覆盖（system_config 表接线在 T4a.5
 拒绝路径在 guard（洋葱顺序 token -> RBAC -> 配额 -> execute），
 拒绝时写审计 `quota_exceeded` + tracer span，见 guard.check_tool_permission。
 """
-import os
 import time
 from collections import defaultdict, deque
 
-DEFAULT_LIMIT = 3
-DEFAULT_WINDOW_SECONDS = 300.0
+from ..config import WRITE_QUOTA_LIMIT, WRITE_QUOTA_WINDOW
+
+DEFAULT_LIMIT = WRITE_QUOTA_LIMIT
+DEFAULT_WINDOW_SECONDS = WRITE_QUOTA_WINDOW
 
 
 class WriteQuota:
     """内存滑窗计数器（subject, tool）-> 时间戳队列。demo 单进程足够。"""
 
     def __init__(self, limit: int | None = None, window: float | None = None):
-        self.limit = limit if limit is not None else int(
-            os.getenv("WRITE_QUOTA_LIMIT", str(DEFAULT_LIMIT)))
-        self.window = window if window is not None else float(
-            os.getenv("WRITE_QUOTA_WINDOW", str(DEFAULT_WINDOW_SECONDS)))
+        self.limit = limit if limit is not None else DEFAULT_LIMIT
+        self.window = window if window is not None else DEFAULT_WINDOW_SECONDS
         self._calls: dict[tuple[str, str], deque] = defaultdict(deque)
 
     def check_and_consume(self, subject: str, tool_name: str) -> tuple[bool, str]:

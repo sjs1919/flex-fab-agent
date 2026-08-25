@@ -8,9 +8,10 @@
   传同一 thread_id 即多轮对话：从 checkpoint 取历史 messages，追加新问题，每轮重置
   工具状态（tool_results/iteration）。重启进程后用原 thread_id 仍能恢复上下文。
 """
+import logging
 import uuid
 
-from ..cache import semantic_cache
+from ..cache.manager import cache_manager
 from ..graph.checkpointer import build_checkpointer
 from ..graph.single_agent_graph import (
     _GRACEFUL_FALLBACK,
@@ -21,6 +22,8 @@ from ..graph.state import AgentState
 from ..observability import tracer
 from ..prompts.versioning import load_system_prompt
 from ..tools.registry import build_default_registry
+
+logger = logging.getLogger(__name__)
 
 # 模块级缓存编译好的图：多轮复用同一图 + checkpointer（checkpointer 是单例）
 _app = None
@@ -51,14 +54,13 @@ def run_single_agent(query: str, registry=None, thread_id: str | None = None) ->
     # 语义缓存：仅无多轮上下文时查（多轮答案依赖前文，不能复用）
     if thread_id is None:
         with tracer.span("cache:lookup") as sp:
-            hit = semantic_cache.get(query)
+            hit = cache_manager.lookup_semantic(query)
         if hit:
             answer, dist = hit
             sp.attributes["result"] = "hit"
             sp.attributes["distance"] = round(dist, 4)
-            print(f"\n{'=' * 60}\n ✓ 命中语义缓存（cosine 距离 {dist:.4f}，跳过 LLM 执行）\n{'=' * 60}")
-            print(answer)
-            print(f"\n工具调用统计：0 次（缓存命中，未调用 LLM）")
+            logger.info("命中语义缓存（cosine 距离 %.4f，跳过 LLM 执行）", dist)
+            logger.debug("缓存答案：%s", answer)
             return {"final_answer": answer, "tool_results": []}
         sp.attributes["result"] = "miss"
 
@@ -93,13 +95,12 @@ def run_single_agent(query: str, registry=None, thread_id: str | None = None) ->
 
     result = app.invoke(initial_state, config)
 
-    print(f"\n{'=' * 60}\n 最终调度建议\n{'=' * 60}")
-    print(result["final_answer"])
-    print(f"\n工具调用统计：{len(result['tool_results'])} 次")
+    logger.debug("最终调度建议：%s", result["final_answer"])
+    logger.debug("工具调用统计：%d 次", len(result["tool_results"]))
     for tr in result["tool_results"]:
         schema = registry.get_schema(tr["tool"])
         server = schema.server if schema else "?"
-        print(f"  [{server}] {tr['tool']}({tr['arguments']})")
+        logger.debug("  [%s] %s(%s)", server, tr["tool"], tr["arguments"])
 
     # 缓存写入：仅无多轮上下文（首轮独立问题才有复用价值）
     if thread_id is None and result.get("final_answer"):
@@ -107,6 +108,6 @@ def run_single_agent(query: str, registry=None, thread_id: str | None = None) ->
         # 均不得写入语义缓存，否则用户重问会一直命中失败答案。
         fa = result["final_answer"]
         if not _looks_like_tool_markup(fa) and fa != _GRACEFUL_FALLBACK:
-            semantic_cache.put(query, fa)
+            cache_manager.store_semantic(query, fa)
 
     return result

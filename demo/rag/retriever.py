@@ -8,13 +8,16 @@
 search_knowledge_base 是暴露给 Agent 的工具函数，懒加载向量库/reranker
 （首次调用才加载 ~1.1GB reranker，之后秒载）。
 """
+import logging
 import os
 
 import jieba
 from rank_bm25 import BM25Okapi
-from sentence_transformers import CrossEncoder
 
+from ..core.hf_utils import load_cross_encoder
 from .knowledge_base import doc_permission, get_or_build_vectorstore, retrieve
+
+logger = logging.getLogger(__name__)
 
 RERANKER_MODEL = "BAAI/bge-reranker-base"
 # reranker 未缓存时走 Clash 代理下载（LLM 调用不受影响，用 trust_env=False 直连）
@@ -26,50 +29,12 @@ CONFIDENTIAL_ROLES = {"admin", "reviewer"}
 _rag_state = None  # 懒加载单例：(collection, bm25, chunks, metas, reranker)
 
 
-def load_reranker(model_name: str = RERANKER_MODEL) -> CrossEncoder:
-    """加载 Cross-Encoder reranker。
-
-    离线优先：已缓存则跳过 HF 联网 HEAD 检查（避免代理 SSL EOF）。
-    关键坑：huggingface_hub 在 import 时把 HF_HUB_OFFLINE 固化到 constants，
-    运行时设 os.environ 无效，必须直接 patch constants 才能跳过 HEAD
-    （否则每个 modules.json HEAD 要等 Windows TCP 超时 ~21s ×5 retry）。
-    未缓存则走 Clash 代理 3450 从 HF 下载，之后秒载。
-    """
-    print(f"  ⏬ 加载 reranker（{model_name}）...")
-    os.environ["HF_HUB_OFFLINE"] = "1"
-    os.environ["TRANSFORMERS_OFFLINE"] = "1"
-    try:
-        import huggingface_hub.constants as _hf_const
-        _hf_const.HF_HUB_OFFLINE = True
-    except Exception:
-        pass
-    try:
-        model = CrossEncoder(model_name)
-        print("  ✅ reranker 就绪（离线缓存）")
-        return model
-    except Exception as offline_err:
-        # 离线失败（未缓存）-> 走代理下载
-        os.environ.pop("HF_HUB_OFFLINE", None)
-        os.environ.pop("TRANSFORMERS_OFFLINE", None)
-        try:
-            import huggingface_hub.constants as _hf_const
-            _hf_const.HF_HUB_OFFLINE = False
-        except Exception:
-            pass
-        os.environ["HTTPS_PROXY"] = _PROXY
-        os.environ["HTTP_PROXY"] = _PROXY
-        try:
-            model = CrossEncoder(model_name)
-        except Exception as e:
-            raise RuntimeError(
-                f"reranker 加载失败（离线: {offline_err}; 代理: {e}）\n"
-                f"可能原因：① 模型未缓存且 Clash 代理未开（3450）；② 网络不通。"
-            )
-        finally:
-            os.environ.pop("HTTPS_PROXY", None)
-            os.environ.pop("HTTP_PROXY", None)
-        print("  ✅ reranker 就绪（走代理下载并缓存）")
-        return model
+def load_reranker(model_name: str = RERANKER_MODEL):
+    """加载 Cross-Encoder reranker（离线优先 + 代理回落）。"""
+    logger.info("加载 reranker（%s）...", model_name)
+    model = load_cross_encoder(model_name, proxy=_PROXY)
+    logger.info("reranker 就绪")
+    return model
 
 
 def build_bm25_index(collection) -> tuple:
@@ -79,7 +44,7 @@ def build_bm25_index(collection) -> tuple:
     metas = data["metadatas"]
     tokenized = [list(jieba.cut(c)) for c in chunks]
     bm25 = BM25Okapi(tokenized)
-    print(f"  📚 BM25 索引建好：{len(chunks)} 个 chunk")
+    logger.info("BM25 索引建好：%d 个 chunk", len(chunks))
     return bm25, chunks, metas
 
 

@@ -15,10 +15,11 @@ backend 由 CHECKPOINTER 环境变量选：
   处理消息并直接喂 OpenAI SDK。改对象类型风险大、收益小，故保持 dict + 覆盖语义，
   多轮时显式从 checkpoint 取历史 messages 追加新问题再 invoke（见 single_agent.py）。
 """
-import os
 import sqlite3
 
 from langgraph.checkpoint.memory import MemorySaver
+
+from ..config import CHECKPOINTER, RUNTIME_DIR
 
 _BUILT = False
 _CHECKPOINTER = None
@@ -31,7 +32,7 @@ def build_checkpointer():
         return _CHECKPOINTER
     _BUILT = True
 
-    mode = os.getenv("CHECKPOINTER", "sqlite").lower()
+    mode = CHECKPOINTER.lower()
     if mode == "none":
         return None
     if mode == "memory":
@@ -40,8 +41,6 @@ def build_checkpointer():
 
     # sqlite 默认：落盘，重启可恢复
     from langgraph.checkpoint.sqlite import SqliteSaver
-
-    from ..config import RUNTIME_DIR
 
     conn = sqlite3.connect(str(RUNTIME_DIR / "checkpoints.db"), check_same_thread=False)
     _CHECKPOINTER = SqliteSaver(conn)

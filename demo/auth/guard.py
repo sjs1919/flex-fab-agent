@@ -13,9 +13,12 @@
 R8 缺陷修复（2026-08-07）：增加 tenant_id 校验维度（FORCE_TENANT=true 时强制）。
 M4a（v2 D3）：校验顺序 token -> RBAC -> 配额 -> execute。
 """
-import os
 from ..auth.token_exchange import Token
 from ..auth.audit_logger import AuditLogger
+from ..config import FORCE_TENANT
+
+
+FORCE_TENANT_ENABLED = FORCE_TENANT.lower() == "true"
 
 
 def check_tool_permission(token: Token | None, tool_name: str,
@@ -31,7 +34,7 @@ def check_tool_permission(token: Token | None, tool_name: str,
     """
     if token is None:
         # R8：强制租户模式下，单 Agent 无 Token 也拒绝
-        if os.getenv("FORCE_TENANT", "false").lower() == "true":
+        if FORCE_TENANT_ENABLED:
             return False, "强制租户模式：需要有效的 Token"
         # R-2/R-7：写工具禁止匿名执行
         if not read_only:
@@ -44,7 +47,7 @@ def check_tool_permission(token: Token | None, tool_name: str,
     subject = token.subject
 
     # R8：租户隔离校验（FORCE_TENANT 模式）
-    if os.getenv("FORCE_TENANT", "false").lower() == "true":
+    if FORCE_TENANT_ENABLED:
         if not token.tenant_id:
             if audit:
                 audit.log("deny", subject, tool_name, {}, "缺少 tenant_id", "WARN")
