@@ -25,7 +25,8 @@ os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
 import chromadb
 
-from ..config import RUNTIME_DIR
+from ..config import RUNTIME_DIR, SEMANTIC_CACHE, CACHE_THRESHOLD
+from ..core.hf_utils import load_st_embedding
 
 _DB_DIR = RUNTIME_DIR / "cache_db"
 _COLLECTION_NAME = "semantic_cache"
@@ -34,52 +35,14 @@ _collection = None
 
 
 def is_enabled() -> bool:
-    return os.getenv("SEMANTIC_CACHE", "on").lower() != "off"
-
-
-def _load_embedding_function():
-    """加载 bge 中文 embedding，离线优先（同 retriever.load_reranker 的坑与解法）。
-
-    huggingface_hub 在 import 时把 HF_HUB_OFFLINE/HF_ENDPOINT 固化到 constants，
-    运行时改 os.environ 无效，必须直接 patch constants。已缓存 -> 零联网
-    （防 huggingface.co DNS 污染挂死）；未缓存 -> 经 hf-mirror 下载。
-    """
-    os.environ["HF_HUB_OFFLINE"] = "1"
-    os.environ["TRANSFORMERS_OFFLINE"] = "1"
-    try:
-        import huggingface_hub.constants as _hf_const
-        _hf_const.HF_HUB_OFFLINE = True
-    except Exception:
-        pass
-    from chromadb.utils.embedding_functions import (
-        SentenceTransformerEmbeddingFunction,
-    )
-    try:
-        return SentenceTransformerEmbeddingFunction(model_name=_EMBEDDING_MODEL)
-    except Exception as offline_err:
-        # 未缓存：放开离线，经镜像下载（constants.ENDPOINT 也要 patch）
-        os.environ.pop("HF_HUB_OFFLINE", None)
-        os.environ.pop("TRANSFORMERS_OFFLINE", None)
-        try:
-            import huggingface_hub.constants as _hf_const
-            _hf_const.HF_HUB_OFFLINE = False
-            _hf_const.ENDPOINT = "https://hf-mirror.com"
-        except Exception:
-            pass
-        try:
-            return SentenceTransformerEmbeddingFunction(model_name=_EMBEDDING_MODEL)
-        except Exception as e:
-            raise RuntimeError(
-                f"bge embedding 加载失败（离线: {offline_err}; 镜像: {e}）\n"
-                f"首次下载：HF_ENDPOINT=https://hf-mirror.com python -c \"from sentence_transformers import SentenceTransformer as S; S('BAAI/bge-small-zh-v1.5')\""
-            )
+    return SEMANTIC_CACHE.lower() != "off"
 
 
 def _get_collection():
     """懒加载缓存 collection（cosine 空间，持久化到 demo/data/cache_db/）。"""
     global _collection
     if _collection is None:
-        ef = _load_embedding_function()
+        ef = load_st_embedding(_EMBEDDING_MODEL)
         client = chromadb.PersistentClient(path=str(_DB_DIR))
         _collection = client.get_or_create_collection(
             _COLLECTION_NAME, metadata={"hnsw:space": "cosine"},
@@ -99,7 +62,7 @@ def get(query: str, threshold: float | None = None):
     if col.count() == 0:
         return None
     if threshold is None:
-        threshold = float(os.getenv("CACHE_THRESHOLD", "0.25"))
+        threshold = CACHE_THRESHOLD
     res = col.query(query_texts=[query], n_results=1)
     if not res["ids"][0]:
         return None

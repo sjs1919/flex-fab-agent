@@ -13,12 +13,11 @@
 """
 import hashlib
 import json
-import os
 import sqlite3
 import time
 from pathlib import Path
 
-from ..config import RUNTIME_DIR
+from ..config import RUNTIME_DIR, LLM_CACHE, LLM_CACHE_TTL
 
 _DB_PATH = RUNTIME_DIR / "llm_cache.db"
 _conn: sqlite3.Connection | None = None
@@ -60,7 +59,7 @@ def _get_conn() -> sqlite3.Connection:
 
 
 def is_enabled() -> bool:
-    return os.getenv("LLM_CACHE", "on").lower() != "off"
+    return LLM_CACHE.lower() != "off"
 
 
 def _cache_key(messages: list[dict], tools: list[dict] | None,
@@ -91,7 +90,7 @@ def get(messages: list[dict], tools: list[dict] | None,
     if not row:
         return None
     # TTL 检查
-    ttl = int(os.getenv("LLM_CACHE_TTL", "3600"))
+    ttl = LLM_CACHE_TTL
     if ttl > 0 and time.time() - row[5] > ttl:
         conn.execute("DELETE FROM llm_cache WHERE cache_key=?", (key,))
         conn.commit()
@@ -127,7 +126,7 @@ def stats() -> dict:
     conn = _get_conn()
     total = conn.execute("SELECT COUNT(*) FROM llm_cache").fetchone()[0]
     # 清理过期
-    ttl = int(os.getenv("LLM_CACHE_TTL", "3600"))
+    ttl = LLM_CACHE_TTL
     expired = 0
     if ttl > 0:
         cutoff = time.time() - ttl
