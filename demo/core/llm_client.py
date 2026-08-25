@@ -21,7 +21,7 @@ from typing import Any
 import httpx
 from openai import OpenAI
 
-from ..cache import llm_cache
+from ..cache.manager import cache_manager
 from ..config import PROVIDERS, _is_real_key, get_routing_policy
 from ..observability import tracer, cost_tracker
 
@@ -141,7 +141,7 @@ def call_llm(messages: list[dict], tools: list[dict] | None = None,
         model = p["model"]
 
         # L1 精确缓存：相同 prompt + model + 参数 → 直接返回
-        cached = llm_cache.get(messages, tools, model, max_tokens, temperature)
+        cached = cache_manager.lookup_exact(messages, tools, model, max_tokens, temperature)
         if cached is not None:
             with tracer.span("llm:call", provider=p["name"], model=model,
                              cache="L1_hit") as s:
@@ -201,7 +201,7 @@ def call_llm(messages: list[dict], tools: list[dict] | None = None,
                      "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
                     for tc in resp.choices[0].message.tool_calls
                 ]
-            llm_cache.put(
+            cache_manager.store_exact(
                 messages, tools, model, max_tokens, temperature,
                 content=content or "",
                 tool_calls=tool_calls_raw,

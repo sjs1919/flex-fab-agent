@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pymysql
 
-from demo.config import get_mysql_dsn
+from demo.tools.data import create_raw_connection
 
 SCHEMA_SQL = Path(__file__).resolve().parent / "schema.sql"
 CURRENT_VERSION = 3
@@ -123,15 +123,8 @@ _MIGRATIONS = {2: (_up_v2, _down_v2), 3: (_up_v3, _down_v3)}
 
 
 def _connect() -> pymysql.connections.Connection:
-    """解析 config 合成的 DSN，返回 pymysql 连接（autocommit=False）。"""
-    m = re.match(r"mysql\+pymysql://([^:]+):([^@]*)@([^:]+):(\d+)/([^?]+)", get_mysql_dsn())
-    if not m:
-        raise RuntimeError("MYSQL_DSN 解析失败，请检查 config.get_mysql_dsn()")
-    user, pw, host, port, db = m.groups()
-    return pymysql.connect(
-        host=host, port=int(port), user=user, password=pw, database=db,
-        client_flag=pymysql.constants.CLIENT.MULTI_STATEMENTS, autocommit=False,
-    )
+    """返回 pymysql 裸连接（DDL 用，不走连接池，支持 MULTI_STATEMENTS）。"""
+    return create_raw_connection(multi_statements=True)
 
 
 def _table_names(sql: str) -> list[str]:

@@ -30,23 +30,46 @@ CREDENTIALS_FILE = PROJECT_ROOT / "docs" / "demo" / "credentials.local.md"
 def _parse_credentials_file(path: Path) -> dict[str, str]:
     """解析 credentials.local.md（markdown 表格）为 {占位符: 真实值}。
 
-    表格行格式：`| {{KEY}} | 用途 | 值 |`。文件缺失/格式不符时返回空 dict，
-    调用方（get_mysql_dsn）据此给中文报错提示（验收清单 M1-1）。
+    按表头列名取值（行 → dict，用 key 访问），列顺序/列数变化不影响解析。
+    文件缺失/格式不符时返回空 dict，调用方据此给中文报错提示。
     """
     creds: dict[str, str] = {}
     if not path.exists():
         return creds
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line.startswith("|") or "{{" not in line:
+
+    lines = path.read_text(encoding="utf-8").splitlines()
+    headers: list[str] = []
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped.startswith("|"):
             continue
-        cells = [c.strip() for c in line.strip("|").split("|")]
-        if len(cells) < 3:
+        cells = [c.strip() for c in stripped.strip("|").split("|")]
+
+        # 跳过分隔行（|---|---|）
+        if all(set(c) <= set("-: ") for c in cells):
             continue
-        key = cells[0].strip("`{}").strip()
-        value = cells[2].strip()
+
+        # 第一行有效表格行 = 表头
+        if not headers:
+            headers = cells
+            continue
+
+        # 数据行不足列数跳过
+        if len(cells) < len(headers):
+            continue
+
+        # 行 → dict，按列名 key 访问
+        row = dict(zip(headers, cells))
+        placeholder = row.get("占位符", "")
+        value = row.get("真实值", "")
+
+        if "{{" not in placeholder:
+            continue
+        key = placeholder.strip("`{}").strip()
         if key and value and value not in ("（填入）", "（未用）"):
             creds[key] = value
+
     return creds
 
 
@@ -134,6 +157,48 @@ def available_providers() -> list[dict]:
 # 数据源：csv（默认，CSV 兜底）| mysql（MySQL 业务库，WSL）
 DEMO_DATA_SOURCE = os.getenv("DEMO_DATA_SOURCE", "csv")
 
+# ============================================================
+# 全局配置集中导出（各模块一律 from .config import XXX，不直接 os.getenv）
+# 非敏感配置走环境变量；敏感配置走 _env_or_cred（支持 credentials 回落）
+# ============================================================
+
+# ---- 缓存 ----
+LLM_CACHE = os.getenv("LLM_CACHE", "on")
+LLM_CACHE_TTL = int(os.getenv("LLM_CACHE_TTL", "3600"))
+SEMANTIC_CACHE = os.getenv("SEMANTIC_CACHE", "on")
+CACHE_THRESHOLD = float(os.getenv("CACHE_THRESHOLD", "0.25"))
+
+# ---- LLM 预算 ----
+LLM_BUDGET_LIMIT = float(os.getenv("LLM_BUDGET_LIMIT", "5.0"))
+LLM_BUDGET_WARN = float(os.getenv("LLM_BUDGET_WARN", "0.8"))
+
+# ---- 图 / 上下文 ----
+CHECKPOINTER = os.getenv("CHECKPOINTER", "sqlite")
+CONTEXT_MAX_CHARS = int(os.getenv("CONTEXT_MAX_CHARS", "8000"))
+CONTEXT_KEEP_RECENT = int(os.getenv("CONTEXT_KEEP_RECENT", "6"))
+CONTEXT_COMPRESS_CHUNK = int(os.getenv("CONTEXT_COMPRESS_CHUNK", "10"))
+
+# ---- 工具 ----
+TOOL_TIMEOUT = float(os.getenv("TOOL_TIMEOUT", "10"))
+TOOL_MAX_RETRIES = int(os.getenv("TOOL_MAX_RETRIES", "3"))
+MCP_MODE = os.getenv("MCP_MODE", "local")  # local | mcp
+
+# ---- 安全 / 鉴权 ----
+GUARDRAILS_MODE = os.getenv("GUARDRAILS_MODE", "warn")  # block | warn | off
+FORCE_TENANT = os.getenv("FORCE_TENANT", "false")
+TOKEN_STORE = os.getenv("TOKEN_STORE", "sqlite")  # sqlite | redis
+WRITE_QUOTA_LIMIT = int(os.getenv("WRITE_QUOTA_LIMIT", "3"))
+WRITE_QUOTA_WINDOW = float(os.getenv("WRITE_QUOTA_WINDOW", "300"))
+AUDIT_LOG = os.getenv("AUDIT_LOG", "on")
+AUDIT_LOG_PATH = os.getenv("AUDIT_LOG_PATH", "")  # 空 = 默认 RUNTIME_DIR/audit.jsonl
+
+# ---- 模拟器 ----
+SIM_TICK_SECONDS = float(os.getenv("SIM_TICK_SECONDS", "60"))
+
+# ---- 可观测性 ----
+OTEL_EXPORTER = os.getenv("OTEL_EXPORTER", "console")  # none | console | otel
+OTEL_EXPORTER_OTLP_ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+
 
 def get_data_source() -> str:
     """当前数据源：csv | mysql。实时读 env（测试可 monkeypatch）。"""
@@ -213,5 +278,5 @@ def get_routing_policy() -> dict:
 
 def get_scene_version() -> int:
     """R-3：当前 scene_version（llm_cache 单调递增，模拟器每 tick bump）。"""
-    from .cache import llm_cache
-    return llm_cache.get_scene_version()
+    from .cache.manager import cache_manager
+    return cache_manager.get_scene_version()
