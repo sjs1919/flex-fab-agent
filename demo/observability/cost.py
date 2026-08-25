@@ -14,11 +14,12 @@
   LLM_BUDGET_LIMIT  -- 单次会话预算上限（¥），默认 5.0；设 0 禁用熔断
   LLM_BUDGET_WARN   -- 预算预警阈值（0~1），默认 0.8（80% 时开始警告）
 """
-import os
 import threading
 import time
 from dataclasses import dataclass, field
 from typing import Literal
+
+from ..config import LLM_BUDGET_LIMIT, LLM_BUDGET_WARN
 
 
 # ──────────────────────────────────────────────
@@ -34,9 +35,9 @@ PRICE_PER_MILLION: dict[str, dict[str, float]] = {
 DEFAULT_PRICE = {"input": 2.0, "output": 2.0}
 
 # 预算上限（¥），0 表示不限制
-BUDGET_LIMIT = float(os.getenv("LLM_BUDGET_LIMIT", "5.0"))
+BUDGET_LIMIT = LLM_BUDGET_LIMIT
 # 预警阈值（0~1），达到预算的这个比例时开始警告
-BUDGET_WARN = float(os.getenv("LLM_BUDGET_WARN", "0.8"))
+BUDGET_WARN = LLM_BUDGET_WARN
 
 
 @dataclass

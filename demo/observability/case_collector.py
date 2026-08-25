@@ -17,6 +17,7 @@ import threading
 from datetime import datetime
 
 from ..config import DATA_DIR, get_config
+from ..core.utils import to_bool
 
 CASES_PATH = DATA_DIR / "cases.jsonl"
 
@@ -96,15 +97,11 @@ def load_cases(case_type: str | None = None, good=None,
     if case_type is not None:
         rows = [r for r in rows if r.get("type") == case_type]
     if good is not None:
-        g = None if good in ("null", "", None) else _to_bool(good)
+        g = None if good in ("null", "", None) else to_bool(good)
         rows = [r for r in rows if r.get("good") is g]
     if limit is not None:
         rows = rows[-limit:]
     return rows
-
-
-def _to_bool(v) -> bool:
-    return v if isinstance(v, bool) else str(v).strip().lower() in ("true", "1", "yes")
 
 
 def _rewrite(update) -> bool:

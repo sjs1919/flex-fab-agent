@@ -2,7 +2,8 @@
 
 设计要点：
   - tracer 是模块级单例，业务代码直接 from ..observability import tracer 使用，
-    无需把 tracer 当参数层层传递（生产级用 contextvar 透传 trace_id）。
+    无需把 tracer 当参数层层传递。
+  - trace_id 从 request_context 取（contextvars 隔离），每个请求独立，并发安全。
   - Span 用 contextmanager 管理（with tracer.span("llm") as s: ...），保证异常也结束。
   - 采集 name/duration_ms/attributes + 绝对时间戳(start/end_wall_ns，供 OTel 导出)。
   - 导出延迟到整轮 query 结束（flush）：业务代码会在 with 退出后写 token 属性，
@@ -13,18 +14,13 @@
   - console 控制台结构化 JSON（默认，零基建）
   - otel    真 OpenTelemetry SDK，导到 ConsoleSpanExporter 或 OTLPSpanExporter(Jaeger)
   一轮 query 的所有 span 共享同一 trace_id，OTel 档下挂到同一个 OTel trace。
-
-剩余扩展点：
-  1. 自动埋点：LangGraph 的 config.callbacks 注入，免去手动 with tracer.span(...)
-  2. 采样：高 QPS 下按 trace_id 采样，避免全量上报
-  3. 异步导出 + 成本看板
 """
 import time
-import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 from .exporter import build_exporter
+from .request_context import get_trace_id, new_trace_id
 
 
 @dataclass
@@ -46,26 +42,34 @@ class Span:
 
 
 class Tracer:
-    """进程内 trace 收集器。非线程安全（demo 单线程足够；生产用 contextvar 隔离）。"""
+    """进程内 trace 收集器。
+
+    trace_id 从 request_context 取（contextvars），保证与 audit_logger / API 响应
+    一致。内部 span 状态仍为实例级，全局单例适用于单请求场景；并发场景
+    （模拟器线程等）请各自 new 独立 Tracer 实例。
+    """
 
     def __init__(self) -> None:
         self._spans: list[Span] = []
         self._stack: list[Span] = []
         self._trace_start: float | None = None
-        self._trace_id: str = uuid.uuid4().hex[:16]
         self._exporter = build_exporter()
 
     @property
     def trace_id(self) -> str:
-        """本轮 trace 的 id（导出时用于把所有 span 挂到同一个 OTel trace）。"""
-        return self._trace_id
+        """本轮 trace 的 id（从 request_context 取，全链路一致）。"""
+        return get_trace_id()
 
     def reset(self) -> None:
-        """每轮查询前清空，开始新一轮 trace。"""
+        """每轮查询前清空 span，开始新一轮 trace。
+
+        不重新生成 trace_id：trace_id 由请求入口（API 中间件 / CLI / 模拟器）
+        统一管理，调用方通过 request_context.new_trace_id() 控制。
+        这样保证 tracer / audit_logger / API 响应共用同一个 trace_id。
+        """
         self._spans.clear()
         self._stack.clear()
         self._trace_start = None
-        self._trace_id = uuid.uuid4().hex[:16]
 
     @contextmanager
     def span(self, name: str, **attributes):
@@ -140,7 +144,7 @@ class Tracer:
 
     def flush(self) -> None:
         """整轮 query 结束后导出本轮 trace（延迟批量导出，见 exporter.py）。"""
-        self._exporter.export(self._trace_id, list(self._spans))
+        self._exporter.export(self.trace_id, list(self._spans))
 
 
 # 模块级单例：业务代码直接 import tracer 使用

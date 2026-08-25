@@ -19,8 +19,9 @@
 from __future__ import annotations
 
 import json
-import os
 from typing import TYPE_CHECKING, Protocol
+
+from ..config import OTEL_EXPORTER, OTEL_EXPORTER_OTLP_ENDPOINT
 
 if TYPE_CHECKING:
     from .tracer import Span
@@ -77,7 +78,7 @@ class OTelSpanExporter:
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProcessor
 
-        endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+        endpoint = OTEL_EXPORTER_OTLP_ENDPOINT
         if endpoint:
             from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
                 OTLPSpanExporter,
@@ -129,7 +130,7 @@ class OTelSpanExporter:
 
 def build_exporter() -> SpanExporter:
     """按 OTEL_EXPORTER 环境变量构造导出器（默认 console）。"""
-    mode = os.getenv("OTEL_EXPORTER", "console").lower()
+    mode = OTEL_EXPORTER.lower()
     if mode == "none":
         return NoneExporter()
     if mode == "otel":
