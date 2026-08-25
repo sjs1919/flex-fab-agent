@@ -23,62 +23,6 @@ DATA_DIR = Path(__file__).resolve().parent / "data"
 # 与 bake 进镜像的业务数据（csv/contracts）分离，卷持久化跨容器重建。
 RUNTIME_DIR = Path(os.getenv("DEMO_RUNTIME_DIR", str(DATA_DIR)))
 
-
-def _is_real_key(key: str) -> bool:
-    """判断 key 是否为真实配置（非空、非占位符 'your-...'）。"""
-    return bool(key) and "your-" not in key.lower()
-
-
-# Provider 注册表：列表顺序即 fallback 顺序，第一个成功即返回。
-# 三家均为 OpenAI 兼容协议，代码层只差 base_url + api_key + model。
-# 新增 provider 只需在此追加一项，全项目自动支持。
-# 主备切换：设 PRIMARY_PROVIDER 环境变量（如 "DeepSeek"）可把指定 provider
-# 提到列表最前，无需改代码。火山豆包配额恢复后 unset 即可回到默认顺序。
-PRIMARY_PROVIDER = os.getenv("PRIMARY_PROVIDER", "")
-PROVIDERS = [
-    {
-        "name": "火山豆包(coding)",
-        "enabled": True,
-        "api_key": os.getenv("VOLC_API_KEY", ""),
-        "base_url": os.getenv("VOLC_BASE_URL", "https://ark.cn-beijing.volces.com/api/coding/v3"),
-        "model": os.getenv("VOLC_MODEL", "ark-code-latest"),
-        "note": "主用 · 字节编程套餐 · 端点 /api/coding/v3",
-    },
-    {
-        "name": "DeepSeek",
-        "enabled": True,
-        "api_key": os.getenv("DEEPSEEK_API_KEY", ""),
-        "base_url": os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
-        "model": os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"),
-        "note": "备用1 · ¥1/百万Token · OpenAI 兼容",
-    },
-    {
-        "name": "Kimi(coding)",
-        "enabled": os.getenv("KIMI_ENABLED", "false").lower() == "true",
-        "api_key": os.getenv("KIMI_API_KEY", ""),
-        "base_url": os.getenv("KIMI_BASE_URL", "https://api.kimi.com/coding/v1"),
-        "model": os.getenv("KIMI_MODEL", "kimi-for-coding"),
-        "note": "备用2 · 会员过期暂禁用 · 续费改 KIMI_ENABLED=true",
-    },
-]
-
-if PRIMARY_PROVIDER:
-    for i, p in enumerate(PROVIDERS):
-        if p["name"] == PRIMARY_PROVIDER and i != 0:
-            PROVIDERS.insert(0, PROVIDERS.pop(i))
-            break
-
-
-def available_providers() -> list[dict]:
-    """返回当前可用的 provider 列表（已启用 + key 已配置）。"""
-    return [p for p in PROVIDERS if p.get("enabled") and _is_real_key(p["api_key"])]
-
-
-# ---- M1 数据源扩展（v2 重构方案 A1/C4/F 组）----
-
-# 数据源：csv（默认，CSV 兜底）| mysql（MySQL 业务库，WSL）
-DEMO_DATA_SOURCE = os.getenv("DEMO_DATA_SOURCE", "csv")
-
 # 凭据文件：gitignored，真实口令只在此处。解析为 {占位符: 真实值}
 CREDENTIALS_FILE = PROJECT_ROOT / "docs" / "demo" / "credentials.local.md"
 
@@ -110,6 +54,87 @@ def _parse_credentials_file(path: Path) -> dict[str, str]:
 _CREDENTIALS: dict[str, str] = _parse_credentials_file(CREDENTIALS_FILE)
 
 
+def _is_real_key(key: str) -> bool:
+    """判断 key 是否为真实配置（非空、非占位符 'your-...'）。"""
+    return bool(key) and "your-" not in key.lower()
+
+
+def _cred(name: str, default: str = "") -> str:
+    """读 credentials.local.md 中的占位符值，缺省返回 default。
+
+    命名约定：占位符 `{{MYSQL_PASSWORD}}` 对应 key 名 `MYSQL_PASSWORD`
+    （调用方去掉花括号，与环境变量同名，便于 env ↔ creds 双源切换）。
+    """
+    return _CREDENTIALS.get(name, default) or default
+
+
+def _env_or_cred(env_key: str, cred_key: str = "", default: str = "") -> str:
+    """优先读环境变量，环境变量为空或占位符时回落 credentials.local.md。
+
+    开发态：.env 直接写真实值 → 走 env 路径，方便。
+    部署态：.env 留空或写 your-xxx → 走 cred 路径，敏感信息与代码分离。
+    两者都没配 → 返回 default。
+    """
+    env_val = os.getenv(env_key, "")
+    if _is_real_key(env_val):
+        return env_val
+    cred_val = _cred(cred_key or env_key, "")
+    if _is_real_key(cred_val):
+        return cred_val
+    return default
+
+
+# Provider 注册表：列表顺序即 fallback 顺序，第一个成功即返回。
+# 三家均为 OpenAI 兼容协议，代码层只差 base_url + api_key + model。
+# 新增 provider 只需在此追加一项，全项目自动支持。
+# 主备切换：设 PRIMARY_PROVIDER 环境变量（如 "DeepSeek"）可把指定 provider
+# 提到列表最前，无需改代码。火山豆包配额恢复后 unset 即可回到默认顺序。
+PRIMARY_PROVIDER = os.getenv("PRIMARY_PROVIDER", "")
+PROVIDERS = [
+    {
+        "name": "火山豆包(coding)",
+        "enabled": True,
+        "api_key": _env_or_cred("VOLC_API_KEY", "VOLC_API_KEY"),
+        "base_url": os.getenv("VOLC_BASE_URL", "https://ark.cn-beijing.volces.com/api/coding/v3"),
+        "model": os.getenv("VOLC_MODEL", "ark-code-latest"),
+        "note": "主用 · 字节编程套餐 · 端点 /api/coding/v3",
+    },
+    {
+        "name": "DeepSeek",
+        "enabled": True,
+        "api_key": _env_or_cred("DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY"),
+        "base_url": os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+        "model": os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"),
+        "note": "备用1 · ¥1/百万Token · OpenAI 兼容",
+    },
+    {
+        "name": "Kimi(coding)",
+        "enabled": os.getenv("KIMI_ENABLED", "false").lower() == "true",
+        "api_key": _env_or_cred("KIMI_API_KEY", "KIMI_API_KEY"),
+        "base_url": os.getenv("KIMI_BASE_URL", "https://api.kimi.com/coding/v1"),
+        "model": os.getenv("KIMI_MODEL", "kimi-for-coding"),
+        "note": "备用2 · 会员过期暂禁用 · 续费改 KIMI_ENABLED=true",
+    },
+]
+
+if PRIMARY_PROVIDER:
+    for i, p in enumerate(PROVIDERS):
+        if p["name"] == PRIMARY_PROVIDER and i != 0:
+            PROVIDERS.insert(0, PROVIDERS.pop(i))
+            break
+
+
+def available_providers() -> list[dict]:
+    """返回当前可用的 provider 列表（已启用 + key 已配置）。"""
+    return [p for p in PROVIDERS if p.get("enabled") and _is_real_key(p["api_key"])]
+
+
+# ---- M1 数据源扩展（v2 重构方案 A1/C4/F 组）----
+
+# 数据源：csv（默认，CSV 兜底）| mysql（MySQL 业务库，WSL）
+DEMO_DATA_SOURCE = os.getenv("DEMO_DATA_SOURCE", "csv")
+
+
 def get_data_source() -> str:
     """当前数据源：csv | mysql。实时读 env（测试可 monkeypatch）。"""
     return os.getenv("DEMO_DATA_SOURCE", "csv")
@@ -120,16 +145,29 @@ def get_mysql_dsn() -> str:
 
     口令缺失时抛中文报错提示填写凭据文件（验收清单 M1-1：缺连接串时报错）。
     """
-    password = _CREDENTIALS.get("MYSQL_PASSWORD", "")
+    password = _cred("MYSQL_PASSWORD", "")
     if not password:
         raise RuntimeError(
             "缺少 MySQL 口令：请填写 docs/demo/credentials.local.md 的 {{MYSQL_PASSWORD}}（gitignored，不提交）"
         )
-    host = _CREDENTIALS.get("MYSQL_HOST", "127.0.0.1")
-    port = _CREDENTIALS.get("MYSQL_PORT", "3306")
-    db = _CREDENTIALS.get("MYSQL_DB", "demo_scheduling")
-    user = _CREDENTIALS.get("MYSQL_USER", "demo_sched")
+    host = _cred("MYSQL_HOST", "127.0.0.1")
+    port = _cred("MYSQL_PORT", "3306")
+    db = _cred("MYSQL_DB", "demo_scheduling")
+    user = _cred("MYSQL_USER", "demo_sched")
     return f"mysql+pymysql://{user}:{password}@{host}:{port}/{db}?charset=utf8mb4"
+
+
+def get_redis_config() -> dict:
+    """Redis 连接配置（host/port/password/db），口令来自 credentials.local.md。
+
+    未配置口令时 password=None（Redis 无认证）。
+    """
+    return {
+        "host": _cred("REDIS_HOST", "127.0.0.1"),
+        "port": int(_cred("REDIS_PORT", "6379")),
+        "password": _cred("REDIS_PASSWORD", "") or None,
+        "db": int(_cred("REDIS_DB", "0")),
+    }
 
 
 def get_config(category: str, key: str, default: str = "") -> str:
