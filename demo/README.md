@@ -1,69 +1,120 @@
-# demo -- 多 Agent 排产助手（week1-5 工程化整合版）
+# demo -- 制造业排产智能体（v2.0 · 2026-08-25）
 
-> [AI:Claude] 架构设计 + 实现。本 demo 把 week1-week5 的单文件脚本整合为一个按 Agent 行业推荐工程化思维组织的分层项目，对应 Harness（编排-权限-观测）三层架构。
-> R1-R8 缺陷修复已完成（2026-08-07），详见 `docs/week5/8大缺陷-可执行代码改造方案.md`。
-> 正式需求规格 v1：[docs/demo/02-specs/需求规格-v1-2026-08-21.md](../docs/demo/02-specs/需求规格-v1-2026-08-21.md)（范围/功能/非功能/验收标准/演进候选）。
+> [AI:Claude] 架构设计 + 实现。从 week1-week5 的对话式 Agent 助手，演进为完整的制造业排产智能体系统：**约束求解器 + 生产模拟器 + Agent 调度闭环 + 统计预测 + KPI 看板**。
+>
+> 需求规格 v1：[docs/demo/02-specs/需求规格-v1-2026-08-21.md](../docs/demo/02-specs/需求规格-v1-2026-08-21.md)
+> 部署指南 v1：[docs/demo/部署指南-v1-2026-08-25.md](../docs/demo/部署指南-v1-2026-08-25.md)
+> 生产化蓝图：[docs/demo/生产化差距与部署蓝图-v1-2026-08-22.md](../docs/demo/生产化差距与部署蓝图-v1-2026-08-22.md)
 
 ## 1. 这个 demo 能做什么
 
-一个面向**制造业排程排产**的对话式助手，用自然语言问生产相关问题，Agent 自动调用工具查数据、检索合同、综合分析后回答。支持两种运行模式：
+一个面向**制造业 3D 打印排程排产**的完整智能体系统。从对话式问答（v1）升级为**排产求解 → 模拟执行 → Agent 调度 → 预测分析 → 看板观测**的闭环系统（v2）。
 
-- **单 Agent 模式**：一个 Agent 配合工具注册表，自主决定调用哪些工具、循环调用直到拿到足够信息再回答（LangGraph 编排）。
-- **多 Agent 模式（Supervisor）**：一个主管 Agent 路由问题到专业子 Agent（订单评审 / 生产评估），子 Agent 各自持有限权限令牌调用工具，主管汇总。带 RBAC 鉴权 + 审计日志。
+### v1 能力（对话式助手）
+- **单 Agent 模式**：一个 Agent + 工具注册表，自主决定调用工具、循环调用直到拿到足够信息再回答（LangGraph 编排）
+- **多 Agent 模式（Supervisor）**：主管 Agent 路由到专业子 Agent（订单评审 / 生产评估），子 Agent 持受限令牌调用工具，主管汇总，带 RBAC 鉴权 + 审计日志
+- **合同知识库（RAG）**：向量 + BM25 + RRF + Cross-Encoder 混合检索，命中合同原文
+- 能回答的问题：订单排期 / 订单详情 / 紧急情况 / 客户评估 / 库存影响
 
-能回答的问题类型：
-- 订单排期："今天先做哪些订单？"（综合交期、客户等级、库存、设备负载排序）
-- 订单详情："ORD001 能按时交付吗？"（查状态、材料、设备）
-- 紧急情况："有哪些紧急订单？哪些设备和材料是瓶颈？"
-- 客户评估："东莞模具厂订单总体情况？信用如何？"
-- 库存影响："PEEK 材料库存够吗？不够会影响哪些订单？"
-- **合同知识库（RAG）**："广州航天合同有什么特殊条款？"（混合检索 + 重排命中合同原文）
+### v2 新增能力（制造业主线）🆕
+- **M1 数据层改造**：CSV → MySQL 抽象层，连接池，事务管理，读写分离，租户过滤
+- **M2 排产约束求解器**：OR-Tools CP-SAT 约束规划 + 装箱模型，支持 C1-C9 九大约束校验，输出结构化排产表（批次表 + 指标）
+- **M3 生产模拟器**：事件驱动模拟引擎，订单到达 → 前道 → 打印 → 完成全流程，心跳线程持续推进仿真时间
+- **M4a Agent 调度闭环**：18 个排产工具（求解/查排产/查模拟事件/审批/产能/CTP/跟踪/KPI），Agent 可触发求解、查询排产、审批版本
+- **M4b 人机协同 + 产能评估**：排产版本审批流（待审核→已审核/已驳回），产能负载评估，可承诺交期（CTP），订单跟踪，前道负载
+- **M5a 统计预测**：指数平滑 + 移动平均，需求预测按日分材料聚合（件数 + 机时）
+- **M5b KPI 看板 Dashboard**：KPI 快照落库 + 成本记录 + trace 记录，只读查询端点，零 CDN 静态 HTML 看板
+- **Schema 建表脚本**：15 张业务表，写方唯一原则，幂等建表，外键拓扑
 
 ## 2. 前置条件
 
+### 基础依赖
 ```bash
-# Python 3.11+，依赖（项目根目录已装则跳过）
+# Python 3.11+
 pip install openai httpx chromadb sentence-transformers rank-bm25 jieba langgraph
-# MCP 架构展示用（非运行必需）
-pip install mcp
+pip install mcp              # MCP 架构展示（非必需）
 ```
 
-**环境变量**（项目根目录 `.env`，含 API Key 不提交 Git）：
+### v2 新增依赖 🆕
+```bash
+# 排产求解器（M2）
+pip install ortools
+# MySQL 数据层（M1）
+pip install pymysql
+# FastAPI 网关
+pip install fastapi uvicorn
+```
+
+### 数据库（v2 必需）
+MySQL 8.0+，库名 `demo_scheduling`，建表脚本见 `demo/schema/schema.sql`：
+```bash
+# 方式一：手动执行建表脚本
+mysql -u root -p demo_scheduling < demo/schema/schema.sql
+
+# 方式二：用 migrate.py
+python -m demo.schema.migrate
+```
+
+### 环境变量（项目根目录 `.env`）
 ```ini
-VOLC_API_KEY=...        # 火山豆包（主 provider）
+# LLM Provider
+VOLC_API_KEY=...           # 火山豆包（主 provider）
 VOLC_BASE_URL=https://ark.cn-beijing.volces.com/api/coding/v3
-DEEPSEEK_API_KEY=...    # DeepSeek（备 provider，主挂了自动降级）
-DEEPSEEK_BASE_URL=https://api.deepseek.com
-# KIMI_API_KEY=...      # Kimi（默认禁用，会员过期）
+DEEPSEEK_API_KEY=...       # DeepSeek（备 provider，主挂了自动降级）
+
+# MySQL（v2，M1）
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=...
+DB_NAME=demo_scheduling
+DATA_SOURCE=mysql          # mysql | csv（默认 csv，兼容 v1）
+DB_POOL_SIZE=5             # 连接池大小
 ```
 
-**本地模型缓存**（RAG 真连必需，已下载到本机）：
+### 本地模型缓存（RAG 真连必需）
 - 向量嵌入：Chroma 默认 ONNX MiniLM（`~/.cache/chroma/onnx_models/`）
 - 重排器：`BAAI/bge-reranker-base`（`~/.cache/huggingface/hub/`）
-- 首次调 RAG 工具会加载重排器（~1.1GB），约 20-30 秒；之后常驻秒级响应。
 
 ## 3. 快速开始
 
 ```bash
 cd projects/agent-training
 
-# 地基自检：验证 config / LLM / 工具 三层连通
+# 0. 建表（首次，v2 必需）
+python -m demo.schema.migrate
+
+# 1. 地基自检（config / LLM / 工具 三层连通）
 python -m demo.main --check
 
-# 单 Agent 模式问一个问题
+# 2. 单 Agent 问一个问题（v1 模式）
 python -m demo.main "今天先做哪些订单？"
 
-# 多轮对话（状态持久化，重启可恢复）
+# 3. 多轮对话（状态持久化，重启可恢复）
 python -m demo.main --chat
 
-# 多 Agent 模式（带鉴权 + 审计）
-python -m demo.main "广州航天合同有什么特殊条款？" --mode multi
+# 4. 多 Agent 模式（带鉴权 + 审计）
+python -m demo.main "综合评估 ORD001" --mode multi
 
-# 跑预设场景（交互式选编号，回车=全部）
+# 5. 跑预设场景（交互式选编号）
 python -m demo.main --demo
+
+# ── v2 新增命令 ──
+
+# 6. 求解一轮排产并落库（M2 + M4a）
+python -m demo.main --init-schedule
+
+# 7. 启动生产模拟器心跳（M3 + M4a，Ctrl+C 停止）
+python -m demo.main --sim
+
+# 8. Prompt 版本回滚（R-4 安全回滚）
+python -m demo.main --rollback v1
+
+# 9. 启动 FastAPI 网关（含看板端点）
+uvicorn demo.api:app --reload --port 8000
 ```
 
-> Windows 用户无需手动设 `PYTHONIOENCODING`：`demo/__init__.py` 已把标准输出重配为 UTF-8（控制台 GBK 无法显示状态 emoji）。
+> Windows 用户无需手动设 `PYTHONIOENCODING`：`demo/__init__.py` 已把标准输出重配为 UTF-8。
 
 ## 4. 调用建议
 
@@ -71,501 +122,427 @@ python -m demo.main --demo
 |------|---------|--------|
 | 验证环境是否配好 | `--check` | 不调 LLM 也能确认工具/数据层 OK，最快排障 |
 | 单一问题快速回答 | `python -m demo.main "问题"` | 单 Agent 足够，链路短、token 省 |
-| 涉及多角色协同（评审+生产） | `--mode multi "..."` | Supervisor 分派子 Agent，各持权限令牌，演示 RBAC |
-| 合同/条款类问题 | 任意模式问"合同""条款""延期记录" | 自动触发 `search_knowledge_base`（RAG 工具） |
+| 涉及多角色协同 | `--mode multi "..."` | Supervisor 分派子 Agent，各持权限令牌，演示 RBAC |
+| 合同/条款类问题 | 任意模式问"合同""条款" | 自动触发 `search_knowledge_base`（RAG 工具） |
+| **想看真实排产结果** 🆕 | `--init-schedule` | 跑 CP-SAT 求解器，产出结构化批次表 + 准交率指标 |
+| **想看动态模拟** 🆕 | `--sim` + `--init-schedule` | 先求解 → 启模拟器，看订单在各环节流转、设备状态变化 |
+| **看 KPI 看板** 🆕 | 起 API → 访问 `/dashboard/kpi-history` | KPI 时间序列 + 成本 + trace，零 CDN 静态 HTML |
 | 看完整效果 | `--demo` | 5 个预设场景覆盖订单/资源/客户/RAG 各类工具 |
-| 第一次跑 RAG | 预期 20-30s 延迟 | 重排器首次加载，后续秒级，非故障 |
 
-**调用顺序建议**：先 `--check` 确认地基 → 单 Agent 跑一个订单问题 → 单 Agent 跑一个 RAG 问题 → `--mode multi` 看鉴权审计 → `--demo` 看全貌。
+**v2 推荐体验路径**：先 `--check` → 建表 → `--init-schedule` 看求解 → `--sim` 看模拟 → 问 Agent "当前排产情况如何" → 访问 `/kpi` 看板。
 
 ## 5. 目录说明
 
 ```
 demo/
-├── __init__.py            # 包入口；UTF-8 输出修复（Windows GBK 兼容）
-├── main.py                # 统一入口：--check/--demo/--mode single|multi
-├── config.py              # 统一 .env 加载 + 单一 PROVIDERS 列表（主备 fallback）
+├── __init__.py              # 包入口；UTF-8 输出修复（Windows GBK 兼容）
+├── main.py                  # 统一入口：--check/--demo/--sim/--init-schedule/--rollback
+├── api.py                   # FastAPI 网关：/ask + /sim/* + /schedule/* + /kpi + /dashboard/*
+├── config.py                # 统一 .env 加载 + PROVIDERS 列表 + 数据源配置 + system_config
 │
-├── core/                  # 基座层
-│   └── llm_client.py      #   call_llm(messages, tools) + 主备降级 + 连接池 + L1 精确缓存
+├── core/                    # 基座层
+│   └── llm_client.py        #   call_llm(messages, tools) + 主备降级 + 连接池 + L1 精确缓存
 │
-├── cache/                 # 缓存层（两级缓存减少 LLM API 调用）
-│   ├── llm_cache.py       #   L1 精确缓存（SQLite，相同 prompt 命中 <1ms，0 token）
-│   └── semantic_cache.py  #   L2 语义缓存（Chroma cosine，近义改写命中 ~50ms）
+├── cache/                   # 缓存层（两级缓存减少 LLM API 调用）
+│   ├── llm_cache.py         #   L1 精确缓存（SQLite，相同 prompt 命中 <1ms，0 token）
+│   └── semantic_cache.py    #   L2 语义缓存（Chroma cosine，近义改写命中 ~50ms）
 │
-├── tools/                 # 工具层（MCP 架构）
-│   ├── data.py            #   CSV 数据加载 + R8 租户过滤
-│   ├── order_tools.py     #   订单工具：query_orders（R7 多字段筛选/排序/limit）
-│   ├── resource_tools.py  #   资源工具：query_inventory（R7 筛选/排序）+ query_customer（R7）
-│   ├── registry.py        #   ToolRegistry：O(1) 查找 + 参数白名单 + RBAC 强制 + tracer 接入
-│   │                      #     + R1 sandbox 集成 + R5 MCP 路由 + R8 tenant_id 自动注入
-│   ├── sandbox.py         #   工具沙箱（R1：超时控制 + 指数退避重试）
-│   ├── mcp_client.py      #   MCP Client（R5：stdio 子进程通信）
-│   └── mcp_servers.py     #   FastMCP server 构建（展示 MCP 协议，非运行必需）
+├── tools/                   # 工具层（MCP 架构，18 个工具）
+│   ├── data.py              #   数据层抽象：CSV + MySQL 双模式 + 连接池 + 事务 + 租户过滤 🆕M1
+│   ├── order_tools.py       #   订单工具：query_orders（8 字段 AND 筛选/排序/limit）
+│   ├── resource_tools.py    #   资源工具：库存 / 设备 / 客户
+│   ├── scheduler_tools.py   #   ★ 排产工具（11 个，M4a/4b）：求解/查排产/模拟事件/审批/产能/CTP/跟踪/KPI 🆕
+│   ├── registry.py          #   ToolRegistry：O(1) 查找 + 参数白名单 + RBAC 强制 + tracer + sandbox
+│   ├── sandbox.py           #   工具沙箱（R1：超时控制 + 指数退避重试）
+│   ├── mcp_client.py        #   MCP Client（R5：stdio 子进程通信）
+│   └── mcp_servers.py       #   FastMCP server 构建（展示 MCP 协议）
 │
-├── rag/                   # 合同知识库混合检索
-│   ├── knowledge_base.py  #   文档加载/分块/Chroma 向量库（复用持久化）
-│   └── retriever.py       #   BM25 + 向量 + RRF 融合 + Cross-Encoder 重排 + 离线防坑
+├── scheduler/               # ★ 排产求解器（M2）🆕
+│   ├── snapshot.py          #   读一致性快照（连库读取→内存数据结构）
+│   ├── verify.py            #   C1-C9 约束校验（9 条硬约束前置检查）
+│   ├── model.py             #   装箱模型 + CP-SAT 约束规划（OR-Tools）
+│   ├── solver.py            #   求解入口：装箱 → CP-SAT → 排产表 + 指标计算
+│   ├── assessment.py        #   产能评估（M4b）：负载/CTP/前道/订单跟踪/KPI
+│   └── test_*.py            #   各模块单元测试
+│
+├── simulator/               # ★ 生产模拟器（M3）🆕
+│   ├── clock.py             #   模拟时钟（加速比可配）
+│   ├── events.py            #   事件定义（订单到达/上板/下板/完成/restock 等）
+│   ├── states.py            #   状态管理（设备状态/订单状态流转）
+│   ├── engine.py            #   模拟引擎：事件驱动，单事务推进 A/B 层
+│   ├── runner.py            #   心跳运行器：独立线程主循环，连续失败熔断
+│   ├── seed.py              #   初始数据播种（写方唯一：seed + B 层）
+│   └── test_*.py            #   各模块单元测试 + e2e
+│
+├── forecast/                # ★ 统计预测（M5a）🆕
+│   ├── models.py            #   预测模型：指数平滑 + 移动平均（纯函数）
+│   └── forecaster.py        #   聚合入口：读 MySQL → 逐日分材料预测（件数 + 机时）
+│
+├── rag/                     # 合同知识库混合检索
+│   ├── knowledge_base.py    #   文档加载/分块/Chroma 向量库（复用持久化）
+│   └── retriever.py         #   BM25 + 向量 + RRF 融合 + Cross-Encoder 重排 + 离线防坑
+│
+├── guardrails/              # 输出护栏（R2）
+│   ├── rules.py             #   护栏规则（越权/敏感/缺失段落）
+│   └── content_filter.py    #   内容过滤器（regex + 降级策略）
+│
+├── eval/                    # Agent 三层评估体系（R6）
+│   ├── ground_truth.json    #   10 组排产场景 ground truth Q&A
+│   ├── metrics.py           #   工具层指标（F1/完整性/订单召回/min_tools_called）
+│   ├── trajectory.py        #   轨迹层指标（路径效率/重试质量/循环检测）
+│   ├── trajectory_capture.py#   从 tracer + tool_results 重建工具调用序列
+│   ├── judge.py             #   语义层：自研 LLM-as-Judge（faithfulness/relevancy）
+│   ├── judge_prompt.py      #   Judge 系统提示词（JSON 输出）
+│   ├── report.py            #   单页 HTML 可视化报告
+│   └── runner.py            #   评估运行器
+│
+├── backtest/                # 回测模块
+│   ├── scenarios.py         #   5 个历史延期复盘场景
+│   └── runner.py            #   回测运行器
+│
+├── graph/                   # LangGraph 编排层
+│   ├── state.py             #   AgentState（TypedDict：messages/tool_results/iteration/final_answer 等）
+│   ├── single_agent_graph.py#   单 Agent 状态图：分析→选工具执行→评估→生成答案（5 轮安全阀）
+│   ├── context_compressor.py#   上下文压缩器（R4：summarization buffer）
+│   └── checkpointer.py      #   状态持久化：sqlite/memory/none
+│
+├── agents/                  # Agent 层
+│   ├── single_agent.py      #   单 Agent 入口
+│   ├── router.py            #   AgentRouter：关键词路由
+│   ├── review_agent.py      #   订单评审子 Agent（持 reviewer 令牌）
+│   ├── production_agent.py  #   生产评估子 Agent（持 scheduler 令牌）
+│   └── supervisor.py        #   SupervisorAgent：STS 签发+交换→分派→LLM 汇总→审计报告
+│
+├── auth/                    # 鉴权层（Harness 权限层）
+│   ├── token_exchange.py    #   STS：签发用户令牌→交换受限子令牌（RFC 8693）
+│   ├── guard.py             #   RBAC 守卫：工具层权限校验（洋葱第 3 层）
+│   └── audit_logger.py      #   审计日志：trace_id 贯穿，JSONL 落盘
+│
+├── observability/           # 观测层（Harness 观测层）
+│   ├── tracer.py            #   Span/Tracer：全链路计时与 token 用量（OTel 同构）
+│   ├── exporter.py          #   导出 backend：none/console/otel(OTLP)
+│   ├── cost.py              #   CostTracker：按 provider 计费 + 预算熔断
+│   ├── dashboard.py         #   ★ Dashboard 数据层：KPI/成本/trace 落库 + 只读查询 + 静态 HTML 🆕M5b
+│   └── case_collector.py    #   用例收集器（低分 case 归档）
+│
+├── schema/                  # 数据库 Schema（M1）🆕
+│   ├── schema.sql           #   建表脚本（15 张表，写方唯一，幂等）
+│   └── migrate.py           #   迁移工具：schema_version 管理 + 增量迁移
 │
 ├── prompts/
-│   └── system_prompts.py  # 各 Agent 系统提示词（单 Agent / 评审 / 生产 / 主管）
+│   └── system_prompts.py    # 各 Agent 系统提示词
 │
-├── guardrails/            # 输出护栏（R2 缺陷修复）
-│   ├── __init__.py        #   run_guardrails() 统一入口
-│   ├── rules.py           #   护栏规则定义（越权/敏感/缺失段落）
-│   └── content_filter.py  #   内容过滤器（regex + 降级策略）
-│
-├── eval/                  # Agent 评估（R6 + 三层升级 2026-08-09）
-│   ├── __init__.py
-│   ├── ground_truth.json  #   10 组排产场景 ground truth Q&A
-│   ├── metrics.py         #   工具层指标（工具F1/完整性/订单召回/min_tools_called）
-│   ├── trajectory.py      #   轨迹层指标（路径效率/重试质量/循环检测）
-│   ├── trajectory_capture.py # 从 tracer + tool_results 重建工具调用序列
-│   ├── judge.py           #   语义层：自研 LLM-as-Judge（faithfulness/relevancy）
-│   ├── judge_prompt.py    #   Judge 系统提示词（JSON 输出）
-│   ├── report.py          #   单页 HTML 可视化报告
-│   ├── runner.py          #   评估运行器（python -m demo.eval.runner）
-│   └── test_*.py          #   各层单元测试
-│
-├── backtest/              # 回测模块（2026-08-09 新增）
-│   ├── __init__.py
-│   ├── scenarios.py       #   5 个历史延期复盘场景（bt_001~005）+ 覆盖度评分
-│   ├── runner.py          #   回测运行器（Agent 复盘历史事件 vs 人工结论）
-│   └── test_backtest.py   #   回测单元测试
-│
-├── graph/                 # LangGraph 编排层
-│   ├── state.py           #   AgentState（TypedDict：messages/tool_results/iteration/final_answer
-│   │                      #     + R3 新增 evaluation_notes/needs_retry/needs_more/ready_for_answer
-│   │                      #     + R4 新增 compression_count/compressed_summary）
-│   ├── single_agent_graph.py  # 单 Agent 状态图：分析→选工具执行→评估→生成答案（5 轮安全阀）
-│   │                      #     + R2 集成 guardrails + R3 evaluate_results 不再 noop + R4 上下文压缩
-│   └── context_compressor.py  # 上下文压缩器（R4 缺陷修复：summarization buffer）
-│   └── checkpointer.py    #   状态持久化：sqlite/memory/none，多轮对话 + 重启恢复（#1/#7）
-│
-├── agents/                # Agent 层
-│   ├── single_agent.py    #   run_single_agent()：构建图 + 调用
-│   ├── router.py          #   AgentRouter：关键词路由（review/production/full/query）
-│   ├── review_agent.py    #   订单评审子 Agent（持 reviewer 令牌）
-│   ├── production_agent.py#   生产评估子 Agent（持 scheduler 令牌）
-│   └── supervisor.py      #   SupervisorAgent：STS 签发+交换令牌→分派→LLM 汇总→审计报告
-│
-├── auth/                  # 鉴权层（Harness 权限层）
-│   ├── token_exchange.py  #   STS：签发用户令牌→交换受限子令牌（RFC 8693，5min TTL）
-│   ├── guard.py           #   RBAC 守卫：工具层权限校验（洋葱第 3 层）
-│   └── audit_logger.py    #   审计日志：trace_id 贯穿，记录每次鉴权决策
-│
-├── observability/         # 观测层（Harness 观测层）
-│   ├── tracer.py          #   Span/Tracer：LLM+工具调用全链路计时与 token 用量（OTel 同构）
-│   └── exporter.py        #   导出 backend：none/console/otel(OTLP)，延迟批量导出（#3）
-│
-└── data/                  # 运行数据（已随 demo 打包）
-    ├── *.csv              #   订单/库存/设备/客户数据
-    ├── contracts/*.txt    #   3 份合同特殊条款
-    ├── 历史延期记录.txt    #   延期复盘
-    └── chroma_db/         #   Chroma 向量库（首次自动重建）
+└── data/                    # 运行数据（CSV 模式用，MySQL 模式可忽略）
+    ├── *.csv                #   订单/库存/设备/客户数据
+    ├── contracts/*.txt      #   3 份合同特殊条款
+    ├── 历史延期记录.txt      #   延期复盘
+    └── chroma_db/           #   Chroma 向量库（首次自动重建）
 ```
 
-## 6. 如何阅读这个 demo 的代码
-
-> 第一次读这个 demo，建议按下面顺序从入口一步步深入。每一层只在前一层基础上多加一个概念，不会一次吞下全部。每步标了「读哪个文件 → 关注什么」。
-
-**第一层 · 入口和配置（先跑通，再看怎么连）**
-1. `main.py` — 三种模式（`--check`/`--demo`/`--mode single|multi`）怎么分发，`_run_with_trace` 怎么在每轮查询前后重置和打印 trace。关注：入口尽量薄，只做参数解析和分发。
-2. `config.py` — `PROVIDERS` 列表怎么从 `.env` 读出。关注：一份列表同时是「主备顺序」，第一个成功就返回，失败自动降级。
-
-**第二层 · LLM 基座（Agent 怎么「说话」）**
-3. `core/llm_client.py` — `call_llm(messages, tools)` 怎么遍历 PROVIDERS、`trust_env=False` 为什么必要（绕过 Windows 死代理）。关注：统一一份签名，调用方不用关心切 provider。
-
-**第三层 · 工具层（Agent 怎么「动手」查数据）**
-4. `tools/data.py` — CSV 怎么加载成内存数据，最底层数据先认脸。
-5. `tools/order_tools.py` + `tools/resource_tools.py` — 纯函数，输入参数返回字符串，没有 Agent 逻辑。关注：工具 =「函数 + 一段描述」，描述决定 LLM 何时调它。
-6. `tools/registry.py` — **重点**。看 `ToolRegistry` 怎么用字典 O(1) 查找、`execute` 怎么做参数白名单过滤和 RBAC 校验。对比 week1 的 if/elif 链，理解为什么用注册中心。
-7. `tools/mcp_servers.py` — 可选。看 FastMCP 怎么把工具包成 MCP server，理解「工具协议化」形态（本 demo 只展示，运行时不强制走 MCP）。
-
-**第四层 · 单 Agent（Agent 怎么自己决定调哪个工具）**
-8. `graph/state.py` — `AgentState` 这个 TypedDict 有哪些字段（messages/tool_results/iteration/final_answer）。关注：状态在节点间传递，显式类型比字典安全。
-9. `graph/single_agent_graph.py` — **重点**。4 个节点（分析意图→选工具执行→评估结果→生成答案）和 `should_continue` 条件边怎么连成循环，以及 5 轮安全阀防死循环。
-10. `agents/single_agent.py` — 怎么把图构建出来并调用，就几行。
-
-**第五层 · RAG（Agent 怎么查合同知识库）**
-11. `rag/knowledge_base.py` — 文档加载、分块、Chroma 向量库怎么复用持久化。
-12. `rag/retriever.py` — **重点**。四步混合检索（向量召回→BM25 召回→RRF 融合→Cross-Encoder 重排），以及 `load_reranker` 里 patch HF constants 的离线防坑。关注：为什么纯向量不够（中文关键词召回弱），要 BM25 + 重排补。
-
-**第六层 · 多 Agent + 鉴权（多个 Agent 怎么分工、怎么限权）**
-13. `auth/token_exchange.py` — STS 怎么签发用户令牌、交换成受限子令牌（5min TTL）。关注：子令牌权限 ≤ 父令牌，防权限升级。
-14. `auth/guard.py` — `check_tool_permission` 怎么在工具执行入口做 RBAC。关注：这是「洋葱第 3 层」，前两层是网关和运行时。
-15. `agents/router.py` — 关键词怎么路由到不同子 Agent。
-16. `agents/review_agent.py` + `agents/production_agent.py` — 子 Agent 怎么持各自令牌、通过 registry 调工具。
-17. `agents/supervisor.py` — **重点**。主管怎么签发+交换令牌、分派子 Agent、LLM 汇总、出审计报告。
-
-**第七层 · 观测（怎么知道 Agent 干了什么）**
-18. `observability/tracer.py` — `Span` 和 `Tracer` 怎么用 contextmanager 记录每个 LLM/工具调用的耗时和 token。关注：OTel 的同构最小实现，week5 换 backend 不动业务代码。
-
-**第八层 · 工具安全（工具挂了怎么兜底）** 🆕 R1
-19. `tools/sandbox.py` — `run_with_retry` 怎么用 threading.Timer 做超时控制 + 指数退避重试。关注：返回三元组 (result, success, retries)，上层 registry 不感知重试细节。
-
-**第九层 · 输出安全（LLM 输出了不该输出的内容怎么办）** 🆕 R2
-20. `guardrails/` — `run_guardrails` 怎么在 `generate_answer` 前做输出校验。关注：三种 severity（block/warn/sanitize），护栏拦截后怎么让 LLM 修正重试。
-
-**第十层 · 上下文压缩（长对话 token 成本怎么控制）** 🆕 R4
-21. `graph/context_compressor.py` — `compress_messages` 怎么把早期消息转成摘要。关注：保留 system + 最近 N 条，中间用 LLM 摘要替代——summarization buffer 是 LangGraph 推荐模式。
-
-**第十一层 · 评估（怎么量化 Agent 好不好）** 🆕 R6 + 三层升级
-22. `eval/` — `ground_truth.json` 定义 10 组排产场景。**三层指标**：
-    - **工具层**（`metrics.py`）：工具 F1 + 完整性 + 订单召回 + min_tools_called（该调几个工具没调够直接判 0）
-    - **轨迹层**（`trajectory.py` + `trajectory_capture.py`）：路径效率（冗余调用扣分）+ 重试质量（重试/失败扣分）+ 循环检测
-    - **语义层**（`judge.py` + `judge_prompt.py`）：自研 LLM-as-Judge 打分 faithfulness / answer_relevancy，不依赖 ragas（已停滞）
-    - 聚合：`overall = 工具×0.5 + 轨迹×0.3 + 语义×0.2`，case ≥0.6 算 pass，回归基线 ≥7/10
-    - `report.py` 单页 HTML 可视化三层指标 + 循环标记
-    - 回测（`backtest/`）：让 Agent 复盘 5 个历史延期案例，按人工复盘结论覆盖度评分
-    - 关注：三层聚合权重为什么这么定；judge 无上下文时如何降级。
-
-**第十一层·续 · 一键自动化测试** 🆕 2026-08-09
-23. `run_all_tests.py` + `test_demo.sh` — pytest 全量（mock LLM 零成本）→ 可选 `--eval` 三层评估（真实 LLM）→ 可选 `--report` HTML 报告。关注：测试脚本作为 CI 入口的基础。
-
-**读代码时带这三个问题：**
-- 这一层解决什么问题？（避免「为设计而设计」）
-- 它和上一层什么关系？（理解数据怎么流）
-- 注释里的「为什么」比「是什么」重要。（中文注释标了设计意图）
-
-## 7. 架构图
+## 6. 架构图
 
 ```
-                        用户提问
-                           │
-                ┌──────────▼──────────┐
-                │       main.py        │  入口 + tracer.reset
-                └──────────┬──────────┘
-                           │
-            ┌──────────────┴──────────────┐
-            ▼ single 模式                  ▼ multi 模式
-   ┌─────────────────┐          ┌─────────────────────┐
-   │  single_agent   │          │    Supervisor       │
-   │  (LangGraph)    │          │  ┌────路由────┐     │
-   │  分析→执行→评估  │          │  ▼           ▼     │
-   └────────┬────────┘          │ 评审Agent  生产Agent │
-            │                   │ (reviewer (scheduler│
-            │ 共用                │  令牌)     令牌)   │
-            ▼                   └─────┬───────┬──────┘
-   ┌──────────────────────────────────┼───────┼──────┐
-   │           ToolRegistry (O(1) 查找 + 参数白名单)    │
-   │   order_tools   resource_tools   search_knowledge │
-   │        │             │              │            │
-   │        ▼             ▼              ▼            │
-   │     CSV数据       CSV数据        RAG混合检索      │
-   │                                  向量+BM25+RRF   │
-   │                                  +CrossEncoder   │
-   └──────────┬───────────────────────────────────────┘
-              │ 每次工具调用经 guard.py RBAC 校验
-              ▼
-   ┌────────────────────┐    ┌────────────────────┐
-   │   auth/STS+RBAC    │    │  observability/     │
-   │  令牌签发→交换→守卫  │    │  tracer 全链路 span │
-   │  + audit_logger     │    │  (LLM计时/token用量) │
-   └────────────────────┘    └────────────────────┘
-              │                        │
-              ▼                        ▼
-   ════════════════════ Harness 三层 ════════════════════
-        权限层              编排层            观测层
+                        ┌────────────┐
+                        │  FastAPI   │  api.py: /ask /sim /schedule /kpi /dashboard
+                        │   网关      │
+                        └─────┬──────┘
+                              │
+         ┌────────────────────┼────────────────────┐
+         ▼                    ▼                    ▼
+  ┌──────────────┐    ┌──────────────┐    ┌───────────────┐
+  │  对话 Agent   │    │  排产工具链   │    │   Dashboard   │
+  │ LangGraph     │    │  18 个工具   │    │ KPI/成本/trace│
+  │ 单/多 Agent   │    │  scheduler_  │    │ observability│
+  └──────┬───────┘    │  tools.py    │    └───────┬───────┘
+         │            └──────┬───────┘            │
+         │                   │                    │
+         └──────────┬────────┘                    │
+                    ▼                             │
+         ┌─────────────────────┐                  │
+         │    ToolRegistry     │  O(1) 查找 + RBAC + sandbox + tracer
+         └──────────┬──────────┘                  │
+                    │                             │
+    ┌───────────────┼───────────────┐             │
+    ▼               ▼               ▼             │
+┌─────────┐  ┌───────────┐  ┌──────────┐          │
+│ 订单/资源│  │  排产求解  │  │ RAG 检索  │          │
+│ 工具     │  │  solver   │  │ retriever│          │
+└────┬────┘  └─────┬─────┘  └────┬─────┘          │
+     │             │              │                │
+     ▼             ▼              ▼                ▼
+  ┌──────────────────────────────────────────────────┐
+  │              数据层  data.py  (M1)               │
+  │     CSV / MySQL 双模式 + 连接池 + 事务 + 租户      │
+  └──────────────────────────────────────────────────┘
+                    ▲
+                    │ 事件写入（B 层）
+         ┌──────────┴──────────┐
+         │   生产模拟器 (M3)    │
+         │  engine + runner    │
+         │  事件驱动 · 心跳线程  │
+         └─────────────────────┘
+
+  ════════════════════ Harness 三层 ════════════════════
+       权限层              编排层              观测层
+    auth/（STS+RBAC） graph/+agents/    observability/（trace+cost+dashboard）
 ```
 
-**三层对应关系**：
-- **编排层**：`graph/` + `agents/`（LangGraph 状态机驱动 Agent 循环）
-- **权限层**：`auth/`（STS 令牌交换 + RBAC 守卫 + 审计，洋葱型三道防线）
-- **观测层**：`observability/`（Span 全链路追踪，OTel 同构接口）
+## 7. 核心模块详解
 
-## 8. 与原 week1-4 脚本的关系
+### 7.1 数据层（M1）：从 CSV 到 MySQL
 
-| 原 week 脚本 | 整合到 | 工程化改进 |
-|-------------|--------|-----------|
-| week1 `call_llm(system,user)` | `core/llm_client.py` | 两份签名合一为 `call_llm(messages,tools)` + 主备 fallback 内置 |
-| week1 硬编码 TOOLS + if/elif 执行 | `tools/registry.py` | O(1) 字典查找 + 参数白名单 + RBAC 强制 + tracer 接入 |
-| week2 `day1_rag_basics.py` | `rag/knowledge_base.py` | 复用持久化向量库，路径用 config 统一管理 |
-| week2 `day2_hybrid_rerank.py` | `rag/retriever.py` | 离线防坑（patch HF constants）+ 懒加载单例 + 工具函数化 |
-| week3 `single_agent` 内联图 | `graph/` + `agents/single_agent.py` | 图定义与调用分离，state 用 TypedDict 显式类型 |
-| week3 多 Agent 串行调用 | `agents/supervisor.py` + 子 Agent | 子 Agent 持独立令牌，经 registry 走 RBAC（原版无鉴权） |
-| 各处散落 print | `observability/tracer.py` | 统一 Span 追踪，生产可换 OTel backend |
-| 无鉴权 | `auth/` 三件套 | 补齐 STS 令牌交换 + RBAC + 审计（缺口 #7 修复） |
+`tools/data.py` 提供统一数据访问接口，支持 CSV 和 MySQL 双模式，由 `DATA_SOURCE` 环境变量切换。
 
-原脚本保留在 `scripts/week1-4/`，可对照查看演进。
+**关键能力**：
+- `get_connection()`：从连接池取连接（MySQL 模式）
+- `transaction()`：上下文管理器，单事务自动提交/回滚
+- `load_orders() / load_parts() / load_machines() / ...`：统一加载函数，CSV/MySQL 透明切换
+- 租户过滤：`FORCE_TENANT=true` 时所有查询强制加 `tenant_id` 条件
+- `format_table()`：Dict 列表 → Markdown 表格（LLM 友好）
 
-## 9. 与行业推荐方案的差距 + 优化策略
+**写方唯一原则**（schema.sql 中每张表标注写方）：
+| 表组 | 写方 | 读方 |
+|------|------|------|
+| 业务表（customer/orders/parts/machines/...） | seed + 模拟器 B 层 | solver / tools / forecast |
+| 求解输出（schedule_versions/batches/...） | solver + approve_schedule | tools / dashboard |
+| 模拟/审计（sim_clock/state_change_log/sim_events） | simulator | tools / dashboard |
+| 配置（system_config） | 运维 / 配置 API | 全部模块 |
 
-> 以下是当前 demo（教学版）与生产级 Agent 系统的差距。每项给出现状、行业推荐、优化策略，作为 week5+ 的演进路线。
+### 7.2 排产求解器（M2）
 
-| # | 维度 | 现状（demo） | 行业推荐 | 差距 | 优化策略 |
-|---|------|------------|---------|------|---------|
-| 1 | **编排层** | LangGraph 状态图 + SqliteSaver 检查点，5 轮安全阀，多轮/重启可恢复 + evaluate_results 步骤校验 + summarization buffer 上下文压缩 ✅R3,R4 | 状态持久化（checkpoint）+ 中断恢复 + 人机协同（human-in-the-loop） | 已支持多轮与重启恢复 + 步骤校验 + 上下文压缩；缺中断恢复演示、human-in-the-loop | 长任务加 `interrupt_before` 等人工确认；演示崩溃续跑 |
-| 2 | **权限层** | STS + RBAC 5 角色 + Token SQLite 持久化 + tenant_id 多租户 + FORCE_TENANT 强制模式 ✅R8 | OAuth2/OIDC + JWT + DB 存储 + 刷新令牌 + 权限细粒度（ABAC） | 有租户隔离基础；缺 JWT 签名、refresh token、ABAC | 令牌落 Redis（TTL 自动过期）；JWT 签名 + refresh token；RBAC→ABAC |
-| 3 | **观测层** | Tracer + 可插拔导出 + OTel 同构 + CostTracker 预算熔断 | OpenTelemetry / Langfuse，异步导出 + 采样 + 分布式 trace | 已支持导出与 OTel trace + 成本；缺采样、异步导出、成本看板 | LangGraph `config.callbacks` 自动埋点；加采样 + OTLP 接常驻 collector |
-| 4 | **工具层** | 同进程函数 + sandbox 超时/重试 ✅R1 + MCP client 子进程通信能力 ✅R5 | MCP 工具独立进程/容器运行 + 动态发现 + 沙箱 | 有沙箱（超时+重试）+ MCP client；默认仍走 local fast path | 默认切 MCP_MODE=mcp；加工具执行资源限制（cgroup） |
-| 5 | **RAG** | 本地 Chroma + 离线 reranker + query_orders 多字段 AND 筛选/排序/limit ✅R7 | 向量库服务 + 增量索引 + 多租户 + NL2SQL | 有结构化筛选；缺增量索引、多租户 RAG | 独立向量库服务；文档增量入库；reranker 常驻服务化 |
-| 6 | **LLM 调用** | 主备 fallback + 两级缓存（L1 SQLite + L2 Chroma cosine）+ 成本熔断 | 智能路由（按任务选模型）+ 成本控制 + 语义缓存 | 有完整缓存+成本；缺智能路由、强中文 embedding | 缓存换 bge-large-zh + Redis；按任务复杂度路由 |
-| 7 | **状态管理** | SqliteSaver 持久化 + 多轮 + 重启恢复 + 上下文压缩 ✅R4 | 持久化会话 + 断点续跑 + 多轮上下文压缩 | 已支持全链路；缺长上下文自动压缩的触发日志 | 会话过期清理；压缩次数统计面板 |
-| 8 | **数据层** | 本地 CSV 只读 + tenant_id 租户过滤 ✅R8 | 数据库/API + 实时同步 + 读写分离 | 有租户过滤基础；数据静态、无写入 | 工具改查真实业务库（MySQL/API）；加连接池 |
-| 9 | **审计** | JSONL 持久化 + trace_id 贯穿 + AUDIT_LOG 可切换 | 结构化日志（JSON）+ SIEM 接入 + 不可篡改 | JSONL 已结构化；缺集中查询、防篡改 | 接 ELK/Loki；关键审计写 WORM 存储 |
-| 10 | **部署** | Dockerfile + FastAPI 网关 + compose + 健康检查 | 容器化 + API 网关 + 水平扩展 + 健康检查 | 代码完成，Docker 环境待验收 | 启动 Docker Desktop → build → up → 验收 |
-| 11 | **护栏** 🆕 | guardrails 模块：越权指令/敏感信息检测 + 缺失段落检查 + block/warn/off 模式 ✅R2 | Guardrails AI / NeMo Guardrails + JSON Schema 校验 + 有害内容分类 | 有规则引擎；缺小模型有害内容分类器、RAIL 规范 | 调研 Guardrails AI 的 RAIL 规范 |
-| 12 | **评估** 🆕 | eval 模块：10 组 ground truth + 3 维指标 + runner + 回归基线 ✅R6 | RAGAS + Langfuse + 持续评估 pipeline + 轨迹评估 | 有基础评估；缺 CI 集成、轨迹评估（trajectory eval） | 接入 CI pipeline；加 trajectory evaluation |
+`scheduler/` 模块，基于 OR-Tools CP-SAT 的约束规划求解器。
 
-**优先级建议**（按性价比）：
-1. ~~**先补观测层导出**（#3）~~ ✅ 已完成（2026-08-04）：Tracer 接可插拔导出 backend（console/otel/otlp），见 §10
-2. ~~**再补状态持久化**（#1/#7）~~ ✅ 已完成（2026-08-04）：SqliteSaver 检查点 + `--chat` 多轮 + 跨进程恢复，见 §11
-3. ~~**然后语义缓存**（#6）~~ ✅ 已完成（2026-08-04）：Chroma cosine 语义缓存，相似问题跳过 LLM，见 §12
-4. **最后容器化**（#10）：演示对外可用，但需配合前几项才有意义
+**求解流程**：
+```
+snapshot（读一致性快照）
+  → verify（C1-C9 前置校验，不满足直接返回冲突）
+  → 装箱（按设备分组，版子装箱，单版单材料）
+  → CP-SAT 建模（决策变量 + 约束 + 目标函数）
+  → 求解（solver_max_time_seconds 预算，默认 60s）
+  → 指标计算（准交率/延期数/目标值/批次统计）
+  → persist 落库（schedule_versions + batches，状态=待审核）
+```
 
-## 10. 查看 trace（观测层导出）
+**C1-C9 九大约束**：
+- C1 订单完整性 / C2 材料匹配 / C3 设备能力 / C4 版子容量 / C5 承重上限
+- C6 单版单材料 / C7 设备并行 / C8 产能上限 / C9 前道约束
 
-观测层支持把每轮 query 的完整 trace 导出到外部 sink，由 `OTEL_EXPORTER` 环境变量选择 backend：
-
-| `OTEL_EXPORTER` | 输出 | 基建 | 用途 |
-|---|---|---|---|
-| `console`（默认） | 控制台结构化 JSON 行（每 span 一行，含 token 用量） | 无 | 开箱演示「导出」概念 |
-| `otel` | 真 OpenTelemetry span（JSON，含 trace_id/span_id/resource） | 无（ConsoleSpanExporter） | 看真 OTel 格式 |
-| `otel` + `OTEL_EXPORTER_OTLP_ENDPOINT` | 发 OTLP gRPC 到 collector | 本地 Jaeger（4317） | Jaeger UI 看分布式 trace |
-| `none` | 无导出，仅友好摘要 | 无 | 等价 week4 行为 |
-
+**CLI 直接调用**：
 ```bash
-# 默认：控制台结构化导出
-python -m demo.main "ORD001 能按时交付吗？"
-
-# 真 OTel JSON（ConsoleSpanExporter）
-OTEL_EXPORTER=otel python -m demo.main "ORD001 能按时交付吗？"
-
-# 发到本地 Jaeger（先起 Jaeger，见下方说明）
-OTEL_EXPORTER=otel OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
-  python -m demo.main "ORD001 能按时交付吗？"
+python -m demo.scheduler.solver --solve --out result.json
 ```
 
-**本地起 Jaeger**（可选，看 OTLP 导出效果）：
-```bash
-docker run -d --name jaeger -p 4317:4317 -p 16686:16686 jaegertracing/all-in-one:1.62
-# 跑完后访问 http://localhost:16686，service 选 demo-scheduling-agent
-```
+### 7.3 生产模拟器（M3）
 
-> 导出是「延迟批量」：整轮 query 结束才 flush，保证业务代码在 span 结束后写入的 token 用量不丢。一轮 query 的所有 span 共享同一 trace_id，OTel 档下挂到同一个 OTel trace。
+`simulator/` 模块，事件驱动的生产流程模拟器。
 
-## 11. 多轮对话与状态持久化（编排层 #1/#7）
+**核心机制**：
+- **事件驱动**：订单到达 → 前道处理 → 上板 → 打印 → 下板 → 后道 → 完成，每个状态变更是一个事件
+- **心跳线程**：`SimulatorRunner` 独立线程，每 `SIM_TICK_SECONDS`（默认 60s = 1 sim 小时）推进一拍
+- **单事务推进**：每 tick 单事务内推进 sim 时钟 + A/B 层状态变更，失败整体回滚
+- **连续失败熔断**：同一事件连续失败 10 次停止心跳，防脏数据卡死
+- **缓存失效**：每 tick bump `llm_cache` 的 `scene_version`，状态相关精确缓存自动失效
 
-单 Agent 图编译时接入 LangGraph checkpointer，运行状态（messages/工具结果/迭代次数）落盘，支持多轮对话与重启恢复。backend 由 `CHECKPOINTER` 环境变量选：
+**与排产求解器的关系**：
+- 求解器（solver）：静态快照 → 最优排产方案（批次表）
+- 模拟器（simulator）：动态推进真实生产，设备状态随时间变化
+- Agent 同时有两类工具：`run_scheduling/query_schedule`（静态求解）和 `query_sim_events/query_kpi`（动态模拟）
 
-| `CHECKPOINTER` | 行为 | 用途 |
-|---|---|---|
-| `sqlite`（默认） | 落盘 `demo/data/checkpoints.db`，重启可恢复 | 默认，演示真持久化 |
-| `memory` | 进程内存，重启即失 | 仅演示 checkpoint 概念 |
-| `none` | 不持久化 | 等价 week4 无 checkpointer |
+### 7.4 排产工具链（M4a / M4b）
 
-```bash
-# 多轮对话（同一会话跨轮共享上下文）
-python -m demo.main --chat
-# 会话 id 会打印；/exit 退出 · /new 新会话 · /switch <id> 切换
+`tools/scheduler_tools.py`，18 个工具中 11 个已实装：
 
-# 续接指定会话（含跨进程重启恢复）
-python -m demo.main --chat --thread <会话id>
+| 工具 | 模块 | 说明 |
+|------|------|------|
+| `run_scheduling` | M4a | 触发排产求解并落库（写工具，需审批后生效） |
+| `query_schedule` | M4a | 查最新/指定排产版本 + 批次表 |
+| `query_sim_events` | M4a | 查模拟器事件（类型/状态过滤） |
+| `approve_schedule` | M4a | 排产版本审批：待审核→已审核/已驳回 |
+| `query_load_assessment` | M4b | 设备负载评估（分区颜色 + 利用率） |
+| `query_ctp` | M4b | 可承诺交期（CTP）：给定订单预计完成时间 |
+| `query_order_tracking` | M4b | 订单跟踪：当前环节 + 历史轨迹 |
+| `query_preprocess_load` | M4b | 前道负载（待处理任务数 + 产能估算） |
+| `query_kpi` | M4b | KPI 指标（准交率/在制数/利用率/延期数） |
+| `query_forecast` | M5 | 需求预测（占位，M5a 实装） |
+| `query_yield` | M5 | 良率预测（占位，M5 后续） |
 
-# 单次提问但恢复某会话上下文
-python -m demo.main "接着上面说" --thread <会话id>
-```
+### 7.5 统计预测（M5a）
 
-**多轮原理**：每轮 invoke 前，从 checkpoint 取历史 messages 追加新问题，并重置 `tool_results`/`iteration`/`final_answer`（每轮独立工具循环）。同一 `thread_id` 即同一会话；sqlite 落盘后新进程读同一 db + 同一 thread_id 即恢复上下文。
+`forecast/` 模块，纯函数 + 聚合入口。
 
-**为什么不用 `add_messages` reducer**：它会把消息转成 LangChain `HumanMessage`/`AIMessage` 对象，而本 demo 全链路按 dict 处理消息并直接喂 OpenAI SDK。改对象类型风险大、收益小，故保持 dict + 覆盖语义，多轮时显式从 checkpoint 取历史。
+**预测模型**：
+- 移动平均（moving_average）：窗口 N 天均值
+- 指数平滑（exponential_smoothing）：α 可调，默认 0.3
 
-> `demo/data/checkpoints.db` 是运行时会话数据，已 gitignore，勿提交。
+**聚合维度**：按 `order_date` 逐日分材料聚合（件数 + 机时），机时 = Σ(height ÷ rate × quantity)。
 
-## 12. 语义缓存（LLM 调用层 #6）
+> 仅支持 MySQL 模式（CSV orders 无 order_date 列）。
 
-相似问题直接返回缓存答案，跳过整图执行（省 LLM token、降延迟）。教学版用 Chroma 独立 collection（cosine 空间，复用其默认 ONNX MiniLM embedding），生产换 Redis + 更强中文 embedding。
+### 7.6 KPI 看板（M5b）
 
-```bash
-# 默认开启。首次问 -> 未命中 -> 执行 -> 缓存；再问相似问题 -> 命中 -> 跳过 LLM
-python -m demo.main "今天有哪些紧急订单？"
-python -m demo.main "查一下今天的紧急订单"   # 近义改写，命中缓存
+`observability/dashboard.py`，三层职责：
 
-# 关闭语义缓存
-SEMANTIC_CACHE=off python -m demo.main "今天有哪些紧急订单？"
+1. **落库（写方唯一）**：
+   - simulator tick → `record_kpi_snapshot`（KPI 快照）
+   - api /ask → `record_cost` + `record_trace`（query 粒度成本 + trace）
 
-# 调阈值（cosine distance 上限，越小越严，默认 0.20）
-CACHE_THRESHOLD=0.10 python -m demo.main "今天有哪些紧急订单？"
-```
+2. **查询（只读）**：
+   - `/dashboard/kpi-history`：KPI 时间序列
+   - `/dashboard/costs`：按模型/按天成本统计
+   - `/dashboard/traces`：最近 trace 列表
 
-**只对无多轮上下文的独立问题生效**：多轮对话（`--chat`/`--thread`）里同一句话的答案依赖前文，不能复用首轮缓存，故 `thread_id` 非空时跳过缓存。
+3. **兜底**：`render_static_html` 生成零 CDN 离线 HTML 看板。
 
-**阈值校准**（MiniLM cosine distance）：完全相同 0.00 · 多标点 0.04 · 近义改写 0.17 · 较远改写 0.37 · 不相关 0.46+。默认 0.20 catches 同义/标点/近义改写，排除较远与不相关。
+## 8. API 端点一览
 
-**局限**：MiniLM 中文判别力一般（RAG 那块也靠 BM25+reranker 补），生产建议换 `bge-large-zh` + Redis + 可选 reranker 校验。命中/未命中记为 `cache:lookup` span（result=hit/miss + distance），随观测层导出（见 §10）。
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/health` | 健康检查（provider/工具/缓存/checkpointer 配置） |
+| POST | `/ask` | 单次/多轮提问（{query, thread_id?}） |
+| GET | `/threads/{id}/history` | 多轮会话历史 |
+| POST | `/sim/start` | 启动模拟器心跳 |
+| POST | `/sim/stop` | 停止模拟器心跳 |
+| GET | `/sim/status` | 模拟器状态（运行中/停止/模拟时间） |
+| GET | `/schedule/latest` | 最新排产版本 + 批次表 |
+| POST | `/schedule/load` | 触发求解 + 落库（需 admin token） |
+| GET | `/order/{id}/tracking` | 订单跟踪详情 |
+| GET | `/kpi` | 当前 KPI 指标 |
+| GET | `/dashboard/kpi-history` | KPI 历史快照 |
+| GET | `/dashboard/costs` | 成本统计 |
+| GET | `/dashboard/traces` | Trace 列表 |
+| GET | `/debug/cases` | 收集的 case（调试用） |
 
-> `demo/data/cache_db/` 是运行时缓存向量库，已 gitignore，勿提交。
+## 9. 环境变量全表
 
----
+### v1 基础变量
 
-## 验收清单
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `VOLC_API_KEY` | - | 火山豆包 API Key（主 provider） |
+| `DEEPSEEK_API_KEY` | - | DeepSeek API Key（备 provider） |
+| `CHECKPOINTER` | `sqlite` | 状态持久化：sqlite/memory/none |
+| `SEMANTIC_CACHE` | `on` | 语义缓存开关 |
+| `CACHE_THRESHOLD` | `0.20` | 语义缓存阈值（cosine distance 上限） |
+| `LLM_CACHE` | `on` | L1 精确缓存开关 |
+| `LLM_CACHE_TTL` | `3600` | L1 缓存 TTL（秒） |
+| `OTEL_EXPORTER` | `console` | 观测导出：none/console/otel |
+| `LLM_BUDGET_LIMIT` | `5.0` | LLM 预算上限（元） |
+| `TOKEN_STORE` | `sqlite` | Token 存储：sqlite/memory |
+| `AUDIT_LOG` | `on` | 审计落盘：on/none |
+| `GUARDRAILS_MODE` | `warn` | 护栏模式：block/warn/off |
+| `MCP_MODE` | `local` | 工具调用模式：local/mcp |
+| `FORCE_TENANT` | `false` | 强制租户隔离 |
 
-- [x] `python -m demo.main --check` 地基自检通过
-- [x] 单 Agent 模式：订单问题多工具调用 + 综合回答
-- [x] 单 Agent 模式：RAG 问题命中合同（rerank 分 >0.9）
-- [x] 多 Agent 模式：Supervisor 分派 + RBAC 拒绝越权 + 审计报告
-- [x] 观测层：trace 摘要含 LLM token 用量与工具延迟
-- [x] 观测层导出（#3）：`OTEL_EXPORTER=console` 跑一轮见结构化导出（含 token 用量）
-- [x] OTel 档：`OTEL_EXPORTER=otel` 产出真 OTel span（共享 trace_id，可发 Jaeger）
-- [x] 状态持久化（#1/#7）：`--chat` 多轮对话，第二轮记住第一轮上下文
-- [x] 重启恢复：新进程 `--chat --thread <id>` 恢复原会话历史
-- [x] 语义缓存（#6）：首次问未命中（执行并缓存），近义改写再问命中跳过 LLM
-- [x] 语义缓存：无关问题不误命中（distance>阈值判 miss），trace 记 `cache:lookup(result=hit/miss + distance)`
-- [x] Windows GBK 兼容：无需手动设编码环境变量
-- [x] README 含功能/调用建议/目录/架构图/差距表
-- [x] **成本监控（#1）**：LLM 调用自动计费，预算熔断，费用摘要含进度条
-- [x] **Token 持久化（#2）**：SQLite 默认存储 + `TOKEN_STORE=memory` 切回内存
-- [x] **审计持久化（#3）**：JSONL 即时落盘 + `AUDIT_LOG=none` 禁用
-- [x] **L1 精确缓存**：SQLite 存储，相同 prompt 命中 <1ms，0 token 消耗
-- [x] **LLM 连接池**：provider 级 httpx 连接池，keep-alive 60s，复用 TCP 连接
-- [x] **R1 工具沙箱**：`tools/sandbox.py`，超时控制 + 指数退避重试（TOOL_TIMEOUT/TOOL_MAX_RETRIES）
-- [x] **R2 输出护栏**：`guardrails/` 模块，越权指令/敏感信息检测 + 缺失段落检查 + block/warn/off 模式
-- [x] **R3 步骤校验**：`evaluate_results` 不再 noop，检查工具结果质量 + 数据完整性
-- [x] **R4 上下文压缩**：`graph/context_compressor.py`，summarization buffer 自动摘要
-- [x] **R5 MCP 进程隔离**：`tools/mcp_client.py`，MCP_MODE=mcp 走子进程通信
-- [x] **R6 Agent 评估**：`eval/` 模块，10 组 ground truth + 3 指标 + runner
-- [x] **R7 结构化筛选**：`query_orders` 支持 8 字段 AND 组合筛选 + 排序 + limit
-- [x] **R8 多租户隔离**：Token + tenant_id，数据层租户过滤，FORCE_TENANT 强制模式
-
-## 13. 新增环境变量
-
-R1-R8 改造新增的环境变量：
+### R1-R8 缺陷修复新增
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `TOOL_TIMEOUT` | `10` | 单次工具调用超时秒数（R1） |
 | `TOOL_MAX_RETRIES` | `3` | 最大重试次数（R1） |
-| `GUARDRAILS_MODE` | `warn` | 护栏模式：block/warn/off（R2） |
 | `CONTEXT_MAX_CHARS` | `8000` | 触发上下文压缩的字符阈值（R4） |
 | `CONTEXT_KEEP_RECENT` | `6` | 压缩后保留的最近消息数（R4） |
-| `MCP_MODE` | `local` | 工具调用模式：local/mcp（R5） |
-| `FORCE_TENANT` | `false` | 强制租户隔离（R8） |
 
-## 14. 运行评估（三层：工具 / 轨迹 / 语义）
+### v2 制造业主线新增 🆕
 
-```bash
-# 跑全部 10 个 case（单 Agent 模式，含 LLM-as-Judge）
-python -m demo.eval.runner
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `DATA_SOURCE` | `csv` | 数据源：csv / mysql（M1） |
+| `DB_HOST` | `127.0.0.1` | MySQL 主机（M1） |
+| `DB_PORT` | `3306` | MySQL 端口（M1） |
+| `DB_USER` | `root` | MySQL 用户（M1） |
+| `DB_PASSWORD` | - | MySQL 密码（M1） |
+| `DB_NAME` | `demo_scheduling` | MySQL 库名（M1） |
+| `DB_POOL_SIZE` | `5` | 连接池大小（M1） |
+| `SIM_TICK_SECONDS` | `60` | 模拟器心跳间隔（秒），默认 60s = 1 sim 小时（M3） |
+| `SOLVER_MAX_TIME` | `60` | CP-SAT 求解时间预算（秒）（M2） |
 
-# 跑单个 case
-python -m demo.eval.runner --case eval_001
-
-# 多 Agent 模式
-python -m demo.eval.runner --mode multi
-
-# 跳过 LLM-as-Judge（评估提速/省钱，语义层降级为关键词启发式）
-python -m demo.eval.runner --no-judge
-
-# 生成单页 HTML 可视化报告（demo/eval/reports/）
-python -m demo.eval.runner --report
-```
-
-## 15. 运行回测（历史延期复盘）
+## 10. 运行评估与测试
 
 ```bash
-# 跑全部 5 个历史延期复盘场景（需真实 LLM）
-python -m demo.backtest.runner
-```
-
-## 16. 一键自动化测试（CI 入口）
-
-```bash
-# 全量单测 + 集成测试（mock LLM，零成本）——128 passed
+# 全量单测 + 集成测试（mock LLM，零成本）
 python run_all_tests.py
 
-# 全量单测 + 三层评估（真实 LLM，需 .env key）
-python run_all_tests.py --eval
+# 三层评估：工具 / 轨迹 / 语义（需真实 LLM）
+python -m demo.eval.runner
+python -m demo.eval.runner --case eval_001   # 单个 case
+python -m demo.eval.runner --no-judge        # 跳过 LLM-as-Judge
+python -m demo.eval.runner --report          # 生成 HTML 报告
 
-# 全量单测 + 三层评估 + 生成 HTML 报告
-python run_all_tests.py --report
+# 回测：历史延期复盘
+python -m demo.backtest.runner
 
-# 评估时跳过 LLM-as-Judge（省钱/提速）
-python run_all_tests.py --no-judge
+# 排产求解器单测
+python -m pytest demo/scheduler/test_solver.py -v
+
+# 模拟器单测
+python -m pytest demo/simulator/ -v
 ```
 
-> 等价的 shell 脚本：`./test_demo.sh`
+## 11. 验收清单
 
----
+### v1 能力（已全部验收）
+- [x] `python -m demo.main --check` 地基自检通过
+- [x] 单 Agent 模式：订单问题多工具调用 + 综合回答
+- [x] 单 Agent 模式：RAG 问题命中合同（rerank 分 >0.9）
+- [x] 多 Agent 模式：Supervisor 分派 + RBAC 拒绝越权 + 审计报告
+- [x] 观测层：trace 摘要含 LLM token 用量与工具延迟
+- [x] 状态持久化：`--chat` 多轮对话，重启可恢复
+- [x] 语义缓存：相似问题命中，无关问题不误命中
+- [x] 成本监控 + 预算熔断
+- [x] Token 持久化 + 审计持久化
+- [x] R1 工具沙箱 / R2 输出护栏 / R3 步骤校验 / R4 上下文压缩
+- [x] R5 MCP 隔离 / R6 三层评估 / R7 结构化筛选 / R8 多租户
 
-## 17. 行业差距与评估结论（2026-08-09）
+### v2 制造业主线（M1-M5b）🆕
+- [x] **M1 数据层**：MySQL 双模式 + 连接池 + 事务 + 租户过滤
+- [x] **M2 求解器**：CP-SAT 约束规划 + 装箱 + C1-C9 校验 + 落库
+- [x] **M3 模拟器**：事件驱动引擎 + 心跳线程 + 连续失败熔断
+- [x] **M4a 调度闭环**：18 个排产工具（求解/查排产/模拟事件/审批）
+- [x] **M4b 产能评估**：负载/CTP/订单跟踪/前道/KPI
+- [x] **M5a 统计预测**：指数平滑 + 移动平均，分材料日级预测
+- [x] **M5b KPI 看板**：KPI 快照落库 + Dashboard 查询端点 + 静态 HTML
+- [x] **Schema**：15 张表建表脚本 + 迁移工具 + 写方唯一标注
+- [x] **API 扩展**：/sim/* + /schedule/* + /kpi + /dashboard/*
+- [x] **全量测试**：pytest 覆盖求解器/模拟器/数据层/工具/Dashboard
 
-> 完整报告：`docs/week6/demo-制造业智能体缺失评估报告-2026-08-09.md`
-> 评估方式：CodeGraph 全模块静态分析 + 真实运行验证（`--check` + pytest 128 passed）+ 2026 制造业智能体行业实践调研。
-> 评审团：CLAUDE.md 9 角色（开发者/测试者/架构/安全/DBA/前端架构/前端开发/代码走读/法律合规）+ AI 专家 + 技术专家。
+## 12. 演进历程
 
-### 17.1 成熟度评分（对照行业基线）
+| 阶段 | 时间 | 核心内容 |
+|------|------|---------|
+| week1-4 | 2026-07 | 单文件脚本：call_llm → RAG → 单 Agent → 多 Agent |
+| v1 整合 | 2026-08-04 | 工程化整合为分层项目（Harness 三层架构） |
+| R1-R8 | 2026-08-07 | 8 大缺陷修复：沙箱/护栏/步骤校验/压缩/MCP/评估/筛选/租户 |
+| 评估升级 | 2026-08-09 | 三层评估体系（工具/轨迹/语义）+ 回测 + 行业差距报告 |
+| **M1 数据层** | 2026-08-22 | CSV → MySQL 抽象，连接池，事务，租户过滤 |
+| **M2 求解器** | 2026-08-22 | OR-Tools CP-SAT + 装箱模型 + C1-C9 校验 |
+| **M3 模拟器** | 2026-08-23 | 事件驱动引擎 + 心跳线程 + A/B 层状态流转 |
+| **M4a 调度闭环** | 2026-08-23 | 18 个排产工具 + Agent 可触发求解/审批 + prompt 版本回滚 |
+| **M4b 人机协同** | 2026-08-24 | 审批流 + 产能评估 + CTP + 订单跟踪 + 前道负载 |
+| **M5a 预测** | 2026-08-24 | 指数平滑 + 移动平均，分材料日级需求预测 |
+| **M5b 看板** | 2026-08-25 | KPI 快照 + Dashboard + 静态 HTML |
+| **v2.0** | 2026-08-25 | 本版本：完整排产智能体闭环 |
 
-| 维度 | 现状 | 行业基线 | 主要差距 |
-|------|------|---------|---------|
-| 编排层 | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 缺 human-in-the-loop、动态约束、子任务并行 |
-| 工具层 | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 缺真实业务源、IoT/APS 集成 |
-| **评估体系** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 三层评估已超行业均值，缺 CI 持续化 |
-| 数据层 | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | CSV 快照 vs 实时 DB/MES/ERP |
-| 安全 | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 缺 API 限流、密钥管理、JWT 签名 |
-| 可观测性 | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 有 trace/成本/审计，缺自动告警、采样、看板 |
-| 制造业业务 | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 缺 APS 排产算法、IoT 数据、排产变更闭环 |
+## 13. 相关文档
 
-### 17.2 差距清单（按优先级）
-
-**P0（制造业主线，必须补）**
-
-| # | 缺失 | 说明 |
-|---|------|------|
-| M1 | **排产约束求解** | 用 OR-Tools / 启发式做交期-产能-物料约束排产，而非纯 LLM 文本建议 |
-| M2 | **实时数据源抽象** | DataSource 接口，CSV→MySQL/MES/IoT 可插拔，支持增量更新 |
-| M3 | **human-in-the-loop** | LangGraph `interrupt_before` 关键排产决策人工确认 |
-| M4 | **结构化排产结果** | `final_answer` 之外输出 JSON 排产表（订单/优先级/时间/原因），供数值验证 |
-
-**P1（生产化加固）**
-
-| # | 缺失 | 说明 |
-|---|------|------|
-| M5 | **API 限流** | 网关层 rate limit，防打爆预算 |
-| M6 | **Token 签名 + refresh** | JWT 签名防伪造；refresh token 续期 |
-| M7 | **评估接 CI** | 每次 commit 自动跑 eval，回归基线门槛 |
-| M8 | **自动告警 + 采样** | provider 失败率阈值告警；高 QPS 采样导出 |
-| M9 | **排产可视化看板** | Web 界面展示排产表/设备负载/风险标记 |
-
-**P2（纵深完善）**
-
-| # | 缺失 | 说明 |
-|---|------|------|
-| M10 | **Prompt 版本管理 / A/B** | `prompts/` 版本化 + 分流 |
-| M11 | **Langfuse 看板** | 观测 + 评估一体，替代 console 导出 |
-| M12 | **评估闭环** | 低分场景自动归档 → 反哺 prompt/参数 |
-| M13 | **多环境隔离** | dev/staging/prod 配置分离 |
-
-### 17.3 下一步建议（按性价比）
-
-`M4 结构化排产结果 → M1 约束求解 → M7 CI 持续评估 → M2 数据源抽象 → M3 human-in-the-loop`
-
----
-
-## 18. 相关文档链接（2026-08-08 ~ 08-09 评估改造）
-
-> 本 demo 的评估体系改造（三层评估 + 回测）与制造业智能体缺失评估的完整过程记录，见以下文档。
-
-### 评估报告 / 现状分析
+### 需求 / 规格
 
 | 文档 | 说明 |
 |------|------|
-| [制造业智能体缺失评估报告](../docs/week6/demo-制造业智能体缺失评估报告-2026-08-09.md) | 完整缺失评估：行业基线 + 11 位评审团 + M1-M13 差距 |
-| [Agent 评估行业实践与 demo 现状分析](../docs/courses/Agent评估行业实践与demo现状分析-2026-08-08.md) | 2026 行业评估范式 + ragas 停滞分析，为何弃 ragas 自研 |
+| [需求规格 v1](../docs/demo/02-specs/需求规格-v1-2026-08-21.md) | 范围/功能/非功能/验收标准 |
+| [部署指南 v1](../docs/demo/部署指南-v1-2026-08-25.md) | 生产部署完整指南 |
+| [生产化蓝图](../docs/demo/生产化差距与部署蓝图-v1-2026-08-22.md) | 差距分析 + 部署方案 |
 
-### 改造计划 / 实现过程
-
-| 文档 | 说明 |
-|------|------|
-| [评估改造方案](../docs/week6/demo-评估改造方案-2026-08-09.md) | 全量执行分阶段路线图：Phase A 重问题修补 → B 制造业主线 → C 生产化 → D 评估深化（CI 载体=本地） |
-| [三层评估体系实现计划](../docs/superpowers/plans/2026-08-08-ragas升级-三层评估体系.md) | 改造前的完整实现计划（TDD + writing-plans） |
-| [评估改造实现过程定位](../docs/week6/demo-评估改造实现过程定位-2026-08-09.md) | 实现实录：16 个坑复盘 + 根因归属 + 修测试/修代码分类 |
-| [8 大缺陷可执行改造方案](../docs/week5/8大缺陷-可执行代码改造方案.md) | R1-R8 缺陷修复方案（评估体系改造的源头） |
-
-### Session 记录
+### 代码阅读
 
 | 文档 | 说明 |
 |------|------|
-| [session 08-08 行业现状分析](../job-portfolio/sessions/session-2026-08-08-Agent评估体系现状与行业实践分析.md) | 评估体系现状梳理 + 行业实践调研 |
-| [session 08-09 三层评估实现](../job-portfolio/sessions/session-2026-08-09-demo三层评估体系实现+全量测试+回测.md) | 三层评估 + 全量测试 + 回测实现 |
-| [session 08-09 缺失评估报告](../job-portfolio/sessions/session-2026-08-09-demo制造业智能体缺失评估报告.md) | 制造业智能体缺失评估 + 11 位评审团 |
+| [代码阅读指南 v2.0](./代码阅读指南-v2.0-2026-08-25.md) | 从底层到上层 22+ 层详细阅读路线 + 评估体系深度解析 |
+| [8 大缺陷改造方案](../docs/week5/8大缺陷-可执行代码改造方案.md) | R1-R8 修复方案 |
+| [v2 重构方案](../docs/demo/04-plans/) | M1-M6 分阶段重构计划 |
+
+### 评估报告
+
+| 文档 | 说明 |
+|------|------|
+| [制造业智能体缺失评估报告](../docs/week6/demo-制造业智能体缺失评估报告-2026-08-09.md) | 行业基线 + 11 位评审团 + M1-M13 差距 |
+| [三层评估体系实现](../docs/superpowers/plans/2026-08-08-ragas升级-三层评估体系.md) | 评估改造前的完整实现计划 |
