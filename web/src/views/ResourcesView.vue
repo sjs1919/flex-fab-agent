@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { fetchResources, type ResourceCategory } from '../api/resources'
 
 const categories: { name: ResourceCategory; label: string }[] = [
@@ -36,6 +36,8 @@ async function switchTab(name: string | number) {
   active.value = name as ResourceCategory
   await load()
 }
+
+onMounted(load)
 </script>
 
 <template>
