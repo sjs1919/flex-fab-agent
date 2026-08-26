@@ -325,12 +325,13 @@ _RESOURCE_LOADERS = {
     "inventory": "load_inventory",
     "batches": "load_batches",
     "preprocess": "load_preprocess_tasks",
+    "personnel": "load_personnel",
 }
 
 
 @app.get("/resources/{category}")
 def resources_list(category: str) -> dict:
-    """资源列表（只读，R-7 匿名可读）：machines/customers/orders/inventory/batches/preprocess。
+    """资源列表（只读，R-7 匿名可读）：machines/customers/orders/inventory/batches/preprocess/personnel。
 
     复用 data.py load_*（mysql 路径），返回 id 倒序（最新在前），供资源聚合页展示。
     """
@@ -340,6 +341,26 @@ def resources_list(category: str) -> dict:
     from .tools import data
     items = getattr(data, loader)()
     return {"items": items[::-1]}
+
+
+class PersonnelStatusRequest(BaseModel):
+    status: str  # 上班 | 请假
+
+
+@app.put("/resources/personnel/{pid}/status")
+def set_personnel_status(pid: str, body: PersonnelStatusRequest,
+                         _admin: str = Depends(require_admin)) -> dict:
+    """人员状态切换（写端点，强制 admin token R-7）。status: 上班|请假。"""
+    if body.status not in ("上班", "请假"):
+        raise HTTPException(400, f"非法状态: {body.status}")
+    from .tools.data import get_connection
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE personnel SET status=%s WHERE id=%s", (body.status, pid))
+            if cur.rowcount == 0:
+                raise HTTPException(404, f"人员不存在: {pid}")
+            conn.commit()
+    return {"ok": True, "message": f"{pid} 已切换为 {body.status}"}
 
 
 # ---- 看板只读端点（M5b T5b.7；匿名可读，B8 前端消费） ----

@@ -3,7 +3,7 @@
 -- 库：demo_scheduling（WSL MySQL 8.0，utf8mb4）
 --
 -- 表所有权（v2 §4.2，写方唯一，交叉只读快照）：
---   业务表   customer/orders/parts/machines/material/inventory → 写方 seed + 模拟器 B 层（订单到达/restock）
+--   业务表   customer/orders/parts/machines/material/inventory/personnel → 写方 seed + 模拟器 B 层（订单到达/restock/leave）
 --   求解输出 schedule_versions/batches/preprocess_tasks         → 写方 solver（approval_status → approve_schedule）
 --   配置     system_config                                     → 写方 运维/配置 API
 --   模拟/审计 sim_clock/state_change_log/sim_events            → 写方 simulator
@@ -113,6 +113,16 @@ CREATE TABLE IF NOT EXISTS inventory (
     KEY idx_inventory_tenant (tenant_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='库存（所有权：seed + B 层 restock）';
+
+-- 人员（写方：seed + 模拟器 leave 事件 + 前端状态切换；读方：resources/前端）
+CREATE TABLE IF NOT EXISTS personnel (
+    id     VARCHAR(16) NOT NULL COMMENT '人员编号（P001...）',
+    name   VARCHAR(32) NOT NULL COMMENT '姓名',
+    role   VARCHAR(32) NOT NULL COMMENT '工种（前道工人/调机员/排版员）',
+    status ENUM('上班','请假') NOT NULL DEFAULT '上班' COMMENT '状态（leave 联动 + 前端可改）',
+    PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='人员（所有权：seed + 模拟器 B 层 leave + 前端）';
 
 -- ---------------- 求解输出 ----------------
 

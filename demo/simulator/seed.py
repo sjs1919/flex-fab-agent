@@ -29,7 +29,7 @@ from demo.tools.data import create_raw_connection
 random.seed(42)
 
 # 业务表（seed 管理的表；schedule_versions/batches 等由 solver 管，不清）
-SEED_TABLES = ["customer", "orders", "parts", "machines", "material", "inventory"]
+SEED_TABLES = ["customer", "orders", "parts", "machines", "material", "inventory", "personnel"]
 
 # 客户：沿用现有 customers.csv 口径 + penalty_rate（v1 §3.17：S=0.01/A=0.005/B=C=0.003）
 CUSTOMERS = [
@@ -142,6 +142,21 @@ def _seed_inventory(cur) -> None:
     )
 
 
+def seed_personnel(cur) -> None:
+    """预置 6 名前道工人（对应原"前道工人池"，改具体人员）。幂等：存在即跳过。"""
+    cur.execute("SELECT COUNT(*) FROM personnel")
+    if cur.fetchone()[0] > 0:
+        return
+    rows = [
+        ("P001", "张伟", "前道工人"), ("P002", "李强", "前道工人"),
+        ("P003", "王芳", "前道工人"), ("P004", "刘洋", "前道工人"),
+        ("P005", "陈静", "前道工人"), ("P006", "赵磊", "前道工人"),
+    ]
+    for pid, name, role in rows:
+        cur.execute("INSERT INTO personnel (id, name, role) VALUES (%s, %s, %s)",
+                    (pid, name, role))
+
+
 def _seed_system_config(cur) -> None:
     """写 system_config 种子（INSERT IGNORE：缺行才插，保运维已改值）。"""
     cur.executemany(
@@ -212,6 +227,7 @@ def seed(conn: pymysql.connections.Connection | None = None) -> dict:
             _seed_inventory(cur)
             _seed_orders(cur)
             _seed_parts(cur)
+            seed_personnel(cur)
             _seed_system_config(cur)
         c.commit()
         with c.cursor() as cur:

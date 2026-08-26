@@ -19,7 +19,7 @@ import pymysql
 from demo.tools.data import create_raw_connection
 
 SCHEMA_SQL = Path(__file__).resolve().parent / "schema.sql"
-CURRENT_VERSION = 3
+CURRENT_VERSION = 4
 
 # bad_parts 建表 DDL（v2 增量复用；与 schema.sql 保持一致）
 _BAD_PARTS_DDL = """
@@ -82,6 +82,18 @@ CREATE TABLE IF NOT EXISTS trace_record (
   COMMENT='trace 记录（所有权：api /ask，M5b）';
 """
 
+# personnel 建表 DDL（v4 增量复用；与 schema.sql 保持一致）
+_PERSONNEL_DDL = """
+CREATE TABLE IF NOT EXISTS personnel (
+    id     VARCHAR(16) NOT NULL COMMENT '人员编号（P001...）',
+    name   VARCHAR(32) NOT NULL COMMENT '姓名',
+    role   VARCHAR(32) NOT NULL COMMENT '工种（前道工人/调机员/排版员）',
+    status ENUM('上班','请假') NOT NULL DEFAULT '上班' COMMENT '状态（leave 联动 + 前端可改）',
+    PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='人员（所有权：seed + 模拟器 B 层 leave + 前端）'
+"""
+
 
 def _column_exists(cur, table: str, column: str) -> bool:
     """列存在检查（MySQL 8 无 ADD/DROP COLUMN IF EXISTS，用 information_schema 判断）。"""
@@ -119,7 +131,17 @@ def _down_v3(cur) -> None:
         cur.execute(f"DROP TABLE IF EXISTS {t}")
 
 
-_MIGRATIONS = {2: (_up_v2, _down_v2), 3: (_up_v3, _down_v3)}
+def _up_v4(cur) -> None:
+    """v4 增量：personnel 表（资源聚合页人员模块）。"""
+    cur.execute(_PERSONNEL_DDL)
+
+
+def _down_v4(cur) -> None:
+    """v4 回滚：DROP personnel 表。"""
+    cur.execute("DROP TABLE IF EXISTS personnel")
+
+
+_MIGRATIONS = {2: (_up_v2, _down_v2), 3: (_up_v3, _down_v3), 4: (_up_v4, _down_v4)}
 
 
 def _connect() -> pymysql.connections.Connection:

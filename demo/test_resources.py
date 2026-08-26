@@ -35,3 +35,46 @@ def test_resources_unknown_404():
     client = TestClient(app)
     r = client.get("/resources/unknown")
     assert r.status_code == 404
+
+
+def test_personnel_list_and_status_toggle():
+    """人员列表含 seed 6 人；PUT 状态切换（admin token）生效；无 token 401。"""
+    from fastapi.testclient import TestClient
+    from demo.api import app
+    from demo.auth.token_exchange import STS
+    client = TestClient(app)
+    # 列表
+    items = client.get("/resources/personnel").json()["items"]
+    assert items and all(i["status"] in ("上班", "请假") for i in items)
+    pid = items[0]["id"]
+    tid = STS().issue_user_token("admin-debug", "admin")
+    # 无 token -> 401
+    r = client.put(f"/resources/personnel/{pid}/status", json={"status": "请假"})
+    assert r.status_code == 401
+    # 有 token -> 切换
+    r = client.put(f"/resources/personnel/{pid}/status", json={"status": "请假"},
+                   headers={"X-Admin-Token": tid})
+    assert r.status_code == 200 and r.json()["ok"] is True
+    again = client.get("/resources/personnel").json()["items"]
+    updated = next(i for i in again if i["id"] == pid)
+    assert updated["status"] == "请假"
+    # 回切
+    client.put(f"/resources/personnel/{pid}/status", json={"status": "上班"},
+               headers={"X-Admin-Token": tid})
+
+
+def test_fire_leave_updates_personnel(monkeypatch):
+    """模拟器 leave 事件联动 personnel 表（请假改具体人状态 + 日志）。"""
+    from datetime import datetime
+    from demo.simulator import engine, events
+    # 假 conn/cur：记录 UPDATE 与 state_change_log 调用
+    class FakeCur:
+        def __init__(self): self.rows = []
+        def execute(self, sql, params=None): self.rows.append((sql, params))
+        def fetchone(self): return ("P001",)  # 有上班者/请假者
+    cur = FakeCur()
+    # 注：params 需含 leave_rate（schedule_next 抽样用），不能用空 dict
+    engine._fire_leave(None, cur, datetime(2026, 9, 1, 8, 0),
+                       events.PARAMS_DEFAULT, {})
+    updates = [r for r in cur.rows if r[0].startswith("UPDATE personnel")]
+    assert updates, "leave 应 UPDATE personnel 状态"

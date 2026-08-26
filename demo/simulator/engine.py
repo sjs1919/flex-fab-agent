@@ -309,14 +309,24 @@ def _fire_order_change(conn, cur, sim_time: datetime, params: dict,
 
 
 def _fire_leave(conn, cur, sim_time: datetime, params: dict, payload: dict) -> None:
-    """前道工人请假/回岗（6 人池动态人数）：absence 请假 + 预排回岗（kind=back）
-    + 预排下一个 absence；back 回岗恢复人效。"""
+    """前道工人请假/回岗（personnel 表具体人，原 6 人池抽象改造）：
+    absence 请假（选一名上班者）+ 预排回岗（kind=back）+ 预排下一个 absence；
+    back 回岗（选一名请假者恢复）。"""
     if payload.get("kind") == "back":
-        states.log_state_change(cur, sim_time, "personnel", "前道工人池",
-                                "status", "请假", "在岗")
+        cur.execute("SELECT id FROM personnel WHERE status='请假' LIMIT 1")
+        row = cur.fetchone()
+        if row:
+            cur.execute("UPDATE personnel SET status='上班' WHERE id=%s", (row[0],))
+            states.log_state_change(cur, sim_time, "personnel", row[0],
+                                    "status", "请假", "上班")
+        events.schedule_next(cur, "leave", sim_time, params)
         return
-    states.log_state_change(cur, sim_time, "personnel", "前道工人池",
-                            "status", "在岗", "请假")
+    cur.execute("SELECT id FROM personnel WHERE status='上班' LIMIT 1")
+    row = cur.fetchone()
+    if row:
+        cur.execute("UPDATE personnel SET status='请假' WHERE id=%s", (row[0],))
+        states.log_state_change(cur, sim_time, "personnel", row[0],
+                                "status", "上班", "请假")
     return_at = sim_time + timedelta(days=random.randint(1, 3))
     cur.execute(
         "INSERT INTO sim_events (sim_time, event_type, payload_json, status) "

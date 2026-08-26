@@ -32,7 +32,7 @@ def _rows(sql, params=()):
 
 @pytest.fixture()
 def sim_env():
-    """1 台设备 + 1 批次（打印中）+ 1 订单。用后清理。"""
+    """1 台设备 + 1 批次（打印中）+ 1 订单 + 人员复位。用后清理。"""
     _exec("DELETE FROM sim_events")
     _exec("DELETE FROM state_change_log WHERE entity_id LIKE 'T-%%'")
     _exec("DELETE FROM preprocess_tasks WHERE batch_id LIKE 'T-%%'")
@@ -41,6 +41,7 @@ def sim_env():
     _exec("DELETE FROM orders WHERE id LIKE 'T-%%'")
     _exec("DELETE FROM parts WHERE order_id LIKE 'T-%%'")
     _exec("UPDATE machines SET status='空闲', current_batch_id=NULL WHERE id='M0001'")
+    _exec("UPDATE personnel SET status='上班'")  # leave 测试会改具体人状态，先复位
     _exec(
         "INSERT INTO orders (id, customer_id, amount, urgent, priority, due_date, status, tenant_id) "
         "VALUES ('T-ORD001', 'C001', 100000, 0, 40, '2026-09-10', '打印中', 'default')")
@@ -64,6 +65,7 @@ def sim_env():
     _exec("DELETE FROM orders WHERE id LIKE 'T-%%'")
     _exec("DELETE FROM parts WHERE order_id LIKE 'T-%%'")
     _exec("UPDATE machines SET status='空闲', current_batch_id=NULL WHERE id='M0001'")
+    _exec("UPDATE personnel SET status='上班'")  # 复位 leave 测试改过的具体人状态
 
 
 def _fire(sim_time, monkeypatch=None):
@@ -153,7 +155,7 @@ def test_fire_new_order_and_reschedule(sim_env):
 
 
 def test_fire_leave_and_back(sim_env):
-    """leave 到点：personnel 请假日志 + 预排回岗（kind=back）；回岗到点：在岗日志。"""
+    """leave 到点：personnel 请假日志 + 预排回岗（kind=back）；回岗到点：恢复上班日志。"""
     _exec(
         "INSERT INTO sim_events (sim_time, event_type, payload_json, status) "
         "VALUES ('2026-09-01 08:00:00', 'leave', NULL, 'scheduled')")
@@ -173,7 +175,7 @@ def test_fire_leave_and_back(sim_env):
     logs = _rows(
         "SELECT new_value FROM state_change_log WHERE entity_type='personnel' "
         "AND field='status'")
-    assert any(l["new_value"] == "在岗" for l in logs)
+    assert any(l["new_value"] == "上班" for l in logs)
 
 
 def test_fire_restock(sim_env):

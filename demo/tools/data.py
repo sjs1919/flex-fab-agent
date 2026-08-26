@@ -227,6 +227,11 @@ def load_batches(tenant_id: str = "") -> list[dict[str, str]]:
     return _read_rows("SELECT * FROM batches", (), filename="")
 
 
+def load_personnel(tenant_id: str = "") -> list[dict[str, str]]:
+    """加载人员（personnel 无 tenant_id，参数保留对齐签名）。"""
+    return _read_rows("SELECT * FROM personnel", (), filename="")
+
+
 def load_config(tenant_id: str = "") -> list[dict[str, str]]:
     """加载系统配置（M1 新增；本轮未灌数据，空表返回 []）。
 
