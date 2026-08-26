@@ -55,6 +55,7 @@ class SimulatorRunner:
         self.tick_count += 1
         self.consecutive_failures = 0
         cache_manager.bump_scene_version()  # R-3：状态相关缓存失效
+        cache_manager.clear_state_entries()  # tick 后订单/设备状态变化，状态类语义缓存主动失效
         self._record_kpi_snapshot(sim_time)
         duration_ms = round((time.perf_counter() - t0) * 1000, 1)
         self._tracer.record(

@@ -25,6 +25,19 @@ from ..tools.registry import build_default_registry
 
 logger = logging.getLogger(__name__)
 
+# 状态/时效敏感查询关键词：命中即不写语义缓存（避免返回过期数据，如
+# 9:00 与 10:00 问同一订单，中间状态变了）。宁可漏缓存，不可缓存过时答案。
+_STATE_SENSITIVE_KEYWORDS = (
+    "订单", "状态", "进度", "排产", "排队", "库存", "设备", "批次",
+    "客户", "金额", "生产", "交期", "追踪", "统计", "数量", "多少",
+    "查询", "有哪些", "当前", "结果",
+)
+
+
+def _is_state_sensitive(query: str) -> bool:
+    return any(k in query for k in _STATE_SENSITIVE_KEYWORDS)
+
+
 # 模块级缓存编译好的图：多轮复用同一图 + checkpointer（checkpointer 是单例）
 _app = None
 _app_registry = None
@@ -106,8 +119,9 @@ def run_single_agent(query: str, registry=None, thread_id: str | None = None) ->
     if thread_id is None and result.get("final_answer"):
         # 缓存投毒纵深防御：标记文本（未解析工具调用）与失败兜底文本（生成异常）
         # 均不得写入语义缓存，否则用户重问会一直命中失败答案。
+        # 状态类查询（订单/状态/进度等）标记 sensitive：走短 TTL + 数据变更主动清除，避免返回过期数据。
         fa = result["final_answer"]
         if not _looks_like_tool_markup(fa) and fa != _GRACEFUL_FALLBACK:
-            cache_manager.store_semantic(query, fa)
+            cache_manager.store_semantic(query, fa, sensitive=_is_state_sensitive(query))
 
     return result

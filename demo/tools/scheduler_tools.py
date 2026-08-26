@@ -20,6 +20,7 @@ from decimal import Decimal
 
 from demo.config import get_config
 from demo.core.utils import fmt_dt, json_list
+from demo.cache.manager import cache_manager
 from demo.forecast import forecaster
 from demo.scheduler import assessment
 from demo.scheduler.snapshot import load_snapshot
@@ -37,6 +38,7 @@ def run_scheduling(triggered_by: str = "agent") -> str:
     snapshot = load_snapshot()
     result = solve(snapshot, triggered_by=triggered_by)
     version_id = persist(result, snapshot, triggered_by=triggered_by)
+    cache_manager.clear_state_entries()  # 排产后订单/批次状态变化，状态类语义缓存主动失效
     m = result["metrics"]
     lines = [
         f"✅ 排产完成：版本 {version_id}（待审核）",

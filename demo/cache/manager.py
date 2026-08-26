@@ -67,9 +67,13 @@ class CacheManager:
         """
         return semantic_cache.get(query, threshold)
 
-    def store_semantic(self, query: str, answer: str) -> None:
-        """写入 L2 语义缓存（upsert）。"""
-        semantic_cache.put(query, answer)
+    def store_semantic(self, query: str, answer: str, sensitive: bool = False) -> None:
+        """写入 L2 语义缓存（upsert）。sensitive=True 标记状态类（短 TTL + 可整体清除）。"""
+        semantic_cache.put(query, answer, sensitive=sensitive)
+
+    def clear_state_entries(self) -> None:
+        """清空状态类语义缓存（模拟器 tick / 排产完成等数据变更时调用，主动失效）。"""
+        semantic_cache.clear_state_entries()
 
     def semantic_enabled(self) -> bool:
         """L2 语义缓存是否启用。"""

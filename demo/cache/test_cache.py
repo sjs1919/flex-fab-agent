@@ -102,3 +102,60 @@ def test_semantic_cache_chinese_discrimination(monkeypatch, tmp_path):
         assert sc.get("有哪些订单已经打印完成？") is None   # 不同状态问句 -> 不命中
     finally:
         sc._collection = None
+
+
+class _FakeTime:
+    """可控时钟：monkeypatch semantic_cache.time，模拟 TTL 流逝。"""
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def time(self) -> float:
+        return self.now
+
+
+def test_state_sensitive_ttl_expiry(monkeypatch, tmp_path):
+    """状态类条目短 TTL：超过 SEMANTIC_CACHE_STATE_TTL 后 get 视为 miss。"""
+    import demo.cache.semantic_cache as sc
+    monkeypatch.setattr(sc, "_DB_DIR", tmp_path / "cache_db")
+    monkeypatch.setenv("SEMANTIC_CACHE_STATE_TTL", "60")
+    sc._collection = None
+    fake = _FakeTime()
+    monkeypatch.setattr(sc, "time", fake)
+    try:
+        sc.put("订单001状态", "生产中", sensitive=True)
+        assert sc.get("订单001状态") is not None        # TTL 内命中
+        fake.now += 61                                   # 前进 61s
+        assert sc.get("订单001状态") is None             # 过期 miss
+    finally:
+        sc._collection = None
+
+
+def test_knowledge_no_expiry(monkeypatch, tmp_path):
+    """知识类条目不过期（SEMANTIC_CACHE_TTL=0，现状保持）。"""
+    import demo.cache.semantic_cache as sc
+    monkeypatch.setattr(sc, "_DB_DIR", tmp_path / "cache_db2")
+    monkeypatch.setenv("SEMANTIC_CACHE_TTL", "0")
+    sc._collection = None
+    fake = _FakeTime()
+    monkeypatch.setattr(sc, "time", fake)
+    try:
+        sc.put("什么是排产", "排产是排程排产的意思", sensitive=False)
+        fake.now += 100000                              # 很久以后
+        assert sc.get("什么是排产") is not None          # 仍命中
+    finally:
+        sc._collection = None
+
+
+def test_clear_state_entries_keeps_knowledge(monkeypatch, tmp_path):
+    """clear_state_entries() 只删状态类条目，知识类保留。"""
+    import demo.cache.semantic_cache as sc
+    monkeypatch.setattr(sc, "_DB_DIR", tmp_path / "cache_db3")
+    sc._collection = None
+    try:
+        sc.put("订单001状态", "生产中", sensitive=True)
+        sc.put("什么是排产", "排产是排程排产的意思", sensitive=False)
+        sc.clear_state_entries()
+        assert sc.get("订单001状态") is None             # 状态类已删
+        assert sc.get("什么是排产") is not None           # 知识类保留
+    finally:
+        sc._collection = None

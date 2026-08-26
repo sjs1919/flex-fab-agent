@@ -167,6 +167,9 @@ LLM_CACHE = os.getenv("LLM_CACHE", "on")
 LLM_CACHE_TTL = int(os.getenv("LLM_CACHE_TTL", "3600"))
 SEMANTIC_CACHE = os.getenv("SEMANTIC_CACHE", "on")
 CACHE_THRESHOLD = float(os.getenv("CACHE_THRESHOLD", "0.25"))
+# 语义缓存 TTL（秒）：只对状态类（订单/状态/进度等）做短缓存；知识类保持不过期（0），行为不变
+SEMANTIC_CACHE_TTL = int(os.getenv("SEMANTIC_CACHE_TTL", "0"))  # 知识类，0 = 不过期（现状）
+SEMANTIC_CACHE_STATE_TTL = int(os.getenv("SEMANTIC_CACHE_STATE_TTL", "60"))  # 状态类，默认对齐模拟器 tick(60s)
 
 # ---- LLM 预算 ----
 LLM_BUDGET_LIMIT = float(os.getenv("LLM_BUDGET_LIMIT", "5.0"))

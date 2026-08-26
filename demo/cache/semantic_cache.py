@@ -16,7 +16,9 @@ sentence-transformers，~95MB；torch/sentence-transformers 依赖项目已装�
 默认 0.25：catches 同义/标点/近义改写，排除不同义问句。
 """
 import hashlib
+import logging
 import os
+import time
 
 # 必须在 import chromadb（其内部 import huggingface_hub）之前设：hub 的 endpoint
 # 常量在 import 时冻结，晚了不生效。huggingface.co 直连被墙且 DNS 污染
@@ -25,8 +27,16 @@ os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
 import chromadb
 
-from ..config import RUNTIME_DIR, SEMANTIC_CACHE, CACHE_THRESHOLD
+from ..config import (
+    CACHE_THRESHOLD,
+    RUNTIME_DIR,
+    SEMANTIC_CACHE,
+    SEMANTIC_CACHE_STATE_TTL,
+    SEMANTIC_CACHE_TTL,
+)
 from ..core.hf_utils import load_st_embedding
+
+logger = logging.getLogger(__name__)
 
 _DB_DIR = RUNTIME_DIR / "cache_db"
 _COLLECTION_NAME = "semantic_cache"
@@ -55,6 +65,8 @@ def get(query: str, threshold: float | None = None):
     """查相似问题。
 
     threshold 为 cosine distance 上限（越小越严）。返回 (answer, distance) 或 None。
+    状态类条目按短 TTL（SEMANTIC_CACHE_STATE_TTL）过期，避免返回过时数据；
+    知识类按 SEMANTIC_CACHE_TTL（默认 0 = 不过期，保持现状）。
     """
     if not is_enabled():
         return None
@@ -68,15 +80,50 @@ def get(query: str, threshold: float | None = None):
         return None
     dist = res["distances"][0][0]
     if dist <= threshold:
-        answer = res["metadatas"][0][0].get("answer", "")
+        meta = res["metadatas"][0][0]
+        sensitive = bool(meta.get("sensitive", False))
+        ttl = SEMANTIC_CACHE_STATE_TTL if sensitive else SEMANTIC_CACHE_TTL
+        ts = meta.get("ts", 0)
+        if ttl and (time.time() - float(ts)) > ttl:
+            return None  # 已过期视为 miss，走真实执行
+        answer = meta.get("answer", "")
         return answer, dist
     return None
 
 
-def put(query: str, answer: str) -> None:
-    """存入缓存（upsert，同 id 覆盖）。"""
+def put(query: str, answer: str, sensitive: bool = False) -> None:
+    """存入缓存（upsert，同 id 覆盖）。
+
+    sensitive=True 标记为状态类：get 时按短 TTL 过期（SEMANTIC_CACHE_STATE_TTL），
+    且 clear_state_entries() 可整体清除（数据变更即失效）。
+    """
     if not is_enabled() or not answer:
         return
     col = _get_collection()
     qid = hashlib.md5(query.encode("utf-8")).hexdigest()[:16]
-    col.upsert(ids=[qid], documents=[query], metadatas=[{"answer": answer, "query": query}])
+    col.upsert(
+        ids=[qid],
+        documents=[query],
+        metadatas=[{
+            "answer": answer,
+            "query": query,
+            "sensitive": bool(sensitive),
+            "ts": time.time(),
+        }],
+    )
+
+
+def clear_state_entries() -> None:
+    """清空状态类（sensitive=True）语义缓存条目。
+
+    模拟器 tick / 排产完成等数据变更时调用，使状态类缓存立即失效，不等 TTL 自然过期。
+    """
+    if not is_enabled():
+        return
+    col = _get_collection()
+    if col.count() == 0:
+        return
+    try:
+        col.delete(where={"sensitive": True})
+    except Exception as e:  # 清理失败不阻断主流程
+        logger.warning("清空状态类语义缓存失败: %s", e)
