@@ -13,6 +13,7 @@ handler；machine_failure 触发硬性不可行检测（修不回交期 -> 强�
 """
 from __future__ import annotations
 
+import json
 import random
 from datetime import datetime, timedelta
 

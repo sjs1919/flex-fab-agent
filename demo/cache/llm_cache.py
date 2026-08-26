@@ -13,11 +13,12 @@
 """
 import hashlib
 import json
+import os
 import sqlite3
 import time
 from pathlib import Path
 
-from ..config import RUNTIME_DIR, LLM_CACHE, LLM_CACHE_TTL
+from ..config import RUNTIME_DIR
 
 _DB_PATH = RUNTIME_DIR / "llm_cache.db"
 _conn: sqlite3.Connection | None = None
@@ -59,7 +60,13 @@ def _get_conn() -> sqlite3.Connection:
 
 
 def is_enabled() -> bool:
-    return LLM_CACHE.lower() != "off"
+    """调用时读环境变量（运行时可切换，且测试可 monkeypatch.setenv）。"""
+    return os.getenv("LLM_CACHE", "on").lower() != "off"
+
+
+def _ttl() -> int:
+    """调用时读 LLM_CACHE_TTL（秒），默认 3600，0 表示永不过期。"""
+    return int(os.getenv("LLM_CACHE_TTL", "3600"))
 
 
 def _cache_key(messages: list[dict], tools: list[dict] | None,
@@ -90,7 +97,7 @@ def get(messages: list[dict], tools: list[dict] | None,
     if not row:
         return None
     # TTL 检查
-    ttl = LLM_CACHE_TTL
+    ttl = _ttl()
     if ttl > 0 and time.time() - row[5] > ttl:
         conn.execute("DELETE FROM llm_cache WHERE cache_key=?", (key,))
         conn.commit()
@@ -126,7 +133,7 @@ def stats() -> dict:
     conn = _get_conn()
     total = conn.execute("SELECT COUNT(*) FROM llm_cache").fetchone()[0]
     # 清理过期
-    ttl = LLM_CACHE_TTL
+    ttl = _ttl()
     expired = 0
     if ttl > 0:
         cutoff = time.time() - ttl
