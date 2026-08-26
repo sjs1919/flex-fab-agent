@@ -13,6 +13,7 @@
   - LLM 调用统一用 core.llm_client
 """
 import json
+import re
 
 from ..agents.router import AgentRouter
 from ..agents.review_agent import review_order
@@ -80,6 +81,25 @@ class SupervisorAgent:
         self.audit.log("sub_call", "production_agent", "feasibility", {}, "完成")
         return result
 
+    def _query_candidate_order_ids(self, limit: int = 20) -> list[str]:
+        """查真实待评估候选订单（R-5：删除硬编码 sample_orders，经 query_orders 工具）。
+
+        返回 priority 降序前 N 单的 order_id；查询失败/无单时返回空列表并记审计 WARN。
+        """
+        try:
+            text = self.registry.execute(
+                "query_orders",
+                {"sort_by": "priority", "limit": limit},
+            )
+        except Exception as e:
+            self.audit.log("query_orders", "supervisor", "orders",
+                           {"error": str(e)}, "候选订单查询失败", "WARN")
+            return []
+        ids = re.findall(r"\b(ORD\d+)\b", text)
+        if not ids:
+            print(" -> 无候选订单（query_orders 未返回 ORD ID）")
+        return ids
+
     def orchestrate(self, query: str) -> dict:
         """编排多 Agent 协作全流程。"""
         # M6 T6.3：orchestrate 父 span，dispatch/tool 挂其下（两级链路树）
@@ -98,8 +118,7 @@ class SupervisorAgent:
         user_token = self._setup_auth()
         print(f" 鉴权链路：已建立（Token: {user_token[:8]}...）")
 
-        # 3. 分发子 Agent（sample 订单；实际应从订单查询获取）
-        sample_orders = ["ORD001", "ORD003", "ORD005"]
+        # 3. 分发子 Agent（R-5：真实订单查询，删除硬编码 sample_orders）
         review_results, production_result = [], {}
         targets = route_result["targets"]
 
@@ -116,13 +135,15 @@ class SupervisorAgent:
 
         self.registry.execute = _recorded_execute
         try:
+            # R-5：真实查询待评估候选订单（priority 降序前 N 单，替代硬编码）
+            candidate_orders = self._query_candidate_order_ids()
             if "review" in targets or "full" in targets:
-                print(f"\n -> 调度 [审核 Agent] 评估 {len(sample_orders)} 笔订单风险...")
-                review_results = self.dispatch_review(sample_orders)
+                print(f"\n -> 调度 [审核 Agent] 评估 {len(candidate_orders)} 笔订单风险...")
+                review_results = self.dispatch_review(candidate_orders)
 
             if "production" in targets or "full" in targets:
                 print(f"\n -> 调度 [生产 Agent] 评估产能...")
-                production_result = self.dispatch_production(sample_orders)
+                production_result = self.dispatch_production(candidate_orders)
 
             if "query" in targets:
                 print("\n -> 直接查询（建议走单 Agent 模式）")
