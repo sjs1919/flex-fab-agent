@@ -418,7 +418,9 @@ def debug_cases(type: str | None = None, good: str | None = None,
     from .observability import case_collector
     items = case_collector.load_cases(case_type=type, good=good,
                                       limit=cap_limit(limit))
-    return {"items": items}
+    # 时间倒序：load_cases 按写入正序（limit 已取最新 N 条），reverse 使最新在前；
+    # 不动 load_cases 内部，避免 _rewrite 全量重写时打乱文件顺序
+    return {"items": items[::-1]}
 
 
 @app.get("/debug/trace/{trace_id}")
