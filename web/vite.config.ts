@@ -16,6 +16,7 @@ export default defineConfig({
       '/debug': apiTarget,
       '/config': apiTarget,
       '/ask': apiTarget,
+      '/schedule': apiTarget,
     },
   },
 })

@@ -3,6 +3,7 @@ import DashboardView from '../views/DashboardView.vue'
 import DebugView from '../views/DebugView.vue'
 import CasesView from '../views/CasesView.vue'
 import ConfigView from '../views/ConfigView.vue'
+import ScheduleView from '../views/ScheduleView.vue'
 
 export default createRouter({
   history: createWebHistory(),
@@ -12,5 +13,6 @@ export default createRouter({
     { path: '/portal/debug', name: 'debug', component: DebugView },
     { path: '/portal/cases', name: 'cases', component: CasesView },
     { path: '/portal/config', name: 'config', component: ConfigView },
+    { path: '/portal/schedule', name: 'schedule', component: ScheduleView },
   ],
 })
