@@ -15,8 +15,12 @@ class StubApp:
 def _run(monkeypatch, final_answer: str) -> list:
     calls: list = []
     monkeypatch.setattr(sa, "_get_app", lambda registry: StubApp(final_answer))
-    monkeypatch.setattr(sa.semantic_cache, "get", lambda q: None)  # miss，走图执行
-    monkeypatch.setattr(sa.semantic_cache, "put", lambda q, a: calls.append((q, a)))
+    # single_agent 经 cache_manager facade 访问语义缓存（P0-3 改造后不再直接 import
+    # semantic_cache，旧测试 stub sa.semantic_cache 已失效），stub facade 单例方法
+    monkeypatch.setattr(sa.cache_manager, "lookup_semantic",
+                        lambda q, threshold=None: None)  # miss，走图执行
+    monkeypatch.setattr(sa.cache_manager, "store_semantic",
+                        lambda q, a, sensitive=False: calls.append((q, a)))
     sa.run_single_agent("今天先做哪些订单？")
     return calls
 
@@ -40,3 +44,19 @@ def test_graceful_fallback_not_cached(monkeypatch):
     from demo.graph.single_agent_graph import _GRACEFUL_FALLBACK
     calls = _run(monkeypatch, _GRACEFUL_FALLBACK)
     assert calls == [], f"失败兜底文本不得入缓存，实际写入 {calls}"
+
+
+# ---- _is_state_sensitive 分类器（发现③：关键词过宽误伤知识类问题） ----
+
+def test_knowledge_query_not_state_sensitive():
+    """知识类问题不得误判 sensitive：「什么是排产」是概念疑问，与实时状态无关。"""
+    assert sa._is_state_sensitive("什么是排产") is False
+    assert sa._is_state_sensitive("为什么要做排产？") is False
+
+
+def test_state_query_still_sensitive():
+    """强状态词命中仍判 sensitive：短 TTL + 数据变更清除。"""
+    assert sa._is_state_sensitive("订单001当前状态如何？") is True
+    assert sa._is_state_sensitive("有哪些订单在排队？") is True
+    assert sa._is_state_sensitive("设备E01进度到哪了？") is True
+    assert sa._is_state_sensitive("3号机还有没有在打印？") is True

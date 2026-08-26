@@ -236,8 +236,9 @@ def schedule_latest() -> dict:
 def require_admin(x_admin_token: str = Header(default="")) -> str:
     """写端点鉴权（R-7）：Depends 形式，验证 admin token 有效性。
 
-    用法：def my_endpoint(admin_role: str = Depends(require_admin)): ...
-    返回 token 的 role（目前只有 admin），便于后续扩展。
+    用法：def my_endpoint(admin: str = Depends(require_admin)): ...
+    返回 token 的 subject（token 持有者身份，如 admin-debug），供审计记录
+    「谁操作的」（如 approvals.approver）。
     """
     if not x_admin_token:
         raise HTTPException(401, "写端点需要 admin token（R-7）：缺 X-Admin-Token 头")
@@ -247,7 +248,7 @@ def require_admin(x_admin_token: str = Header(default="")) -> str:
         raise HTTPException(401, "admin token 无效或已过期")
     if token.role != "admin":
         raise HTTPException(403, f"需要 admin 角色（当前 {token.role}）")
-    return token.role
+    return token.subject
 
 
 @app.post("/schedule/load")
@@ -290,10 +291,11 @@ def schedule_versions() -> dict:
 
 @app.post("/schedule/approve")
 def schedule_approve(body: ScheduleApproveRequest,
-                     _admin: str = Depends(require_admin)) -> dict:
+                     admin: str = Depends(require_admin)) -> dict:
     """审批排产版本（写端点，强制 admin token，R-7）。action: 通过|驳回。"""
     from .tools.scheduler_tools import approve_schedule
-    result = approve_schedule(body.version_id, body.action, body.note)
+    result = approve_schedule(body.version_id, body.action, body.note,
+                              approver=admin)
     return {"ok": result.startswith("✅"), "message": result}
 
 

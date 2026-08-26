@@ -38,14 +38,27 @@ def test_approve_flow():
                     headers={"X-Admin-Token": tid})
     assert r.status_code == 200
     assert r.json()["ok"] is True
+    # 审计追溯（发现②）：approvals 行 approver 必须是实际 token 持有者，
+    # 不得恒为 approve_schedule 的默认值 "reviewer"
+    from demo.tools.data import get_connection
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT approver FROM approvals "
+                        "WHERE schedule_version_id=%s ORDER BY id DESC LIMIT 1",
+                        (vid,))
+            row = cur.fetchone()
+    assert row is not None, "审批后 approvals 表应有审计行"
+    assert row[0] != "reviewer", f"approver 不得为默认值 reviewer，实际 {row[0]!r}"
+    assert row[0] == "admin-debug", f"approver 应为 token 持有者，实际 {row[0]!r}"
     # 重新拉列表确认状态
     again = client.get("/schedule/versions").json()["versions"]
     updated = next(v for v in again if v["id"] == vid)
     assert updated["status"] == "已审核"
     # DB 回滚（fix-2）：审批副作用恢复为待审核，保证测试可重复
-    from demo.tools.data import get_connection
     with get_connection() as conn:
         with conn.cursor() as cur:
+            cur.execute("DELETE FROM approvals WHERE schedule_version_id=%s",
+                        (vid,))
             cur.execute("UPDATE schedule_versions SET status='待审核' WHERE id=%s",
                         (vid,))
             cur.execute("UPDATE batches SET approval_status='待审核' "

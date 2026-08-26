@@ -31,8 +31,6 @@ from ..config import (
     CACHE_THRESHOLD,
     RUNTIME_DIR,
     SEMANTIC_CACHE,
-    SEMANTIC_CACHE_STATE_TTL,
-    SEMANTIC_CACHE_TTL,
 )
 from ..core.hf_utils import load_st_embedding
 
@@ -46,6 +44,17 @@ _collection = None
 
 def is_enabled() -> bool:
     return SEMANTIC_CACHE.lower() != "off"
+
+
+def _ttl(sensitive: bool) -> int:
+    """调用时读 TTL 秒数（运行时可切换，测试可 monkeypatch.setenv；对齐 llm_cache._ttl()）。
+
+    状态类 SEMANTIC_CACHE_STATE_TTL 默认 60（对齐模拟器 tick），知识类
+    SEMANTIC_CACHE_TTL 默认 0 = 不过期。禁止 import 时固化（见 config.py 定义处）。
+    """
+    if sensitive:
+        return int(os.getenv("SEMANTIC_CACHE_STATE_TTL", "60"))
+    return int(os.getenv("SEMANTIC_CACHE_TTL", "0"))
 
 
 def _get_collection():
@@ -82,7 +91,7 @@ def get(query: str, threshold: float | None = None):
     if dist <= threshold:
         meta = res["metadatas"][0][0]
         sensitive = bool(meta.get("sensitive", False))
-        ttl = SEMANTIC_CACHE_STATE_TTL if sensitive else SEMANTIC_CACHE_TTL
+        ttl = _ttl(sensitive)
         ts = meta.get("ts", 0)
         if ttl and (time.time() - float(ts)) > ttl:
             return None  # 已过期视为 miss，走真实执行
