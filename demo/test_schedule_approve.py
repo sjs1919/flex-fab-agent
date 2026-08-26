@@ -42,3 +42,12 @@ def test_approve_flow():
     again = client.get("/schedule/versions").json()["versions"]
     updated = next(v for v in again if v["id"] == vid)
     assert updated["status"] == "已审核"
+    # DB 回滚（fix-2）：审批副作用恢复为待审核，保证测试可重复
+    from demo.tools.data import get_connection
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE schedule_versions SET status='待审核' WHERE id=%s",
+                        (vid,))
+            cur.execute("UPDATE batches SET approval_status='待审核' "
+                        "WHERE schedule_version_id=%s", (vid,))
+        conn.commit()

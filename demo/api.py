@@ -263,7 +263,11 @@ class ScheduleVersionList(BaseModel):
     batch_count: int
 
 
-@app.get("/schedule/versions")
+class ScheduleVersionsResponse(BaseModel):
+    versions: list[ScheduleVersionList]
+
+
+@app.get("/schedule/versions", response_model=ScheduleVersionsResponse)
 def schedule_versions() -> dict:
     """排产版本列表（只读）：id/时间/触发/状态/批次数，供审批页展示。"""
     from .tools.data import get_connection
