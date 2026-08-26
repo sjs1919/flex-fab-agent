@@ -318,6 +318,30 @@ def kpi() -> dict:
     return {"report": query_kpi()}
 
 
+_RESOURCE_LOADERS = {
+    "machines": "load_machines",
+    "customers": "load_customers",
+    "orders": "load_orders",
+    "inventory": "load_inventory",
+    "batches": "load_batches",
+    "preprocess": "load_preprocess_tasks",
+}
+
+
+@app.get("/resources/{category}")
+def resources_list(category: str) -> dict:
+    """资源列表（只读，R-7 匿名可读）：machines/customers/orders/inventory/batches/preprocess。
+
+    复用 data.py load_*（mysql 路径），返回 id 倒序（最新在前），供资源聚合页展示。
+    """
+    loader = _RESOURCE_LOADERS.get(category)
+    if loader is None:
+        raise HTTPException(404, f"未知资源类目: {category}")
+    from .tools import data
+    items = getattr(data, loader)()
+    return {"items": items[::-1]}
+
+
 # ---- 看板只读端点（M5b T5b.7；匿名可读，B8 前端消费） ----
 
 
