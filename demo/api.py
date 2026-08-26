@@ -122,6 +122,12 @@ class AskResponse(BaseModel):
     trace: dict
 
 
+class ScheduleApproveRequest(BaseModel):
+    version_id: int
+    action: str  # 通过 | 驳回
+    note: str = ""
+
+
 @app.get("/health")
 def health() -> dict:
     """就绪探针：报 provider/工具/缓存/checkpointer/sim 配置，不调 LLM。"""
@@ -143,6 +149,7 @@ def health() -> dict:
 def sim_start() -> dict:
     """启动模拟器心跳。sim_clock 未初始化时从当前整点起跳。"""
     from .simulator import clock
+    from .simulator import events as sim_events
     from .tools.data import get_connection
 
     with get_connection() as conn:
@@ -153,6 +160,16 @@ def sim_start() -> dict:
             clock.init_clock(conn, datetime.now().replace(minute=0, second=0,
                                                           microsecond=0))
             conn.commit()
+        # 开工预排：首次启动且 sim_events 为空时预排初始事件（每设备 machine_failure +
+        # 到达类 new_order/leave/restock/order_change），否则事件流永远为空（回归 bug）
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM sim_events")
+            if cur.fetchone()[0] == 0:
+                sim_time = clock.get_sim_time(conn)
+                params = sim_events.get_sim_params(conn)
+                n = sim_events.seed_schedule_events(cur, sim_time, params)
+                conn.commit()
+                logger.info("模拟器开工预排初始事件 %d 条", n)
     runner = _get_sim_runner()
     runner.start()
     return {"running": True, "tick_seconds": runner.tick_seconds}
