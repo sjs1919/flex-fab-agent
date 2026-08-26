@@ -16,9 +16,11 @@ run_single_agent 运行时的 print 进容器 stdout（docker logs 可见），
 from datetime import datetime
 import json
 import logging
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .agents.single_agent import _get_app, run_single_agent
@@ -570,6 +572,20 @@ def thread_history(thread_id: str) -> dict:
         "turns": len(messages),
         "messages": [{"role": m.get("role"), "content": m.get("content")} for m in messages],
     }
+
+
+# 前端同源托管：构建产物在 web/dist，经 /assets 与根路径返回（需存在目录）
+_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
+if _DIST.exists():
+    app.mount("/assets", StaticFiles(directory=_DIST / "assets"), name="assets")
+    from fastapi.responses import FileResponse
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def _spa(full_path: str):
+        candidate = _DIST / full_path
+        if full_path and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(_DIST / "index.html")
 
 
 if __name__ == "__main__":

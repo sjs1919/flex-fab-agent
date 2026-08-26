@@ -23,6 +23,8 @@ services:
       # 不挂载：非 RAG 问正常，RAG 问报 reranker 加载错
       - ${HF_CACHE_HOST:-/home/wenext/.cache/huggingface}:/root/.cache/huggingface
       - ${CHROMA_CACHE_HOST:-/home/wenext/.cache/chroma}:/root/.cache/chroma
+      # 前端构建产物（任务3）：FastAPI 同源托管，重建前端后无需重 build 镜像
+      - ./web/dist:/app/web/dist
 
 volumes:
   demo-runtime:
