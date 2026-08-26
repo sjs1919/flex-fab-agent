@@ -319,7 +319,6 @@ def _fire_leave(conn, cur, sim_time: datetime, params: dict, payload: dict) -> N
             cur.execute("UPDATE personnel SET status='上班' WHERE id=%s", (row[0],))
             states.log_state_change(cur, sim_time, "personnel", row[0],
                                     "status", "请假", "上班")
-        events.schedule_next(cur, "leave", sim_time, params)
         return
     cur.execute("SELECT id FROM personnel WHERE status='上班' LIMIT 1")
     row = cur.fetchone()
