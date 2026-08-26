@@ -206,32 +206,33 @@ def get_data_source() -> str:
 
 
 def get_mysql_dsn() -> str:
-    """合成 MySQL DSN（口令来自 credentials.local.md）。
+    """合成 MySQL DSN（口令来自 env 或 credentials.local.md）。
 
+    用 _env_or_cred（env 优先）：容器部署无凭据文件时，凭环境变量注入口令。
     口令缺失时抛中文报错提示填写凭据文件（验收清单 M1-1：缺连接串时报错）。
     """
-    password = _cred("MYSQL_PASSWORD", "")
+    password = _env_or_cred("MYSQL_PASSWORD", "MYSQL_PASSWORD", "")
     if not password:
         raise RuntimeError(
-            "缺少 MySQL 口令：请填写 docs/demo/credentials.local.md 的 {{MYSQL_PASSWORD}}（gitignored，不提交）"
+            "缺少 MySQL 口令：请填写 docs/demo/credentials.local.md 的 {{MYSQL_PASSWORD}}（gitignored，不提交）或设置 MYSQL_PASSWORD 环境变量"
         )
-    host = _cred("MYSQL_HOST", "127.0.0.1")
-    port = _cred("MYSQL_PORT", "3306")
-    db = _cred("MYSQL_DB", "demo_scheduling")
-    user = _cred("MYSQL_USER", "demo_sched")
+    host = _env_or_cred("MYSQL_HOST", "MYSQL_HOST", "127.0.0.1")
+    port = _env_or_cred("MYSQL_PORT", "MYSQL_PORT", "3306")
+    db = _env_or_cred("MYSQL_DB", "MYSQL_DB", "demo_scheduling")
+    user = _env_or_cred("MYSQL_USER", "MYSQL_USER", "demo_sched")
     return f"mysql+pymysql://{user}:{password}@{host}:{port}/{db}?charset=utf8mb4"
 
 
 def get_redis_config() -> dict:
-    """Redis 连接配置（host/port/password/db），口令来自 credentials.local.md。
+    """Redis 连接配置（host/port/password/db），口令来自 env 或 credentials.local.md。
 
     未配置口令时 password=None（Redis 无认证）。
     """
     return {
-        "host": _cred("REDIS_HOST", "127.0.0.1"),
-        "port": int(_cred("REDIS_PORT", "6379")),
-        "password": _cred("REDIS_PASSWORD", "") or None,
-        "db": int(_cred("REDIS_DB", "0")),
+        "host": _env_or_cred("REDIS_HOST", "REDIS_HOST", "127.0.0.1"),
+        "port": int(_env_or_cred("REDIS_PORT", "REDIS_PORT", "6379")),
+        "password": _env_or_cred("REDIS_PASSWORD", "REDIS_PASSWORD", "") or None,
+        "db": int(_env_or_cred("REDIS_DB", "REDIS_DB", "0")),
     }
 
 

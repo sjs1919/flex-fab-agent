@@ -214,13 +214,6 @@ def schedule_latest() -> dict:
     return {"version": version, "batches": batches}
 
 
-@app.post("/schedule/load")
-def schedule_load(_admin: str = Depends(require_admin)) -> dict:
-    """触发一轮排产求解并落库（写端点，强制 admin token，R-7）。"""
-    from .tools.scheduler_tools import run_scheduling
-    return {"result": run_scheduling(triggered_by="api")}
-
-
 def require_admin(x_admin_token: str = Header(default="")) -> str:
     """写端点鉴权（R-7）：Depends 形式，验证 admin token 有效性。
 
@@ -236,6 +229,13 @@ def require_admin(x_admin_token: str = Header(default="")) -> str:
     if token.role != "admin":
         raise HTTPException(403, f"需要 admin 角色（当前 {token.role}）")
     return token.role
+
+
+@app.post("/schedule/load")
+def schedule_load(_admin: str = Depends(require_admin)) -> dict:
+    """触发一轮排产求解并落库（写端点，强制 admin token，R-7）。"""
+    from .tools.scheduler_tools import run_scheduling
+    return {"result": run_scheduling(triggered_by="api")}
 
 
 # ---- 订单跟踪 + KPI（M4b，v2 C6；只读，与 /schedule/latest 同级） ----
