@@ -18,6 +18,7 @@ sentence-transformers，~95MB；torch/sentence-transformers 依赖项目已装�
 import hashlib
 import logging
 import os
+import threading
 import time
 
 # 必须在 import chromadb（其内部 import huggingface_hub）之前设：hub 的 endpoint
@@ -40,6 +41,10 @@ _DB_DIR = RUNTIME_DIR / "cache_db"
 _COLLECTION_NAME = "semantic_cache"
 _EMBEDDING_MODEL = "BAAI/bge-small-zh-v1.5"
 _collection = None
+# 懒加载竞态保护：tick（clear_state_entries）与 /ask（get/put）可并发首访问，
+# chroma PersistentClient 对同一 path 的进程级单例初始化非线程安全（双创建会
+# AttributeError/KeyError）。双检锁保证仅一个线程执行初始化。
+_collection_lock = threading.Lock()
 
 
 def is_enabled() -> bool:
@@ -58,15 +63,21 @@ def _ttl(sensitive: bool) -> int:
 
 
 def _get_collection():
-    """懒加载缓存 collection（cosine 空间，持久化到 demo/data/cache_db/）。"""
+    """懒加载缓存 collection（cosine 空间，持久化到 demo/data/cache_db/）。
+
+    双检锁：tick 线程与 /ask 线程可能同时首访问，chroma PersistentClient
+    对同一 path 的共享单例并发初始化会崩（见 _collection_lock 注释）。
+    """
     global _collection
     if _collection is None:
-        ef = load_st_embedding(_EMBEDDING_MODEL)
-        client = chromadb.PersistentClient(path=str(_DB_DIR))
-        _collection = client.get_or_create_collection(
-            _COLLECTION_NAME, metadata={"hnsw:space": "cosine"},
-            embedding_function=ef,
-        )
+        with _collection_lock:
+            if _collection is None:
+                ef = load_st_embedding(_EMBEDDING_MODEL)
+                client = chromadb.PersistentClient(path=str(_DB_DIR))
+                _collection = client.get_or_create_collection(
+                    _COLLECTION_NAME, metadata={"hnsw:space": "cosine"},
+                    embedding_function=ef,
+                )
     return _collection
 
 

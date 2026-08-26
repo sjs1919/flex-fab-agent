@@ -63,6 +63,11 @@ def verify(schedule: dict, snapshot: dict, strict_due: bool = False) -> list[str
 
     by_machine: dict[str, list[dict]] = {}
     for b in schedule.get("batches", []):
+        # 未排程批次（无可行解兜底，machine_id/时间全 None）：不属于排程方案，
+        # 由 solver 的 conflicts 报告"排程不可行"，不参与 C1-C9 校验
+        # （否则 _dt(None) strptime TypeError + C3 误报机型不匹配）。
+        if b.get("machine_id") is None or b.get("start_time") is None:
+            continue
         by_machine.setdefault(b["machine_id"], []).append(b)
         bid = b["id"]
         m = machines.get(b["machine_id"])
