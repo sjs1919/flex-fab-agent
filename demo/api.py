@@ -577,12 +577,16 @@ def thread_history(thread_id: str) -> dict:
 # 前端同源托管：构建产物在 web/dist，经 /assets 与根路径返回（需存在目录）
 _DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
 if _DIST.exists():
-    app.mount("/assets", StaticFiles(directory=_DIST / "assets"), name="assets")
+    if (_DIST / "assets").exists():
+        app.mount("/assets", StaticFiles(directory=_DIST / "assets"), name="assets")
     from fastapi.responses import FileResponse
 
     @app.get("/{full_path:path}", include_in_schema=False)
     def _spa(full_path: str):
         candidate = _DIST / full_path
+        # 路径穿越防护：必须落在 _DIST 目录内，否则 404
+        if not candidate.resolve().is_relative_to(_DIST.resolve()):
+            raise HTTPException(404, "Not Found")
         if full_path and candidate.is_file():
             return FileResponse(candidate)
         return FileResponse(_DIST / "index.html")
