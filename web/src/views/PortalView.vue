@@ -1,0 +1,40 @@
+<script setup lang="ts">
+import { nextTick, ref } from 'vue'
+import DashboardView from './DashboardView.vue'
+import DebugView from './DebugView.vue'
+import ScheduleView from './ScheduleView.vue'
+import CasesView from './CasesView.vue'
+import ConfigView from './ConfigView.vue'
+
+// 单页聚合：看板/调试/审批/案例/配置 全部 tab 化，lazy 首激活渲染避免并发请求
+const activeTab = ref('dashboard')
+const dashboardRef = ref<InstanceType<typeof DashboardView> | null>(null)
+
+async function onTabChange(name: string | number) {
+  // 看板 tab 从 display:none 恢复时 echarts 容器尺寸需重算（否则 0 宽或旧尺寸）
+  if (name === 'dashboard') {
+    await nextTick()
+    dashboardRef.value?.resizeCharts()
+  }
+}
+</script>
+
+<template>
+  <el-tabs v-model="activeTab" type="border-card" lazy @tab-change="onTabChange" style="margin: 16px">
+    <el-tab-pane label="看板" name="dashboard">
+      <DashboardView ref="dashboardRef" />
+    </el-tab-pane>
+    <el-tab-pane label="调试" name="debug">
+      <DebugView />
+    </el-tab-pane>
+    <el-tab-pane label="审批" name="schedule">
+      <ScheduleView />
+    </el-tab-pane>
+    <el-tab-pane label="案例" name="cases">
+      <CasesView />
+    </el-tab-pane>
+    <el-tab-pane label="配置" name="config">
+      <ConfigView />
+    </el-tab-pane>
+  </el-tabs>
+</template>

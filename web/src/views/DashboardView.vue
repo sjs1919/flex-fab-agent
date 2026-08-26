@@ -107,10 +107,13 @@ function renderCostChart() {
   })
 }
 
-function handleResize() {
+function resizeCharts() {
   kpiChart?.resize()
   costChart?.resize()
 }
+
+// 供聚合页（PortalView）切回本 tab 时重算 echarts 尺寸（display:none 恢复后）
+defineExpose({ resizeCharts })
 
 onMounted(async () => {
   loading.value = true
@@ -125,7 +128,7 @@ onMounted(async () => {
     await nextTick()
     renderKpiChart()
     renderCostChart()
-    window.addEventListener('resize', handleResize)
+    window.addEventListener('resize', resizeCharts)
   } catch (e) {
     error.value = `看板数据加载失败：${e instanceof Error ? e.message : String(e)}（请确认 API :8000 已启动）`
   } finally {
@@ -134,7 +137,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', handleResize)
+  window.removeEventListener('resize', resizeCharts)
   kpiChart?.dispose()
   costChart?.dispose()
 })

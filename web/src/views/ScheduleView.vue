@@ -2,10 +2,11 @@
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { fetchVersions, approveSchedule, type ScheduleVersion } from '../api/schedule'
+import { fetchAdminToken } from '../api/debug'
 
 const versions = ref<ScheduleVersion[]>([])
 const loading = ref(false)
-const adminToken = ref(localStorage.getItem('admin_token') || '')
+const adminToken = ref(localStorage.getItem('debug_admin_token') || '')
 
 async function load() {
   loading.value = true
@@ -19,7 +20,7 @@ async function load() {
 }
 
 function saveToken() {
-  localStorage.setItem('admin_token', adminToken.value.trim())
+  localStorage.setItem('debug_admin_token', adminToken.value.trim())
   ElMessage.success('admin token 已保存')
 }
 
@@ -39,7 +40,17 @@ async function act(v: ScheduleVersion, action: '通过' | '驳回') {
   await load()
 }
 
-onMounted(load)
+onMounted(async () => {
+  // 本地 demo 便利：自动签发 admin token（R-7 写端点需要；token 1h 过期，覆盖旧缓存），对齐调试台
+  try {
+    const { token } = await fetchAdminToken()
+    adminToken.value = token
+    saveToken()
+  } catch {
+    /* 端点不可用时忽略，可手动输入 */
+  }
+  await load()
+})
 </script>
 
 <template>
