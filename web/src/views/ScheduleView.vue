@@ -11,6 +11,8 @@ async function load() {
   loading.value = true
   try {
     versions.value = await fetchVersions()
+  } catch {
+    ElMessage.error('加载版本列表失败')
   } finally {
     loading.value = false
   }
@@ -27,9 +29,13 @@ async function act(v: ScheduleVersion, action: '通过' | '驳回') {
     ElMessage.warning('请先填写并保存 admin token')
     return
   }
-  const res = await approveSchedule(v.id, action, token)
-  if (res.ok) ElMessage.success(res.message)
-  else ElMessage.error(res.message)
+  try {
+    const res = await approveSchedule(v.id, action, token)
+    if (res.ok) ElMessage.success(res.message)
+    else ElMessage.error(res.message)
+  } catch (err) {
+    ElMessage.error(err instanceof Error && err.message ? err.message : '审批请求失败')
+  }
   await load()
 }
 
