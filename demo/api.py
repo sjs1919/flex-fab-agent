@@ -255,6 +255,42 @@ def schedule_load(_admin: str = Depends(require_admin)) -> dict:
     return {"result": run_scheduling(triggered_by="api")}
 
 
+class ScheduleVersionList(BaseModel):
+    id: int
+    created_at: str
+    triggered_by: str
+    status: str
+    batch_count: int
+
+
+@app.get("/schedule/versions")
+def schedule_versions() -> dict:
+    """排产版本列表（只读）：id/时间/触发/状态/批次数，供审批页展示。"""
+    from .tools.data import get_connection
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT v.id, v.created_at, v.triggered_by, v.status, "
+                "(SELECT COUNT(*) FROM batches b WHERE b.schedule_version_id=v.id) "
+                "FROM schedule_versions v ORDER BY v.id DESC")
+            versions = [
+                {"id": r[0], "created_at": str(r[1]), "triggered_by": r[2],
+                 "status": r[3], "batch_count": r[4]}
+                for r in cur.fetchall()
+            ]
+    return {"versions": versions}
+
+
+@app.post("/schedule/approve")
+def schedule_approve(body: ScheduleApproveRequest,
+                     _admin: str = Depends(require_admin)) -> dict:
+    """审批排产版本（写端点，强制 admin token，R-7）。action: 通过|驳回。"""
+    from .tools.scheduler_tools import approve_schedule
+    result = approve_schedule(body.version_id, body.action, body.note)
+    return {"ok": result.startswith("✅"), "message": result}
+
+
 # ---- 订单跟踪 + KPI（M4b，v2 C6；只读，与 /schedule/latest 同级） ----
 
 @app.get("/order/{order_id}/tracking")
