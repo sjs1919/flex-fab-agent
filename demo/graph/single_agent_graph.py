@@ -86,6 +86,10 @@ _SUMMARY_NUDGE = ("（系统提示：上一轮输出是未解析的工具调用�
                   "工具已不可用，请勿输出任何工具调用语法，仅用中文输出综合结论。）")
 _GRACEFUL_FALLBACK = "（抱歉，本次回答生成异常，请重试或换个问法。）"
 
+# 循环守卫兜底前缀（2026-08-27 修复）：不再泄漏「检测到重复检索」内部诊断，改为
+# 面向用户的简洁兜底。该前缀答案一律不得写入语义缓存（缓存投毒纵深防御，见 agents/single_agent.py）。
+LOOP_GUARD_FALLBACK_PREFIX = "已多次检索未获得新的有效结果，基于已收集数据作答：\n"
+
 
 def call_llm_agentic(messages, tools=None, **kwargs):
     """编排层公共 LLM 调用：检出 DSML 标记文本（tool_calls 空）即抛 ToolMarkupOutput。
@@ -226,22 +230,44 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
             state["evaluation_notes"] = "首轮或纯文本作答，等待/直接输出"
             return state
 
-        # 方案 3：循环检测——同一工具重复调用过多说明 LLM 在打转
-        # （坑 22：RAG 场景反复查同一数据，数据永远不足 -> needs_more 永真 -> 死循环）。
-        # 检测到循环 -> 基于已有数据拼兜底答案，强制结束。
-        LOOP_THRESHOLD = 3  # 同一工具连续出现 >=3 次判定循环
-        from collections import Counter
-        tool_seq = [tr.get("tool", "") for tr in results]
-        most_common = Counter(tool_seq).most_common(1)
-        if most_common and most_common[0][1] >= LOOP_THRESHOLD:
-            state["evaluation_notes"] = (f"检测到循环：工具 {most_common[0][0]} "
-                                         f"重复调用 {most_common[0][1]} 次，停止检索，基于已有数据作答")
+        # ③ 筛选空结果即答案（2026-08-27 修复）：query_orders 带筛选条件且干净返回
+        # 「未找到匹配的订单。」= 该筛选无匹配订单，直接据此作答。否则 evaluate 会以
+        # 「数据不足」怂恿 LLM 继续补数据，不同参数的探索最终被循环守卫误判成循环
+        # （坑：有没有订单已经打印完成？→ 3 次 query_orders → 原始 dump 进语义缓存）。
+        for tr in results:
+            if tr.get("tool") != "query_orders":
+                continue
+            args = tr.get("arguments") or {}
+            if not any(args.values()):
+                continue  # 无筛选条件（全量查询），空结果另有含义，不拦截
+            if (tr.get("result") or "").strip() == "未找到匹配的订单。":
+                state["evaluation_notes"] = "订单筛选无匹配（未找到），可直接据此作答"
+                state["ready_for_answer"] = True
+                state["needs_more"] = False
+                state["needs_retry"] = False
+                return state
+
+        # 方案 3：循环检测——同一工具 + 相同参数「连续」出现 >=3 次才判定循环。
+        # （坑 22：RAG 场景反复查同一数据，数据永远不足 -> needs_more 永真 -> 死循环。）
+        # 2026-08-27 修复：旧实现用 Counter 全局计数，把不同参数的合理探索（如
+        # query_orders(status=打印完成/完成/无过滤)）误判为循环，触发原始 dump 兜底
+        # 并污染语义缓存。改为按（工具+参数）分组看连续长度，参数不同不计数。
+        LOOP_THRESHOLD = 3  # 同工具 + 同参数连续 >=3 次判定循环
+        from itertools import groupby
+        seq = [(_tr.get("tool", ""),
+                json.dumps(_tr.get("arguments", {}), sort_keys=True, ensure_ascii=False))
+               for _tr in results]
+        looped_tool = next((k for k, grp in groupby(seq)
+                            if len(list(grp)) >= LOOP_THRESHOLD), None)
+        if looped_tool:
+            state["evaluation_notes"] = (f"检测到循环：工具 {looped_tool} 连续重复调用 "
+                                         f"≥{LOOP_THRESHOLD} 次（相同参数），停止检索，基于已有数据作答")
             state["needs_more"] = False
             state["needs_retry"] = False
             state["ready_for_answer"] = True
             # 直接拼已有 tool 结果作答案，避免再调 LLM（LLM 可能仍返回 tool_call）
-            parts = [f"{tr.get('tool')}: {tr.get('result', '')[:200]}" for tr in results]
-            state["final_answer"] = "基于已收集数据的汇总（检测到重复检索，停止继续查询）：\n" + "\n".join(parts)
+            parts = [f"- {tr.get('tool')}: {tr.get('result', '')[:200]}" for tr in results]
+            state["final_answer"] = LOOP_GUARD_FALLBACK_PREFIX + "\n".join(parts)
             state["messages"].append({"role": "assistant", "content": state["final_answer"]})
             return state
 

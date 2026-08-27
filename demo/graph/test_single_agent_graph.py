@@ -505,3 +505,105 @@ def test_generate_answer_markup_retries_not_fallback(monkeypatch):
     assert len(all_messages) == 3, f"应恰好重试一次，实际 {len(all_messages)} 轮 LLM 调用"
     assert any(any("未解析的工具调用标记" in (m.get("content") or "") for m in msgs)
                for msgs in all_messages), "汇总步应注入纠错提示后重试"
+
+
+# ---- 2026-08-27 修复：循环守卫误判 + 缓存投毒（状态筛选空结果 / 不同参数探索 / 内部诊断泄漏）----
+
+
+class FakeEmptyRegistry(FakeRegistry):
+    """query_orders 返回「未找到匹配的订单。」（模拟该筛选无匹配订单）。"""
+
+    def execute(self, name, arguments):
+        if name == "query_orders":
+            return "未找到匹配的订单。"
+        return super().execute(name, arguments)
+
+
+def test_status_empty_result_is_terminal_answer(monkeypatch):
+    """坑（循环守卫误判 + 缓存投毒）：query_orders(status=完成) 干净返回「未找到」
+    = 该状态无订单，应直接据此作答，不再追问其它资源数据、不触发循环守卫原始 dump。
+
+    根因回归：2026-08-27「有没有订单已经打印完成？」→ LLM 3 次 query_orders
+    （不同 status）被全局计数误判为循环 → 原始 dump 进语义缓存 → 重问命中垃圾
+    （judge 相关度 0 / faithfulness 0，trace 5ac4a01cd16246e1）。
+    """
+    from demo.graph import single_agent_graph as sag
+    _disable_compression(monkeypatch)
+    responses = iter([
+        FakeResponse(tool_calls=_make_tool_call("query_orders", '{"status": "完成"}')),
+        FakeResponse(content="当前没有打印完成的订单。"),
+    ])
+
+    def fake_call_llm(messages, tools=None, **kwargs):
+        return next(responses)
+
+    monkeypatch.setattr(sag, "call_llm", fake_call_llm)
+
+    app = build_single_agent_graph(FakeEmptyRegistry(), checkpointer=None)
+    result = app.invoke({
+        "messages": [{"role": "user", "content": "有没有订单已经打印完成？"}],
+        "tool_results": [],
+        "iteration": 0,
+        "final_answer": "",
+    })
+
+    assert result["final_answer"] == "当前没有打印完成的订单。", \
+        f"筛选空结果应直接作答，实际: {result['final_answer']!r}"
+    assert len(result["tool_results"]) == 1, "空结果即答案，不应继续追问更多工具"
+    assert "检测到重复检索" not in result["final_answer"]
+
+
+def test_loop_guard_distinct_args_not_loop(monkeypatch):
+    """坑（循环守卫误判）：同一工具 query_orders 但参数不同（不同 status 的合理探索）
+    不得判定为循环。旧实现 Counter 全局计数 3 次即触发 → 原始 dump 截断干净答案；
+    新实现按（工具+参数）连续分组，参数不同不计数。"""
+    from demo.graph import single_agent_graph as sag
+    _disable_compression(monkeypatch)
+    responses = iter([
+        FakeResponse(tool_calls=_make_tool_call("query_orders", '{"status": "待排队"}')),
+        FakeResponse(tool_calls=_make_tool_call("query_orders", '{"status": "已审核"}')),
+        FakeResponse(tool_calls=_make_tool_call("query_orders", '{"status": "打印中"}')),
+        FakeResponse(content="订单汇总"),
+    ])
+
+    def fake_call_llm(messages, tools=None, **kwargs):
+        return next(responses)
+
+    monkeypatch.setattr(sag, "call_llm", fake_call_llm)
+
+    app = build_single_agent_graph(FakeRegistry(), checkpointer=None)
+    result = app.invoke({
+        "messages": [{"role": "user", "content": "有哪些订单？"}],
+        "tool_results": [],
+        "iteration": 0,
+        "final_answer": "",
+    })
+
+    assert result["final_answer"] == "订单汇总", \
+        "不同参数探索不应被误判为循环，干净答案应保留"
+    assert not result["final_answer"].startswith(sag.LOOP_GUARD_FALLBACK_PREFIX)
+
+
+def test_loop_guard_fallback_no_internal_diagnostic(monkeypatch):
+    """坑（内部诊断泄漏）：循环守卫兜底文案不得包含「检测到重复检索」/「停止继续查询」
+    等内部诊断消息（此前直接拼进 final_answer 透传给用户/缓存）。"""
+    from demo.graph import single_agent_graph as sag
+    _disable_compression(monkeypatch)
+
+    def fake_call_llm(messages, tools=None, **kwargs):
+        return FakeResponse(tool_calls=_make_tool_call("query_orders", "{}"))
+
+    monkeypatch.setattr(sag, "call_llm", fake_call_llm)
+
+    app = build_single_agent_graph(FakeRegistry(), checkpointer=None)
+    result = app.invoke({
+        "messages": [{"role": "user", "content": "q"}],
+        "tool_results": [],
+        "iteration": 0,
+        "final_answer": "",
+    })
+
+    assert result["final_answer"].startswith(sag.LOOP_GUARD_FALLBACK_PREFIX), \
+        f"循环守卫应产出 LOOP_GUARD_FALLBACK_PREFIX 兜底，实际: {result['final_answer']!r}"
+    assert "检测到重复检索" not in result["final_answer"], "内部诊断不得泄漏给用户"
+    assert "停止继续查询" not in result["final_answer"]
