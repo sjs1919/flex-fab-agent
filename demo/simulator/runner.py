@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from datetime import timedelta
 
 from demo.cache.manager import cache_manager
 from demo.config import SIM_TICK_SECONDS
@@ -70,19 +71,20 @@ class SimulatorRunner:
         return stats
 
     def _need_reschedule(self, conn, sim_time) -> bool:
-        """本 tick 是否发生需重排的事件：设备故障 fired / 新插单 / 延期告警。
+        """本 tick 是否发生需重排的事件：设备故障 fired / 新插单。
 
-        延期告警（硬性不可行）在 advance_tick 内已由 engine 落为 status='fired'
-        的 machine_failure 事件（payload.type=reschedule_alert），故仅按 event_type
-        查询即覆盖；不重复调 check_hard_infeasibility（其签名需具体 batch/machine/
-        repair_at，且已在引擎内调用）。sim_time=%s 精确匹配，只认本 tick 事件。
+        sim_events.sim_time 为事件预排到达时刻（带秒），tick 为整点——用
+        (上一 tick, 当前 tick] 窗口匹配本 tick 内新 fired 的事件。
+        延期告警（硬性不可行）已由 engine 落为 fired 的 machine_failure 事件
+        （payload.type=reschedule_alert），故按 event_type 查询即覆盖。
         """
+        prev = sim_time - timedelta(hours=1)  # tick 每次 +1h（clock.advance_sim_time）
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT event_type, COUNT(*) FROM sim_events "
-                "WHERE status='fired' AND sim_time=%s "
-                "AND event_type IN ('machine_failure','new_order') GROUP BY event_type",
-                (sim_time,))
+                "WHERE status='fired' AND event_type IN ('machine_failure','new_order') "
+                "AND sim_time > %s AND sim_time <= %s GROUP BY event_type",
+                (prev, sim_time))
             return bool(cur.fetchall())
 
     def _record_kpi_snapshot(self, sim_time) -> None:
