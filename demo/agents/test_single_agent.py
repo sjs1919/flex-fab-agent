@@ -46,6 +46,16 @@ def test_graceful_fallback_not_cached(monkeypatch):
     assert calls == [], f"失败兜底文本不得入缓存，实际写入 {calls}"
 
 
+def test_loop_guard_dump_not_cached(monkeypatch):
+    """坑（缓存投毒纵深）：循环守卫的原始工具 dump 不得入缓存，否则同类问题重问
+    一直命中垃圾（2026-08-27「有没有订单已经打印完成？」实测：守卫 dump 进缓存 →
+    后续命中跳过整图执行 → judge 0/0）。"""
+    from demo.graph.single_agent_graph import LOOP_GUARD_FALLBACK_PREFIX
+    dump = LOOP_GUARD_FALLBACK_PREFIX + "- query_orders: 未找到匹配的订单。"
+    calls = _run(monkeypatch, dump)
+    assert calls == [], f"循环守卫 dump 不得入缓存，实际写入 {calls}"
+
+
 # ---- _is_state_sensitive 分类器（发现③：关键词过宽误伤知识类问题） ----
 
 def test_knowledge_query_not_state_sensitive():
