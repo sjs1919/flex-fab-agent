@@ -30,6 +30,7 @@ from .core.utils import cap_limit
 from .core.logging_setup import setup_logging
 from .observability import tracer, cost_tracker
 from .observability.request_context import get_trace_id, new_trace_id
+from .scheduler.auto_scheduler import get_scheduler
 from .tools.registry import build_default_registry
 
 logger = logging.getLogger(__name__)
@@ -109,6 +110,12 @@ def _get_sim_runner():
         from .simulator.runner import SimulatorRunner
         _sim_runner = SimulatorRunner()
     return _sim_runner
+
+
+@app.on_event("startup")
+def _start_auto_scheduler():
+    """自动排产调度随应用启动（enabled=off 时 no-op）。"""
+    get_scheduler().start()
 
 
 class AskRequest(BaseModel):
@@ -297,6 +304,12 @@ def schedule_approve(body: ScheduleApproveRequest,
     result = approve_schedule(body.version_id, body.action, body.note,
                               approver=admin)
     return {"ok": result.startswith("✅"), "message": result}
+
+
+@app.get("/scheduler/status")
+def scheduler_status() -> dict:
+    """自动排产调度器运行态（enabled/interval/topN/runs/上次版本/触发原因）。"""
+    return get_scheduler().status()
 
 
 # ---- 订单跟踪 + KPI（M4b，v2 C6；只读，与 /schedule/latest 同级） ----
