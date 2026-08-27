@@ -465,3 +465,43 @@ def test_generate_answer_no_schedule_ctx_unchanged(monkeypatch):
     summary = prompts[-1]
     assert "结构化延期数据" not in summary    # 不注入结构化块
     assert "排产依据" in summary               # M4b 原引用提示保留
+
+
+def test_generate_answer_markup_retries_not_fallback(monkeypatch):
+    """坑（2026-08-26 复现）：汇总步（generate_answer）模型偶发输出 DSML 标记文本
+    -> 应注入纠错提示重试后产出干净答案，而不是直接降级为死胡同兜底话术。
+
+    复现 trace：设备/订单/排产数据全部拿到，最后汇总步模型输出标记文本，
+    用户只看到「抱歉，本次回答生成异常」。select_and_execute 对标记文本会重试，
+    generate_answer 此前不重试——本测试锁住该行为。
+    """
+    from demo.graph import single_agent_graph as sag
+    _disable_compression(monkeypatch)
+    responses = iter([
+        FakeResponse(tool_calls=_make_tool_call("query_schedule")),  # 选工具轮
+        FakeResponse(content=_MARKUP),                              # 汇总步第1次：标记文本
+        FakeResponse(content="设备均空闲（7/7），可承接新订单。"),     # 汇总步第2次：干净答案
+    ])
+    all_messages: list = []
+
+    def fake_call_llm(messages, tools=None, **kwargs):
+        all_messages.append(messages)
+        return next(responses)
+
+    monkeypatch.setattr(sag, "call_llm", fake_call_llm)
+
+    app = build_single_agent_graph(FakeScheduleRegistry(), checkpointer=None)
+    result = app.invoke({
+        "messages": [{"role": "user", "content": "帮我检查一下设备的空闲情况"}],
+        "tool_results": [],
+        "iteration": 0,
+        "final_answer": "",
+    })
+
+    assert result["final_answer"] == "设备均空闲（7/7），可承接新订单。", \
+        f"应重试后产出干净答案，实际: {result['final_answer']!r}"
+    assert result["final_answer"] != sag._GRACEFUL_FALLBACK, "不得降级为死胡同兜底话术"
+    # 恰好一次重试：工具轮 1 次 + 汇总步 2 次（标记文本 + 干净答案）
+    assert len(all_messages) == 3, f"应恰好重试一次，实际 {len(all_messages)} 轮 LLM 调用"
+    assert any(any("未解析的工具调用标记" in (m.get("content") or "") for m in msgs)
+               for msgs in all_messages), "汇总步应注入纠错提示后重试"

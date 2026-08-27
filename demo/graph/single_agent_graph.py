@@ -80,6 +80,10 @@ class ToolMarkupOutput(Exception):
 
 _NUDGE = ("（系统提示：上一轮输出是未解析的工具调用标记文本，未产生任何工具调用。"
           "请改用标准 tool_calls 发起调用，或直接用中文回答。）")
+# 汇总步专用纠错提示（2026-08-26）：本轮工具已不可用，不能沿用 _NUDGE 的
+# 「改用标准 tool_calls」指引（会诱导模型再次输出工具调用语法），应明确禁止。
+_SUMMARY_NUDGE = ("（系统提示：上一轮输出是未解析的工具调用标记文本。本轮为最终汇总，"
+                  "工具已不可用，请勿输出任何工具调用语法，仅用中文输出综合结论。）")
 _GRACEFUL_FALLBACK = "（抱歉，本次回答生成异常，请重试或换个问法。）"
 
 
@@ -340,6 +344,11 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
                 "若已获取排产表/负载/CTP 数据，请引用版本号、批次、延期清单等"
                 "排产结果作为排产依据。")
         summary_lines.append("用中文回答，格式清晰。")
+        # 纵深防御（2026-08-26 方案 B）：主动禁止 DSML 标记语法，降低触发率
+        # （_SUMMARY_NUDGE 为重试纠错，此处为正常 prompt 预防）
+        summary_lines.append(
+            "禁止输出 <|tool_calls|>/||DSML|| 等工具调用标记语法——本轮为最终汇总，"
+            "不使用工具，仅用中文输出综合结论。")
         summary_prompt = {"role": "system", "content": "\n".join(summary_lines)}
 
         # ---- R2 护栏集成：最多重试 2 次 ----
@@ -352,7 +361,14 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
                                             task_type="complex")
                 answer = response.choices[0].message.content or ""
             except ToolMarkupOutput:
-                # 编排层 wrapper 兜底：综合指令仍产出标记文本 -> 优雅提示，不进入答案/缓存
+                # 汇总步标记文本：与 select_and_execute 对齐，注入纠错提示重试，
+                # 而不是直接降级为死胡同兜底（2026-08-26 复现：工具数据全拿到，
+                # 汇总步模型偶发输出 DSML 标记文本 -> 用户只看到兜底道歉）。
+                if retry < MAX_RETRIES:
+                    state["messages"].append({"role": "user", "content": _SUMMARY_NUDGE})
+                    print(f"  ⚠️  [汇总步标记文本] 第 {retry + 1} 次重试...")
+                    continue
+                # 重试耗尽仍产出标记文本 -> 优雅提示，不进入答案/缓存
                 answer = _GRACEFUL_FALLBACK
                 break
             except Exception as e:
