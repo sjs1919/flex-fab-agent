@@ -93,7 +93,7 @@ INVENTORY = [
 
 # — 尺寸/重量范围已迁移到 simulator/constants.py —
 
-ORDER_COUNT = 40  # 30-50 内
+ORDER_COUNT = 20  # 2026-08-28 从 40 调低：40 订单 166 批超 7 设备 5 天产能 → solver infeasible（批次无 start_time），20 订单产能内可排
 
 
 def _connect() -> pymysql.connections.Connection:
