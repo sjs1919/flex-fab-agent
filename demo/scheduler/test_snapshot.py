@@ -35,7 +35,7 @@ def test_snapshot_load_fields():
 def test_snapshot_params_default():
     """system_config 空表 → 4 个默认参数生效。"""
     params = snapshot.get_solver_params()
-    assert params["solver_max_time_seconds"] == 60
+    assert params["solver_max_time_seconds"] == 20
     assert params["emergency_reserve"] == 0.10
     assert params["part_limit"] == 50
     assert params["weight_limit"] == 600

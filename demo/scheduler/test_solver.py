@@ -71,7 +71,9 @@ def test_solve_seed_full_coverage():
     total_qty = sum(p["quantity"] for p in snap["parts"])
     assert packed_qty == total_qty - warned_qty
     assert verify.verify(result, snap) == []
-    assert result["metrics"]["status"] in ("OPTIMAL", "FEASIBLE")
+    # 20s 预算（2026-08-27 性能优化）下 CP-SAT 可能 UNKNOWN，贪心兜底解已覆盖全 + verify 空
+    # （质量由上面两条断言保证）；OPTIMAL/FEASIBLE 为 CP-SAT 收敛。
+    assert result["metrics"]["status"] in ("OPTIMAL", "FEASIBLE", "UNKNOWN")
 
 
 def test_solve_timed_out():

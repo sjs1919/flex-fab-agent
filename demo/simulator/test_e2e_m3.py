@@ -40,7 +40,8 @@ def e2e():
 
     # 清 M2/M3 中间产物（reset 只清业务表）
     for sql in ("DELETE FROM sim_events", "DELETE FROM state_change_log",
-                "DELETE FROM preprocess_tasks", "DELETE FROM batches",
+                "DELETE FROM preprocess_tasks", "DELETE FROM approvals",
+                "DELETE FROM batches",
                 "DELETE FROM schedule_versions"):
         with get_connection() as conn:
             with conn.cursor() as cur:
@@ -79,7 +80,7 @@ def e2e():
 
     runner = SimulatorRunner(tick_seconds=0.01)
     runner.start()
-    deadline = _time.monotonic() + 120
+    deadline = _time.monotonic() + 180  # WSL 时序抖动容忍（曾差 9ms 超 120s）
     try:
         while runner.tick_count < TICKS:
             assert _time.monotonic() < deadline, "120 tick 未在 180s 内完成"
