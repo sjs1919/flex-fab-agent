@@ -42,10 +42,9 @@ def test_ask_persists_cost_and_trace():
     r = client.post("/ask", json={"query": "测试看板落库"})
     assert r.status_code == 200
     assert r.json()["answer"] == "打桩回答：测试看板落库"
-    from demo.observability.tracer import tracer
-    tid = tracer.trace_id
-    # M6 T6.7：/ask 响应带 trace_id（前端 judge/回放入口）
-    assert r.json()["trace_id"] == tid
+    # 请求线程的 trace_id 存 contextvars，测试线程读不到 —— 从响应取
+    tid = r.json()["trace_id"]
+    assert tid  # M6 T6.7：/ask 响应带 trace_id（前端 judge/回放入口）
     try:
         costs = _rows_by_trace(tid, "cost_record")
         traces = _rows_by_trace(tid, "trace_record")

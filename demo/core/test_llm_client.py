@@ -57,8 +57,8 @@ def routed(monkeypatch):
 
     monkeypatch.setattr(lc, "_is_real_key", lambda k: True)
     monkeypatch.setattr(lc, "_get_client", _fake_get_client)
-    monkeypatch.setattr(lc.llm_cache, "get", lambda *a, **k: None)
-    monkeypatch.setattr(lc.llm_cache, "put", lambda *a, **k: None)
+    monkeypatch.setattr(lc.cache_manager, "lookup_exact", lambda *a, **k: None)
+    monkeypatch.setattr(lc.cache_manager, "store_exact", lambda *a, **k: None)
     monkeypatch.setattr(lc.cost_tracker, "record",
                         lambda **k: type("E", (), {"cost_total": 0.0})())
     return recorder

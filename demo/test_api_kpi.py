@@ -31,7 +31,7 @@ def test_order_tracking_ok():
 def test_order_tracking_not_found():
     r = client.get("/order/ORD9999/tracking")
     assert r.status_code == 404
-    assert "订单不存在" in r.json()["detail"]
+    assert "订单不存在" in r.json()["message"]
 
 
 def test_kpi_endpoint_reports_all_five_indicators():

@@ -94,6 +94,7 @@ def test_run_scheduling_persists():
     assert after[0]["triggered_by"] == "agent"
     # 清理（版本号由 after 携带）
     for v in after:
+        _exec("DELETE FROM approvals WHERE schedule_version_id=%s", (v["id"],))
         _exec("DELETE FROM batches WHERE schedule_version_id=%s", (v["id"],))
         _exec("DELETE FROM schedule_versions WHERE id=%s", (v["id"],))
 
@@ -429,6 +430,7 @@ def test_query_order_tracking_in_transit(mysql_source):
         assert "打印中" in out
         assert "2026-09-01 12:00" in out, "预计完成须取 post_process_end"
     finally:
+        _exec(f"DELETE FROM approvals WHERE schedule_version_id={vid}")
         _exec(f"DELETE FROM batches WHERE schedule_version_id={vid}")
         _exec(f"DELETE FROM schedule_versions WHERE id={vid}")
 
@@ -598,6 +600,8 @@ def kpi_tick_env(mysql_source):
     _exec("DELETE FROM preprocess_tasks WHERE batch_id IN "
           "(SELECT id FROM batches WHERE status IN ('打印中','静置中','待上机','前道'))")
     _exec("DELETE FROM batches WHERE status IN ('打印中','静置中','待上机','前道')")
+    _exec("DELETE FROM approvals WHERE schedule_version_id IN "
+          "(SELECT id FROM schedule_versions WHERE triggered_by='test')")
     _exec("DELETE FROM schedule_versions WHERE triggered_by='test'")
     _exec("DELETE FROM parts WHERE id LIKE 'T-%%'")    # 先删 parts（引用 orders）
     _exec("DELETE FROM orders WHERE id LIKE 'T-%%'")
@@ -617,6 +621,8 @@ def kpi_tick_env(mysql_source):
     _exec("DELETE FROM preprocess_tasks WHERE batch_id LIKE 'T-%%'")
     _exec("DELETE FROM bad_parts WHERE batch_id LIKE 'T-%%'")
     _exec("DELETE FROM batches WHERE id LIKE 'T-%%'")
+    _exec("DELETE FROM approvals WHERE schedule_version_id IN "
+          "(SELECT id FROM schedule_versions WHERE triggered_by='test')")
     _exec("DELETE FROM schedule_versions WHERE triggered_by='test'")
     _exec("DELETE FROM parts WHERE id LIKE 'T-%%'")    # 先删 parts（引用 orders）
     _exec("DELETE FROM orders WHERE id LIKE 'T-%%'")

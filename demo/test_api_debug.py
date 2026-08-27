@@ -47,15 +47,13 @@ def _cleanup(trace_id: str):
 
 def test_ask_records_case():
     """/ask 后 cases.jsonl 有行：type=normal、good=null、trace_id 与本轮一致。"""
-    from demo.observability.tracer import tracer
     r = client.post("/ask", json={"query": "查询订单风险"})
     assert r.status_code == 200
-    tid = tracer.trace_id
+    tid = r.json()["trace_id"]  # 请求线程 trace_id 存 contextvars，测试线程读不到 —— 从响应取
     try:
         rows = cc.load_cases()
-        assert len(rows) == 1
-        c = rows[0]
-        assert c["trace_id"] == tid
+        c = next((r for r in rows if r["trace_id"] == tid), None)
+        assert c is not None, "应记录本轮 case"
         assert c["type"] == "normal" and c["good"] is None
         assert c["tools"] == ["query_orders"]
     finally:
@@ -76,11 +74,9 @@ def test_debug_cases_list_and_filter():
 
 def test_debug_trace_merges_record_and_case():
     """回放：trace_record（DB）+ case（JSONL）合并结构；缺 id 404。"""
-    from demo.observability.tracer import tracer
-    from demo.observability import dashboard
     r = client.post("/ask", json={"query": "查询库存"})
     assert r.status_code == 200
-    tid = tracer.trace_id
+    tid = r.json()["trace_id"]  # 请求线程 trace_id 存 contextvars，测试线程读不到 —— 从响应取
     try:
         r = client.get(f"/debug/trace/{tid}")
         assert r.status_code == 200

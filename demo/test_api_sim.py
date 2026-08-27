@@ -74,7 +74,7 @@ def test_schedule_load_requires_admin_token():
     """R-7 反例：无 token 401。"""
     r = client.post("/schedule/load")
     assert r.status_code == 401
-    assert "admin" in r.json()["detail"]
+    assert "admin" in r.json()["message"]
 
 
 def test_schedule_load_non_admin_forbidden(monkeypatch):
