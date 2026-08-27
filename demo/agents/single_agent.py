@@ -15,6 +15,7 @@ from ..cache.manager import cache_manager
 from ..graph.checkpointer import build_checkpointer
 from ..graph.single_agent_graph import (
     _GRACEFUL_FALLBACK,
+    LOOP_GUARD_FALLBACK_PREFIX,
     _looks_like_tool_markup,
     build_single_agent_graph,
 )
@@ -117,11 +118,13 @@ def run_single_agent(query: str, registry=None, thread_id: str | None = None) ->
 
     # 缓存写入：仅无多轮上下文（首轮独立问题才有复用价值）
     if thread_id is None and result.get("final_answer"):
-        # 缓存投毒纵深防御：标记文本（未解析工具调用）与失败兜底文本（生成异常）
-        # 均不得写入语义缓存，否则用户重问会一直命中失败答案。
+        # 缓存投毒纵深防御：标记文本（未解析工具调用）、失败兜底文本（生成异常）与
+        # 循环守卫原始 dump（重复检索兜底）均不得写入语义缓存，否则用户重问会一直命中失败答案。
         # 状态类查询（订单/状态/进度等）标记 sensitive：走短 TTL + 数据变更主动清除，避免返回过期数据。
         fa = result["final_answer"]
-        if not _looks_like_tool_markup(fa) and fa != _GRACEFUL_FALLBACK:
+        if (not _looks_like_tool_markup(fa)
+                and fa != _GRACEFUL_FALLBACK
+                and not fa.startswith(LOOP_GUARD_FALLBACK_PREFIX)):
             cache_manager.store_semantic(query, fa, sensitive=_is_state_sensitive(query))
 
     return result
