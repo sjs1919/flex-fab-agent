@@ -38,6 +38,18 @@ def e2e():
     random.seed(20260823)  # 可复现
     seed_mod.reset()  # ① seed --reset
 
+    # 仅保留 5 订单：40 订单 166 批超 7 设备 5 天产能 → solver infeasible
+    # （批次 start_time=None，模拟器无批次推进）。造产能内小数据让 solve 有解。
+    # ⚠️ 依赖独立库（CI）：seed 修改影响共享库，全量跑需隔离环境。
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id FROM orders ORDER BY id LIMIT 5")
+        keep = [r[0] for r in cur.fetchall()]
+        if keep:
+            ph = ",".join(["%s"] * len(keep))
+            cur.execute(f"DELETE FROM parts WHERE order_id NOT IN ({ph})", keep)
+            cur.execute(f"DELETE FROM orders WHERE id NOT IN ({ph})", keep)
+        conn.commit()
+
     # 清 M2/M3 中间产物（reset 只清业务表）
     for sql in ("DELETE FROM sim_events", "DELETE FROM state_change_log",
                 "DELETE FROM preprocess_tasks", "DELETE FROM approvals",
