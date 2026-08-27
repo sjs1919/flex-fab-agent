@@ -25,9 +25,9 @@ def test_seed_reset_counts():
     assert _query("SELECT COUNT(*) FROM customer")[0][0] == 5
     assert _query("SELECT COUNT(*) FROM machines")[0][0] == 7
     orders = _query("SELECT COUNT(*) FROM orders")[0][0]
-    assert 30 <= orders <= 50
+    assert 20 <= orders <= 50  # 2026-08-28 从 30 调低：seed 订单 40→20（产能匹配）
     parts = _query("SELECT COUNT(*) FROM parts")[0][0]
-    assert parts >= 200
+    assert parts >= 100
     assert _query("SELECT COUNT(*) FROM inventory")[0][0] == 10
     assert _query("SELECT COUNT(*) FROM material")[0][0] == 3
 
