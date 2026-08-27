@@ -69,7 +69,7 @@ def test_debug_cases_list_and_filter():
     r = client.get("/debug/cases")
     assert r.status_code == 200
     ids = [c["trace_id"] for c in r.json()["items"]]
-    assert ids == ["tc1", "tc2"]
+    assert ids == ["tc2", "tc1"]  # 时间倒序（2026-08-26：debug_cases 改最新在前）
     r = client.get("/debug/cases", params={"type": "chitchat"})
     assert [c["trace_id"] for c in r.json()["items"]] == ["tc2"]
 
