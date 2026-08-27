@@ -17,7 +17,7 @@ from demo.tools.data import get_connection, load_config
 
 # ---- system_config 参数缺省常量（M4 起由 get_config 统一抽象，M2 先用代码默认）----
 DEFAULT_PARAMS = {
-    "solver_max_time_seconds": 60,  # R-D1 预算，秒
+    "solver_max_time_seconds": 20,  # R-D1 预算，秒（2026-08-27 性能优化 60→20：3 工艺组串行共 ~60s）
     "emergency_reserve": 0.10,      # C8 产能预留 10%（应急池）
     "part_limit": 50,               # C2③ 单批件数上限
     "weight_limit": 600,            # C2④ 单批承重上限 kg
