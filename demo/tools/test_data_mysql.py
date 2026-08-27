@@ -69,10 +69,10 @@ def test_read_rows_tenant_sql(monkeypatch):
 # ---- T2.3 load_* 换体 ----
 
 def test_load_orders_mysql_40(monkeypatch):
-    """mysql 路径 load_orders 返回 seed 订单数（40），字段对齐新表。"""
+    """mysql 路径 load_orders 返回 seed 订单数（20，2026-08-28 从 40 调低），字段对齐新表。"""
     monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
     orders = data.load_orders()
-    assert len(orders) == 40
+    assert len(orders) == 20
     assert {"id", "customer_id", "amount", "urgent", "priority", "due_date", "status"}.issubset(orders[0].keys())
 
 
@@ -91,10 +91,10 @@ def test_load_machines_mysql_7(monkeypatch):
 
 
 def test_load_parts_mysql(monkeypatch):
-    """新增 load_parts：mysql 路径返回数百条，含包络盒三边/件重。"""
+    """新增 load_parts：mysql 路径返回数百条（seed 20 订单 ~174 part），含包络盒三边/件重。"""
     monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
     parts = data.load_parts()
-    assert len(parts) >= 200
+    assert len(parts) >= 100
     assert {"id", "order_id", "material", "length", "width", "height", "weight"}.issubset(parts[0].keys())
 
 

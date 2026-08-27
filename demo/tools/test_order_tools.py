@@ -22,14 +22,14 @@ def seeded_mysql():
 
 def test_query_orders_all():
     result = query_orders()
-    assert "40 条订单" in result
+    assert "20 条订单" in result
     assert "ORD001" in result
 
 
 def test_query_orders_by_status_new_enum():
     """状态筛选：新枚举直接命中；旧枚举/口吻词宽容归一（排期中→待排队、紧急→打印中）。"""
     result = query_orders(status="待排队")
-    assert "40 条订单" in result
+    assert "20 条订单" in result
     # 宽容归一（M6 踩坑 #11）：LLM 传旧词时归一为新枚举再过滤，结果与新枚举一致
     assert query_orders(status="排期中") == result
     assert query_orders(status="紧急") == query_orders(status="打印中")
@@ -45,7 +45,7 @@ def test_query_orders_by_customer_name():
 def test_query_orders_customer_level():
     """customer_level 过滤（等级去 D）：A 级客户是深圳精密五金（C001）。"""
     result = query_orders(customer_level="A")
-    assert "共 8 条订单" in result  # 40 单 / 5 客户循环，C001 占 8 单
+    assert "共 4 条订单" in result  # 20 单 / 5 客户循环，C001 占 4 单
     assert "ORD001" in result
 
 
