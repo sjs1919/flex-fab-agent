@@ -59,7 +59,10 @@ def _ttl(sensitive: bool) -> int:
     """
     if sensitive:
         return int(os.getenv("SEMANTIC_CACHE_STATE_TTL", "60"))
-    return int(os.getenv("SEMANTIC_CACHE_TTL", "0"))
+    # 非敏感默认 24h 有界兜底（2026-08-27 最终审查 I1）：关键词收窄 6 词后，
+    # 状态类问句（如"今天有哪些订单"）可能不命中 sensitive，若 TTL=0 将永不过期
+    # 且 clear_state_entries 不覆盖 → 过时答案无界。24h 兜底；SEMANTIC_CACHE_TTL=0 可显式不过期。
+    return int(os.getenv("SEMANTIC_CACHE_TTL", "86400"))
 
 
 def _get_collection():
