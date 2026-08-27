@@ -108,6 +108,10 @@ def e2e():
         "start": T0,
     }
     yield info
+    # teardown：恢复共享库 seed（40 订单/6 人员），避免 module 级 seed_reset+删订单
+    # 污染后续测试（全量顺序下 test_resources 等共享库断言受影响）。
+    # 理想是 CI 独立库（本 demo 共享开发库折中恢复）。
+    seed_mod.reset()
 
 def test_1_events_visible(e2e):
     """验收 1：批次完成/故障/插单事件可见。"""
