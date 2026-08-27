@@ -83,7 +83,7 @@ def test_e2e_m5b_dashboard_chain():
     # ② /ask -> cost_record + trace_record（trace_id 一致，by_model 含 model）
     resp = client.post("/ask", json={"query": "e2e 看板链路"})
     assert resp.status_code == 200
-    tid = _tid()
+    tid = resp.json()["trace_id"]  # 请求线程 trace_id 存 contextvars，测试线程读不到
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT total_tokens, by_model FROM cost_record WHERE trace_id=%s", (tid,))
