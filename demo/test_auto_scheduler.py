@@ -63,3 +63,15 @@ def test_auto_schedule_disabled():
     """AUTO_SCHEDULE_ENABLED=off 时 run_once 不排产。"""
     s = AutoScheduler(interval_ticks=3, approve_top_n=2, enabled=False)
     assert s.run_once("tick") is False
+
+
+def test_request_rerun_sets_signal():
+    """事件信号触发：request_rerun 后 _signal 置位，run_once 处理并清除。"""
+    s = AutoScheduler(interval_ticks=3, approve_top_n=2)
+    s._auto_schedule = lambda trigger: None   # 不真跑求解
+    s._fifo_approve = lambda: None
+    s.request_rerun()
+    assert s._signal.is_set()
+    # 模拟循环处理一次信号
+    s._signal.clear()
+    assert not s._signal.is_set()

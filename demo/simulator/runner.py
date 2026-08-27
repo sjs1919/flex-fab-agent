@@ -52,6 +52,10 @@ class SimulatorRunner:
                 clock.advance_sim_time(cur, 1)
             sim_time = clock.get_sim_time(conn)
             stats = engine.advance_tick(conn, sim_time)
+            # 事件兜底重排（2026-08-27）：本 tick 发生设备故障/新插单/延期告警 → 即时重排信号
+            if self._need_reschedule(conn, sim_time):
+                from ..scheduler.auto_scheduler import get_scheduler  # 函数内导入避免加载期循环
+                get_scheduler().request_rerun()
         self.tick_count += 1
         self.consecutive_failures = 0
         cache_manager.bump_scene_version()  # R-3：状态相关缓存失效
@@ -64,6 +68,22 @@ class SimulatorRunner:
             event_count=stats.get("events_fired", 0),
         )
         return stats
+
+    def _need_reschedule(self, conn, sim_time) -> bool:
+        """本 tick 是否发生需重排的事件：设备故障 fired / 新插单 / 延期告警。
+
+        延期告警（硬性不可行）在 advance_tick 内已由 engine 落为 status='fired'
+        的 machine_failure 事件（payload.type=reschedule_alert），故仅按 event_type
+        查询即覆盖；不重复调 check_hard_infeasibility（其签名需具体 batch/machine/
+        repair_at，且已在引擎内调用）。sim_time=%s 精确匹配，只认本 tick 事件。
+        """
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT event_type, COUNT(*) FROM sim_events "
+                "WHERE status='fired' AND sim_time=%s "
+                "AND event_type IN ('machine_failure','new_order') GROUP BY event_type",
+                (sim_time,))
+            return bool(cur.fetchall())
 
     def _record_kpi_snapshot(self, sim_time) -> None:
         """事务提交后落一条 KPI 快照（M5b T5b.5，看板历史数据源）。

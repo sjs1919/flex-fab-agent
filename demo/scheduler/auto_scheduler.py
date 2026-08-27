@@ -152,3 +152,16 @@ class AutoScheduler:
             "last_version": self._last_version,
             "last_trigger": self._last_trigger,
         }
+
+
+# 进程级单例（2026-08-27，任务 3 步骤 1 前移至本任务）：
+# runner / api / 测试经 get_scheduler() 获取同一 AutoScheduler 实例。
+_scheduler_instance: AutoScheduler | None = None
+
+
+def get_scheduler() -> AutoScheduler:
+    """进程级单例（供 runner / api / 测试获取）。"""
+    global _scheduler_instance
+    if _scheduler_instance is None:
+        _scheduler_instance = AutoScheduler()
+    return _scheduler_instance
