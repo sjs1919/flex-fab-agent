@@ -47,8 +47,10 @@ async function toggleStatus(row: Record<string, unknown>) {
   try {
     const res = await setPersonnelStatus(String(row.id), row.status === '上班' ? '请假' : '上班', token)
     if (res.ok) ElMessage.success(res.message); else ElMessage.error(res.message)
-    await load()
+  } catch (err) {
+    ElMessage.error(err instanceof Error && err.message ? err.message : '状态切换失败')
   } finally { togglingId.value = '' }
+  await load()
 }
 
 onMounted(load)
