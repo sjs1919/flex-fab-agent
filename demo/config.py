@@ -198,6 +198,11 @@ AUDIT_LOG_PATH = os.getenv("AUDIT_LOG_PATH", "")  # 空 = 默认 RUNTIME_DIR/aud
 # ---- 模拟器 ----
 SIM_TICK_SECONDS = float(os.getenv("SIM_TICK_SECONDS", "60"))
 
+# ---- 自动排产调度器 ----
+AUTO_SCHEDULE_ENABLED = os.getenv("AUTO_SCHEDULE_ENABLED", "on")      # off 关闭自动排产
+AUTO_SCHEDULE_TICK_INTERVAL = int(os.getenv("AUTO_SCHEDULE_TICK_INTERVAL", "3"))  # 每 N tick 排一轮
+AUTO_APPROVE_TOP_N = int(os.getenv("AUTO_APPROVE_TOP_N", "20"))        # 保留最近 N 个待审核版本，更早自动通过
+
 # ---- 可观测性 ----
 OTEL_EXPORTER = os.getenv("OTEL_EXPORTER", "console")  # none | console | otel
 OTEL_EXPORTER_OTLP_ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
