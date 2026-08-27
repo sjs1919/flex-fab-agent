@@ -45,11 +45,14 @@ def test_runner_ticks(monkeypatch):
     import time as _time
     start_version = llm_cache.get_scene_version()
     r = runner_mod.SimulatorRunner(tick_seconds=0.02)
+    # tick 内 kpi_metrics 重计算慢（87 批 + GIL 争抢）→ mock 快照，本测试只验证 tick 推进/scene_version
+    monkeypatch.setattr(runner_mod.SimulatorRunner, "_record_kpi_snapshot",
+                        lambda self, sim_time: None)
     r.start()
-    deadline = _time.monotonic() + 10
+    deadline = _time.monotonic() + 60  # tick 含 KPI 快照重计算较慢 + WSL 抖动（曾 20s 差 5ms 超）
     try:
         while r.tick_count < 3:
-            assert _time.monotonic() < deadline, "3 tick 未在 10s 内完成"
+            assert _time.monotonic() < deadline, "3 tick 未在 60s 内完成"
             assert r.is_alive(), "模拟器线程异常退出"
             # 忙等会持续抢 GIL，饿死 worker 里的 CPU 密集 kpi_metrics；
             # 用短 sleep 让出 GIL（生产主线程是 async 循环，无此争抢）。
