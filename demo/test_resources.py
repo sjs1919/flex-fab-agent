@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 from demo.api import app
 
-_CATEGORIES = ["machines", "customers", "orders", "inventory", "batches", "preprocess"]
+_CATEGORIES = ["machines", "customers", "orders", "inventory", "batches", "preprocess", "personnel"]
 # solver 输出表（batches/preprocess）在干净库可空（无 seed/生产写入方），
 # 其余 4 类 seed 必有数据（machines 7 / customer 5 / orders 40 / inventory 10）
 _SEEDED = {"machines", "customers", "orders", "inventory"}
@@ -51,10 +51,11 @@ def test_resources_id_descending():
 
 
 def test_resources_unknown_404():
-    """未知类目 -> 404。"""
+    """未知类目 -> 404 + 结构化 message（防 catch-all 回归）。"""
     client = TestClient(app)
     r = client.get("/resources/unknown")
     assert r.status_code == 404
+    assert "未知资源类目" in r.json()["message"]
 
 
 def test_personnel_list_and_status_toggle(_resource_tables_present):

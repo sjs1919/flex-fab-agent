@@ -369,9 +369,14 @@ def set_personnel_status(pid: str, body: PersonnelStatusRequest,
     from .tools.data import get_connection
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("UPDATE personnel SET status=%s WHERE id=%s", (body.status, pid))
+            # 幂等：仅状态不同才 UPDATE；同状态无变化视为成功（不误报 404）
+            cur.execute("UPDATE personnel SET status=%s WHERE id=%s AND status<>%s",
+                        (body.status, pid, body.status))
             if cur.rowcount == 0:
-                raise HTTPException(404, f"人员不存在: {pid}")
+                # rowcount=0 可能是「状态已相同」或「人员不存在」——查存在性区分
+                cur.execute("SELECT id FROM personnel WHERE id=%s", (pid,))
+                if cur.fetchone() is None:
+                    raise HTTPException(404, f"人员不存在: {pid}")
             conn.commit()
     return {"ok": True, "message": f"{pid} 已切换为 {body.status}"}
 

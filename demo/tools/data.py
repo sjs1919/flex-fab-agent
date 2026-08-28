@@ -224,7 +224,7 @@ def load_batches(tenant_id: str = "") -> list[dict[str, str]]:
     注：batches 等求解输出表无 tenant_id 列，参数保留仅为对齐 load_* 签名，
     R8 租户隔离对这类表无列可过滤（v2 §4.2 所有权由 solver 保证）。
     """
-    return _read_rows("SELECT * FROM batches", (), filename="")
+    return _read_rows("SELECT * FROM batches ORDER BY id", (), filename="")
 
 
 def load_personnel(tenant_id: str = "") -> list[dict[str, str]]:
@@ -245,7 +245,7 @@ def load_preprocess_tasks(tenant_id: str = "") -> list[dict[str, str]]:
 
     注：preprocess_tasks 无 tenant_id 列，参数保留仅为对齐 load_* 签名。
     """
-    return _read_rows("SELECT * FROM preprocess_tasks", (), filename="")
+    return _read_rows("SELECT * FROM preprocess_tasks ORDER BY id", (), filename="")
 
 
 def load_bad_parts(tenant_id: str = "") -> list[dict[str, str]]:

@@ -41,6 +41,12 @@ def sim_env():
     _exec("DELETE FROM orders WHERE id LIKE 'T-%%'")
     _exec("DELETE FROM parts WHERE order_id LIKE 'T-%%'")
     _exec("UPDATE machines SET status='空闲', current_batch_id=NULL WHERE id='M0001'")
+    # 确保 personnel 存在（leave 测试依赖；单独跑无 seed 时幂等插入，见 seed_personnel）
+    from demo.simulator.seed import seed_personnel
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            seed_personnel(cur)
+        conn.commit()
     _exec("UPDATE personnel SET status='上班'")  # leave 测试会改具体人状态，先复位
     _exec(
         "INSERT INTO orders (id, customer_id, amount, urgent, priority, due_date, status, tenant_id) "
