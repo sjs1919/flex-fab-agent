@@ -6,7 +6,7 @@
   S0  安全扫描     credentials.local.md 不入库 + .env 无明文 L1/L2 口令
   S1  地基自检     provider 可用 + 工具注册表非空 + 数据加载成功
   S2  数据层       MySQL 迁移状态（mysql 模式）或 CSV 文件齐全（csv 模式）
-  S3  数据完整性   订单≥30 / 设备=7 / 零件≥100 / 客户=5
+  S3  数据完整性   订单≥20 / 设备=7 / 零件≥100 / 客户=5
   S4  API 探针     /health 返回 status=ok + providers 非空 + tools>0
   S5  API KPI      /kpi 返回非空报告
   S6  API 配置     /config 返回 data_source + 调试台配置
@@ -95,6 +95,8 @@ def s0_secrets_scan() -> None:
             _pass("S0.1", "凭据文件不入库", "已被 gitignore（ignored）")
         else:
             _fail("S0.1", "凭据文件不入库", f"git 状态异常: {lines}")
+    except FileNotFoundError:
+        _skip("S0.1", "凭据文件不入库", "环境无 git（容器内），跳过")
     except Exception as e:
         _fail("S0.1", "凭据文件不入库", f"git 命令失败: {e}")
 
@@ -239,11 +241,11 @@ def s3_data_integrity() -> None:
         parts = load_parts()
         customers = load_customers()
 
-        # 订单 >= 30
-        if len(orders) >= 30:
-            _pass("S3.1", "订单数量", f"{len(orders)} 条 (≥30)")
+        # 订单 >= 20（2026-08-28 seed 40→20：40 订单 166 批超 7 设备 5 天产能 → solver infeasible）
+        if len(orders) >= 20:
+            _pass("S3.1", "订单数量", f"{len(orders)} 条 (≥20)")
         else:
-            _fail("S3.1", "订单数量", f"{len(orders)} 条 (<30)")
+            _fail("S3.1", "订单数量", f"{len(orders)} 条 (<20)")
         # 设备 = 7
         if len(machines) == 7:
             _pass("S3.2", "设备数量", f"{len(machines)} 台 (=7)")
