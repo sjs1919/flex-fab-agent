@@ -336,7 +336,7 @@ _RESOURCE_LOADERS = {
     "customers": "load_customers",
     "orders": "load_orders",
     "inventory": "load_inventory",
-    "batches": "load_batches",
+    "batches": "load_latest_batches",
     "preprocess": "load_preprocess_tasks",
     "personnel": "load_personnel",
 }

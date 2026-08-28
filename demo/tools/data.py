@@ -227,6 +227,20 @@ def load_batches(tenant_id: str = "") -> list[dict[str, str]]:
     return _read_rows("SELECT * FROM batches ORDER BY id", (), filename="")
 
 
+def load_latest_batches(tenant_id: str = "") -> list[dict[str, str]]:
+    """加载最新排产版本的批次（资源页用）。
+
+    背景：schedule_versions/batches 不在 SEED_TABLES，reset 不清，多版本排产累积
+    （验收时可到数千行）→ 资源页全量返回 + el-table 全量渲染卡顿。
+    这里只取 MAX(id) 最新版本（走 idx_batches_version 索引），历史版本为排产快照
+    不走资源页。batches 无 tenant_id 列，参数保留仅为对齐 load_* 签名。
+    """
+    return _read_rows(
+        "SELECT * FROM batches WHERE schedule_version_id="
+        "(SELECT MAX(id) FROM schedule_versions) ORDER BY id",
+        (), filename="")
+
+
 def load_personnel(tenant_id: str = "") -> list[dict[str, str]]:
     """加载人员（personnel 无 tenant_id，参数保留对齐签名）。"""
     return _read_rows("SELECT * FROM personnel", (), filename="")
