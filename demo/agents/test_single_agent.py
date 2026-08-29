@@ -70,3 +70,5 @@ def test_state_query_still_sensitive():
     assert sa._is_state_sensitive("有哪些订单在排队？") is True
     assert sa._is_state_sensitive("设备E01进度到哪了？") is True
     assert sa._is_state_sensitive("3号机还有没有在打印？") is True
+    assert sa._is_state_sensitive("查一下目前待排产的订单有哪些") is True  # 2026-08-29 补「目前」
+    assert sa._is_state_sensitive("还有哪些订单在排队") is True             # 2026-08-29 补「还有」

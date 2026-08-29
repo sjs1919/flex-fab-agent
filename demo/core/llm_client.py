@@ -169,6 +169,10 @@ def call_llm(messages: list[dict], tools: list[dict] | None = None,
                 "max_tokens": max_tokens,
                 "temperature": temperature,
             }
+            if p["name"] == "DeepSeek":
+                # DeepSeek V4 推理默认开 thinking，响应带 reasoning_content 且要求原样回传
+                # （graph 历史未保留该字段 → 400）。demo 以工具调用为主，关闭 thinking 更稳更快。
+                kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
             if tools:
                 kwargs["tools"] = tools
                 kwargs["tool_choice"] = "auto"
@@ -211,7 +215,7 @@ def call_llm(messages: list[dict], tools: list[dict] | None = None,
             return resp
         except Exception as e:
             last_err = e
-            print(f"  ⚠️  [{p['name']}] 失败: {type(e).__name__}: {str(e)[:80]}，切下一个...")
+            print(f"  ⚠️  [{p['name']}] 失败: {type(e).__name__}: {str(e)[:1200]}，切下一个...")
     raise RuntimeError(f"所有 provider 均失败。最后错误: {last_err}")
 
 

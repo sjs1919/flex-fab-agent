@@ -166,7 +166,11 @@ DEMO_DATA_SOURCE = os.getenv("DEMO_DATA_SOURCE", "csv")
 LLM_CACHE = os.getenv("LLM_CACHE", "on")
 LLM_CACHE_TTL = int(os.getenv("LLM_CACHE_TTL", "3600"))
 SEMANTIC_CACHE = os.getenv("SEMANTIC_CACHE", "on")
-CACHE_THRESHOLD = float(os.getenv("CACHE_THRESHOLD", "0.25"))
+# CACHE_THRESHOLD：语义缓存相似度阈值（bge-small-zh cosine distance，越小越严）。
+# 2026-08-29 实测校准收紧 0.25→0.10：0.25 会误命中「查一下X的信息」等模板句跨实体查询
+# （E1「查 C001 客户」对 A4「查 ORD001 订单」dist=0.250 命中→返回错答案并固化；J1 0.232 / F1 0.187 同理）。
+# 0.10 下这些误命中（0.187~0.250）全消除，仅保留几乎相同改写（≤0.10，如 A2′ 对 A2 0.067）。
+CACHE_THRESHOLD = float(os.getenv("CACHE_THRESHOLD", "0.10"))
 # 语义缓存 TTL（秒）：只对状态类（订单/状态/进度等）做短缓存；知识类保持不过期（0），行为不变
 SEMANTIC_CACHE_TTL = int(os.getenv("SEMANTIC_CACHE_TTL", "0"))  # 知识类，0 = 不过期（现状）
 SEMANTIC_CACHE_STATE_TTL = int(os.getenv("SEMANTIC_CACHE_STATE_TTL", "60"))  # 状态类，默认对齐模拟器 tick(60s)

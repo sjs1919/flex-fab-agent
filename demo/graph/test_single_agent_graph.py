@@ -20,10 +20,12 @@ class FakeRegistry:
 
     def get_schema(self, name):
         if name in self.schemas:
-            return type("S", (), {"server": self.schemas[name]["server"]})()
+            # 2026-08-29：对齐生产 ToolSchema 契约（select_and_execute 判断 read_only）
+            return type("S", (), {
+                "server": self.schemas[name]["server"], "read_only": True})()
         return None
 
-    def execute(self, name, arguments):
+    def execute(self, name, arguments, token=None):
         return f"{name} 返回 ORD003 深圳精密"
 
 
@@ -513,10 +515,10 @@ def test_generate_answer_markup_retries_not_fallback(monkeypatch):
 class FakeEmptyRegistry(FakeRegistry):
     """query_orders 返回「未找到匹配的订单。」（模拟该筛选无匹配订单）。"""
 
-    def execute(self, name, arguments):
+    def execute(self, name, arguments, token=None):
         if name == "query_orders":
             return "未找到匹配的订单。"
-        return super().execute(name, arguments)
+        return super().execute(name, arguments, token=token)
 
 
 def test_status_empty_result_is_terminal_answer(monkeypatch):
@@ -622,12 +624,12 @@ def test_multi_same_tool_calls_map_results_by_call_id(monkeypatch):
     class ArgAwareRegistry(FakeRegistry):
         """query_orders 按 status 参数返回不同结果。"""
 
-        def execute(self, name, arguments):
+        def execute(self, name, arguments, token=None):
             if name == "query_orders":
                 if arguments.get("status") == "待排队":
                     return "共 20 条订单：ORD001 深圳精密（待排队）"
                 return "未找到匹配的订单。"
-            return super().execute(name, arguments)
+            return super().execute(name, arguments, token=token)
 
     # 单轮返回 3 个 query_orders tool_calls（不同 status 参数，id 各不同）
     def _make_calls():

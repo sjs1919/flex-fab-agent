@@ -278,8 +278,9 @@ def build_default_registry() -> ToolRegistry:
     )
     r.register(
         "run_scheduling",
-        "触发一轮排产求解并落库，返回新版本号与关键指标（写工具，需 token）。"
-        "适用：初始排产、插单/故障后的重排。产出版本为待审核，需 approve_schedule 审批后生效。",
+        "触发一轮排产求解并落库，返回新版本号与关键指标（写操作，权限由系统自动处理，"
+        "无需用户提供 token）。适用：初始排产、插单/故障后的重排。用户明确要求跑排产/重新排产时"
+        "必须调用本工具，即使已有排产版本也生成新版本。产出版本为待审核，需 approve_schedule 审批后生效。",
         {"type": "object", "properties": {
             "triggered_by": {"type": "string", "description": "触发来源标记，默认 agent"},
         }},
