@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from demo.scheduler import assessment
+from demo.tools.data import get_connection
 
 
 def test_zone_color_boundaries():
@@ -188,3 +189,110 @@ def test_ctp_calibrated_known_reserved_days(seeded_mysql, monkeypatch):
     # 5×65=325h，SLA 3 台 -> 64.8h/天 -> 325/64.8=5.01 -> ⌈⌉=6 天
     assert r["forecast_reserved_days"] == 6
     assert r["calibrated_ctp"] > r["ctp"]
+
+
+# ---- 定稿 v1 §5/§6 T4.1/T4.2：读路径观测口径（落库 SUM + 多版本聚合） ----
+
+
+def _insert_version(conn, status="待审核"):
+    """插入排产版本（函数级 seeded_mysql 已清空链路表，测试数据自隔离）。"""
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO schedule_versions (created_at, triggered_by, params_json, "
+            "result_json, status) VALUES (NOW(), 'test', '{}', '{}', %s)", (status,))
+        return cur.lastrowid
+
+
+def _insert_batch(conn, bid, vid, status="前道", approval="通过",
+                  process="SLA", start="2026-09-01 08:00:00",
+                  end="2026-09-01 10:00:00"):
+    """插入批次行（链到版本 vid）。"""
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO batches (id, schedule_version_id, order_ids, parts_json, process, "
+            "model_type, machine_id, start_time, end_time, post_process_end, status, "
+            "approval_status, source) VALUES (%s, %s, '[\"ORD001\"]', '[]', %s, '600', "
+            "'M0001', %s, %s, %s, %s, %s, '整批')",
+            (bid, vid, process, start, end, end, status, approval))
+
+
+def _insert_task(conn, bid, man_hours, part_count=5):
+    """插入前道任务（链到批次 bid）。"""
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO preprocess_tasks (batch_id, part_count, man_hours, "
+            "assigned_workers, start_time, end_time) VALUES (%s, %s, %s, 1, "
+            "'2026-09-01 06:00:00', '2026-09-01 08:00:00')", (bid, part_count, man_hours))
+
+
+def test_preprocess_load_reads_persisted_sum(seeded_mysql):
+    """T4.1：preprocess_load 读数=落库 SUM(man_hours)（含分摊），联批次过滤
+    status='前道' AND approval_status='通过'——SLA/SLM 各一任务入池，
+    待审核批次任务不入池（待审窗口假空闲）。"""
+    conn = get_connection()
+    try:
+        vid = _insert_version(conn)
+        _insert_batch(conn, f"{vid}-B1", vid, approval="通过", process="SLA")
+        _insert_batch(conn, f"{vid}-B2", vid, approval="通过", process="SLM")
+        _insert_batch(conn, f"{vid}-B3", vid, approval="待审核", process="SLA")
+        _insert_task(conn, f"{vid}-B1", 0.83)
+        _insert_task(conn, f"{vid}-B2", 1.00)
+        _insert_task(conn, f"{vid}-B3", 9.99)  # 待审核批次任务：不入池
+        conn.commit()
+    finally:
+        conn.close()
+    pp = assessment.preprocess_load()
+    assert pp["pending_tasks"] == 2
+    assert pp["remaining_man_hours"] == pytest.approx(0.83 + 1.00, abs=0.01)
+    assert pp["workers"] == 6
+    assert pp["net_capacity_h_per_day"] == pytest.approx(45.0, rel=1e-9)
+    assert pp["bottleneck"] is False
+    assert pp["eta_clear"]  # 有剩余人·时 → 预计清空时刻非空
+
+
+def test_preprocess_load_released_on_上机(seeded_mysql):
+    """T4.1：批次前道→待上机（E 门禁通过后推进）即释放池——remaining_man_hours 下降、
+    pending_tasks 减一，不重复计在途人工。"""
+    conn = get_connection()
+    try:
+        vid = _insert_version(conn)
+        _insert_batch(conn, f"{vid}-B1", vid, approval="通过", process="SLA")
+        _insert_batch(conn, f"{vid}-B2", vid, approval="通过", process="SLA")
+        _insert_task(conn, f"{vid}-B1", 0.83)
+        _insert_task(conn, f"{vid}-B2", 1.00)
+        conn.commit()
+    finally:
+        conn.close()
+    assert assessment.preprocess_load()["remaining_man_hours"] == pytest.approx(1.83, abs=0.01)
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE batches SET status='待上机' WHERE id=%s", (f"{vid}-B1",))
+        conn.commit()
+    finally:
+        conn.close()
+    after = assessment.preprocess_load()
+    assert after["remaining_man_hours"] == pytest.approx(1.00, abs=0.01)
+    assert after["pending_tasks"] == 1
+
+
+def test_latest_batches_aggregates_active_versions(seeded_mysql):
+    """T4.2：_latest_batches 弃 MAX(id) 聚合所有含未完成批次且非「已驳回」版本——
+    插单后旧版本在途订单可跟踪；驳回版本批次不入聚合；全完成版本退出。"""
+    conn = get_connection()
+    try:
+        v1 = _insert_version(conn, "待审核")
+        _insert_batch(conn, f"{v1}-B1", v1, status="打印中", approval="通过")
+        v2 = _insert_version(conn, "待审核")
+        _insert_batch(conn, f"{v2}-B2", v2, status="前道", approval="通过")
+        v3 = _insert_version(conn, "已驳回")           # 驳回版本：不入聚合
+        _insert_batch(conn, f"{v3}-B3", v3, status="前道", approval="通过")
+        v4 = _insert_version(conn, "待审核")           # 全完成版本：退出聚合
+        _insert_batch(conn, f"{v4}-B4", v4, status="完成", approval="通过")
+        conn.commit()
+    finally:
+        conn.close()
+    ids = {b["id"] for b in assessment._latest_batches()}
+    assert f"{v1}-B1" in ids and f"{v2}-B2" in ids  # 两活动版本并存，旧版本在途不漏
+    assert f"{v3}-B3" not in ids                    # 驳回版本批次不入
+    assert f"{v4}-B4" not in ids                    # 全完成版本退出

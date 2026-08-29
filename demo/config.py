@@ -201,7 +201,8 @@ SIM_TICK_SECONDS = float(os.getenv("SIM_TICK_SECONDS", "60"))
 # ---- 自动排产调度器 ----
 AUTO_SCHEDULE_ENABLED = os.getenv("AUTO_SCHEDULE_ENABLED", "on")      # off 关闭自动排产
 AUTO_SCHEDULE_TICK_INTERVAL = int(os.getenv("AUTO_SCHEDULE_TICK_INTERVAL", "3"))  # 每 N tick 排一轮
-AUTO_APPROVE_TOP_N = int(os.getenv("AUTO_APPROVE_TOP_N", "20"))        # 保留最近 N 个待审核版本，更早自动通过
+AUTO_APPROVE_TOP_N = int(os.getenv("AUTO_APPROVE_TOP_N", "5"))         # 保留最近 N 个待审核版本，更早自动通过（定稿：20→5）
+FIFO_AGE_TIMEOUT = float(os.getenv("FIFO_AGE_TIMEOUT", "24"))           # 最早待审版本超龄兜底阈值（模拟小时，定稿 §3.D）
 
 # ---- 可观测性 ----
 OTEL_EXPORTER = os.getenv("OTEL_EXPORTER", "console")  # none | console | otel

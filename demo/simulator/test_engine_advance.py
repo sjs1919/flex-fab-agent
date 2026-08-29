@@ -40,17 +40,17 @@ def sim_env():
     _exec("UPDATE machines SET status='空闲', current_batch_id=NULL WHERE id='M0001'")
     _exec(
         "INSERT INTO orders (id, customer_id, amount, urgent, priority, due_date, status, tenant_id) "
-        "VALUES ('T-ORD001', 'C001', 100000, 0, 40, '2026-09-10', '待排队', 'default')")
+        "VALUES ('T-ORD001', 'C001', 100000, 0, 40, '2026-09-10', '打印中', 'default')")
     _exec(
         "INSERT INTO schedule_versions (created_at, triggered_by, status) "
         "VALUES (NOW(), 'test', '已审核')")
     vid = _rows("SELECT MAX(id) AS id FROM schedule_versions WHERE triggered_by='test'")[0]["id"]
     _exec(
         "INSERT INTO batches (id, schedule_version_id, order_ids, process, model_type, "
-        "machine_id, start_time, end_time, post_process_end, status, source) "
+        "machine_id, start_time, end_time, post_process_end, status, approval_status, source) "
         "VALUES ('T-B0001', %s, '[\"T-ORD001\"]', 'SLA', '600', 'M0001', "
         "'2026-09-01 08:00:00', '2026-09-01 10:00:00', '2026-09-01 11:00:00', "
-        "'打印中', '整批')", (vid,))
+        "'打印中', '通过', '整批')", (vid,))
     _exec("UPDATE machines SET status='打印中', current_batch_id='T-B0001' WHERE id='M0001'")
     yield vid
     _exec("DELETE FROM state_change_log WHERE entity_id LIKE 'T-%%' OR entity_id='M0001'")
@@ -174,3 +174,67 @@ def test_scrap_writes_bad_parts(sim_env):
     finally:
         _exec("DELETE FROM bad_parts WHERE batch_id='T-B0001'")
         _exec("DELETE FROM parts WHERE id='T-P0001'")
+
+
+# ---- 定稿 v1 §2.1/§3.E：订单流转 + 审批门禁 ----
+
+def test_order_advances_to_printing_on_board(sim_env):
+    """订单流转：批次上机（待上机→打印中）时订单 已审核→打印中（§2.1）。"""
+    _exec("UPDATE batches SET status='待上机' WHERE id='T-B0001'")
+    _exec("UPDATE machines SET status='空闲', current_batch_id=NULL WHERE id='M0001'")
+    _exec("UPDATE orders SET status='已审核' WHERE id='T-ORD001'")
+    _tick(datetime(2026, 9, 1, 8, 0, 0))
+    assert _rows("SELECT status FROM orders WHERE id='T-ORD001'")[0]["status"] == "打印中"
+
+
+def test_order_completes_on_all_batches_done(sim_env):
+    """订单流转：批次完成（静置中→完成）时订单 打印中→完成（§2.1）。"""
+    _tick(datetime(2026, 9, 1, 11, 30, 0))
+    assert _rows("SELECT status FROM orders WHERE id='T-ORD001'")[0]["status"] == "完成"
+
+
+def test_gate_unapproved_not_board(sim_env):
+    """E 门禁：approval_status≠通过 的待上机批次不上机（到点且设备空闲也不动）。"""
+    _exec("UPDATE batches SET status='待上机', approval_status='待审核' WHERE id='T-B0001'")
+    _exec("UPDATE machines SET status='空闲', current_batch_id=NULL WHERE id='M0001'")
+    _tick(datetime(2026, 9, 1, 8, 0, 0))
+    assert _rows("SELECT status FROM batches WHERE id='T-B0001'")[0]["status"] == "待上机"
+    assert _rows("SELECT status FROM machines WHERE id='M0001'")[0]["status"] == "空闲"
+
+
+def test_gate_unapproved_no_preprocess_advance(sim_env):
+    """E 门禁：approval_status≠通过 的前道任务不推进（不释放人时）。"""
+    _exec("UPDATE batches SET status='前道', approval_status='待审核', "
+          "machine_id=NULL WHERE id='T-B0001'")
+    _exec("UPDATE machines SET status='空闲', current_batch_id=NULL WHERE id='M0001'")
+    _exec(
+        "INSERT INTO preprocess_tasks (batch_id, part_count, man_hours, assigned_workers, "
+        "start_time, end_time) VALUES ('T-B0001', 10, 1.0, 1, "
+        "'2026-09-01 08:00:00', '2026-09-01 09:00:00')")
+    _tick(datetime(2026, 9, 1, 9, 30, 0))
+    assert _rows("SELECT status FROM batches WHERE id='T-B0001'")[0]["status"] == "前道"
+
+
+def test_order_not_complete_when_other_batch_in_transit(sim_env):
+    """拆批完成判定：订单最新版本全部「通过+start_time 非空」批次完成后才置完成；
+    仍有批次在途时不提前完成。"""
+    vid = sim_env
+    _exec("UPDATE machines SET status='空闲', current_batch_id=NULL WHERE id='M0002'")
+    _exec(
+        "INSERT INTO batches (id, schedule_version_id, order_ids, process, model_type, "
+        "machine_id, start_time, end_time, post_process_end, status, approval_status, source) "
+        "VALUES ('T-B0002', %s, '[\"T-ORD001\"]', 'SLA', '600', 'M0002', "
+        "'2026-09-01 08:00:00', '2026-09-01 12:00:00', '2026-09-01 13:00:00', "
+        "'打印中', '通过', '整批')", (vid,))
+    _exec("UPDATE machines SET status='打印中', current_batch_id='T-B0002' WHERE id='M0002'")
+    try:
+        # 11:30：T-B0001 完成（静置 11:00），T-B0002 仍打印中（end 12:00）→ 订单不完成
+        _tick(datetime(2026, 9, 1, 11, 30, 0))
+        assert _rows("SELECT status FROM orders WHERE id='T-ORD001'")[0]["status"] == "打印中", \
+            "仍有批次在途，订单不应提前完成"
+        # 13:30：T-B0002 也完成 → 订单完成
+        _tick(datetime(2026, 9, 1, 13, 30, 0))
+        assert _rows("SELECT status FROM orders WHERE id='T-ORD001'")[0]["status"] == "完成"
+    finally:
+        _exec("UPDATE machines SET status='空闲', current_batch_id=NULL WHERE id='M0002'")
+        _exec("DELETE FROM batches WHERE id='T-B0002'")

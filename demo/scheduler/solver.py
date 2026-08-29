@@ -12,13 +12,19 @@ from __future__ import annotations
 import json
 import math
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from demo.observability.tracer import tracer
-from demo.scheduler import model, verify
+from demo.scheduler import assessment, model, verify
+from demo.simulator.engine import SHIFT_FACTOR
+from demo.simulator.states import log_state_change
 from demo.tools.data import transaction
 
 _TS_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+class PersistConcurrentLockError(RuntimeError):
+    """并发重复排产：待锁定订单已非「待排队」（被其他版本锁定/推进），整事务回滚。"""
 
 
 def _dt(s: str) -> datetime:
@@ -98,14 +104,52 @@ def compute_metrics(schedule: dict, snapshot: dict) -> dict:
     }
 
 
-def persist(result: dict, snapshot: dict, triggered_by: str = "initial") -> int:
-    """单事务写 schedule_versions + batches，返回 version_id。
+def persist(result: dict, snapshot: dict, triggered_by: str = "initial") -> int | None:
+    """单事务写 schedule_versions + batches + preprocess_tasks，返回 version_id；
+    跳过建版本（空池/全不可行）返回 None。
+
+    定稿 §3.A/§3.C/§3.D：
+      ① 事务开头条件 UPDATE 原子锁定（待排队→已审核，**仅锁定有解批次订单**——
+         工艺组级部分成功：不可行组订单保持待排队下轮重排）；
+         受影响行数 < 预期订单集 → 整事务 ROLLBACK（防并发重复排/部分锁定），
+         不经过 ORDER_TRANSITIONS 守卫。
+      ② result['batches'] 为空（空池/全不可行）→ 跳过建版本返回 None（防刷屏兜底）。
+      ③ 建版本时读 sim_clock.current_sim_time 快照写 state_change_log
+         entity_type='version'/field='created'/source='solver'（FIFO 计龄锚点唯一通道）；
+         sim_clock 无行跳过写锚点不抛错。
+      ④ 每有解批次生成 1 条 preprocess_tasks：man_hours = 件数÷(人×件人效)+share
+         （share=round(plan_review/N,4)，N=该版本有解批次数）、end_time=批次 start_time（C9）、
+         start_time=end−日历时长折算（×24/22.5，与 engine.SHIFT_FACTOR 一致）、assigned_workers=1。
 
     批次号跨版本唯一：batches.id = f"{version_id}-{原批次id}"（表 PK 为 id，
-    result_json 保留原批次号语义）。"""
+    result_json 保留原批次号语义）。
+    """
+    solved = [b for b in result["batches"] if b.get("start_time")]
+    if not solved:
+        return None  # 空池/全不可行 → 不建版本（防刷屏）
+    order_ids = sorted({oid for b in solved for oid in b.get("order_ids", [])})
     params = snapshot.get("params", {})
+    n_batches = len(solved)
+    plan_review = assessment._preprocess_params()["plan_review_hours"]
     with transaction() as conn:
         with conn.cursor() as cur:
+            # ① 原子锁定（事务开头，先订单行锁再插批次，统一与 engine/approve 锁序防死锁）
+            if order_ids:
+                placeholders = ",".join(["%s"] * len(order_ids))
+                cur.execute(
+                    f"UPDATE orders SET status='已审核' "
+                    f"WHERE id IN ({placeholders}) AND status='待排队'", order_ids)
+                if cur.rowcount < len(order_ids):
+                    raise PersistConcurrentLockError(
+                        f"待锁定订单 {len(order_ids)} 个，实际锁定 {cur.rowcount} 个"
+                        f"（已非待排队），整事务回滚")
+            # ③ 建版 sim 锚点（FIFO 计龄唯一通道；sim_clock 无行跳过不抛错）
+            sim_time = None
+            cur.execute("SELECT current_sim_time FROM sim_clock WHERE id=1")
+            row = cur.fetchone()
+            if row and row[0] is not None:
+                sim_time = row[0] if isinstance(row[0], datetime) else _dt(str(row[0]))
+            # 建版本
             cur.execute(
                 "INSERT INTO schedule_versions (created_at, triggered_by, params_json, "
                 "result_json, status) VALUES (NOW(), %s, %s, %s, '待审核')",
@@ -113,18 +157,36 @@ def persist(result: dict, snapshot: dict, triggered_by: str = "initial") -> int:
                  json.dumps(params, ensure_ascii=False, default=str),
                  json.dumps(result, ensure_ascii=False, default=str)))
             version_id = int(cur.lastrowid)
-            for b in result["batches"]:
+            if sim_time:
+                log_state_change(cur, sim_time, "version", str(version_id),
+                                 "created", None, None, source="solver")
+            # ④ 批次 + 前道任务（share 按版本平摊，N=有解批次数）
+            share = round(plan_review / n_batches, 4)
+            for b in solved:
+                batch_id = f"{version_id}-{b['id']}"
                 cur.execute(
                     "INSERT INTO batches (id, schedule_version_id, order_ids, parts_json, "
                     "process, model_type, machine_id, start_time, end_time, post_process_end, "
                     "status, approval_status, source) "
                     "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, '前道', '待审核', %s)",
-                    (f"{version_id}-{b['id']}", version_id,
+                    (batch_id, version_id,
                      json.dumps(b.get("order_ids", []), ensure_ascii=False),
                      json.dumps(b["parts"], ensure_ascii=False, default=str),
                      b["process"], b["model_type"], b.get("machine_id"),
                      b.get("start_time"), b.get("end_time"), b.get("post_process_end"),
                      b.get("source", "整批")))
+                part_count = sum(p.get("quantity", 1) for p in b.get("parts", []))
+                man_hours = assessment.preprocess_task_hours(
+                    part_count, 1, assessment._per_part_eff(b["process"]),
+                    plan_review, n_batches=n_batches)
+                # 日历时长折算（前道 design §公式）：人·时 → 日历小时，含换班损耗 22.5/24
+                calendar_hours = man_hours / SHIFT_FACTOR
+                end_time = _dt(b["start_time"])
+                start_time = end_time - timedelta(hours=calendar_hours)
+                cur.execute(
+                    "INSERT INTO preprocess_tasks (batch_id, part_count, man_hours, "
+                    "assigned_workers, start_time, end_time) VALUES (%s, %s, %s, 1, %s, %s)",
+                    (batch_id, part_count, man_hours, start_time, end_time))
     return version_id
 
 
@@ -151,10 +213,13 @@ def solve(snapshot: dict, params: dict | None = None,
     conflicts: list[dict] = []
     sched_ok = meta["status"] in ("OPTIMAL", "FEASIBLE")
     if not sched_ok and batches:
-        order_ids = sorted({oid for b in schedule["batches"] for oid in b["order_ids"]})
+        # 全无解：meta 记 infeasible_order_ids（组级短路剔除的无解订单，NFR-01），
+        # schedule['batches'] 为空（全组剔除），故不能用其反推订单集。
+        order_ids = sorted(meta.get("infeasible_order_ids") or [])
         conflicts.append({
             "type": "scheduling",
-            "reason": f"排程不可行（CP-SAT {meta['status']}）：{len(batches)} 批无可行排产方案",
+            "reason": f"排程不可行（CP-SAT {meta['status']}）："
+                     f"{len(order_ids)} 单无可行排产方案（保持待排队下轮重排）",
             "order_ids": order_ids,
         })
     if pack_warnings:

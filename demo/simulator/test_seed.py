@@ -151,3 +151,54 @@ def test_seed_forecast_config_rows():
     assert cfg[("预测", "smoothing_alpha")] == "0.3"
     from demo.config import get_config
     assert get_config("预测", "forecast_window") == "5"
+
+
+# ---- 定稿 v1 §5 seed 行：reset 联动清理排产链路表 ----
+
+def _insert_scheduler_rows():
+    """造 1 组排产链路行：版本→批次→前道任务→审批→sim 时钟（FK 无 CASCADE）。"""
+    conn = seed_mod._connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO schedule_versions (created_at, triggered_by, params_json, result_json, status) "
+                "VALUES (NOW(), 'test', '{}', '{}', '待审核')")
+            vid = cur.lastrowid
+            cur.execute(
+                "INSERT INTO batches (id, schedule_version_id, order_ids, parts_json, process, model_type) "
+                "VALUES (%s, %s, '[\"ORD001\"]', '[]', 'SLA', '600')",
+                (f"{vid}-1", vid))
+            cur.execute(
+                "INSERT INTO preprocess_tasks (batch_id, part_count, man_hours, assigned_workers) "
+                "VALUES (%s, 1, 0.5, 1)", (f"{vid}-1",))
+            cur.execute(
+                "INSERT INTO approvals (schedule_version_id, approver, action, time, note) "
+                "VALUES (%s, 'test', '通过', NOW(), 'test')", (vid,))
+            cur.execute(
+                "INSERT INTO sim_clock (id, current_sim_time, real_ratio, running) "
+                "VALUES (1, NOW(), 1, 0)")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_seed_reset_clears_scheduler_tables():
+    """reset 联动清空排产链路表（FK 无 CASCADE）：升级/重跑后旧轮版本残留、
+    其批次 order_ids 与重灌订单同号 → 跨轮重复打印（违反「同一订单只打印一次」）。"""
+    seed_mod.reset()
+    _insert_scheduler_rows()
+    assert _query("SELECT COUNT(*) FROM schedule_versions")[0][0] == 1
+    assert _query("SELECT COUNT(*) FROM batches")[0][0] == 1
+    assert _query("SELECT COUNT(*) FROM preprocess_tasks")[0][0] == 1
+    assert _query("SELECT COUNT(*) FROM approvals")[0][0] == 1
+    assert _query("SELECT COUNT(*) FROM sim_clock")[0][0] == 1
+
+    seed_mod.reset()
+
+    assert _query("SELECT COUNT(*) FROM schedule_versions")[0][0] == 0
+    assert _query("SELECT COUNT(*) FROM batches")[0][0] == 0
+    assert _query("SELECT COUNT(*) FROM preprocess_tasks")[0][0] == 0
+    assert _query("SELECT COUNT(*) FROM approvals")[0][0] == 0
+    assert _query("SELECT COUNT(*) FROM sim_clock")[0][0] == 0
+    # 重灌订单全为待排队（无旧版本残留锁定可被跨轮误通过）
+    assert _query("SELECT COUNT(*) FROM orders WHERE status != '待排队'")[0][0] == 0

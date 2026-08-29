@@ -49,13 +49,17 @@ def advance_batches(conn, cur, sim_time: datetime, params: dict | None = None) -
                 states.set_machine_status(conn, cur, sim_time, mid, "静置中")
         changed += 1
 
-    # 2. 静置中 -> 完成，设备释放
+    # 2. 静置中 -> 完成，设备释放；拆批订单完成判定（§3.C：最新版本全部
+    #    「通过 + start_time 非空」批次完成后，订单 打印中→完成，no-op 幂等）。
     cur.execute(
-        "SELECT id, machine_id FROM batches "
+        "SELECT id, machine_id, order_ids FROM batches "
         "WHERE status='静置中' AND post_process_end <= %s", (sim_time,))
-    for bid, mid in cur.fetchall():
+    done_rows = cur.fetchall()
+    done_order_ids: set[str] = set()
+    for bid, mid, order_ids in done_rows:
         states.set_batch_status(conn, cur, sim_time, bid, "完成")
         _scrap_inspect(cur, sim_time, bid, p)
+        done_order_ids.update(json_list(order_ids))
         if mid:
             cur.execute("SELECT status, current_batch_id FROM machines WHERE id=%s", (mid,))
             row = cur.fetchone()
@@ -64,27 +68,68 @@ def advance_batches(conn, cur, sim_time: datetime, params: dict | None = None) -
                     states.set_machine_status(conn, cur, sim_time, mid, "空闲")
                 states.set_machine_batch(cur, sim_time, mid, bid, None)
         changed += 1
+    for oid in _orders_done_this_tick(cur, done_order_ids):
+        states.set_order_status(conn, cur, sim_time, oid, "完成")
 
-    # 3. 待上机 -> 打印中（到 start_time 且设备空闲）。
+    # 3. 待上机 -> 打印中（到 start_time 且设备空闲，E 门禁：仅通过版本）。
     #    先取空闲设备集再匹配批次（避免对每个待上机批次各查一次设备）。
     cur.execute(
         "SELECT id FROM machines WHERE status='空闲' AND current_batch_id IS NULL")
     idle = {r[0] for r in cur.fetchall()}
     if idle:
         cur.execute(
-            "SELECT id, machine_id FROM batches "
-            "WHERE status='待上机' AND start_time <= %s AND machine_id IN "
+            "SELECT id, machine_id, order_ids FROM batches "
+            "WHERE status='待上机' AND approval_status='通过' AND start_time <= %s "
+            "AND machine_id IN "
             f"({','.join(['%s'] * len(idle))}) ORDER BY start_time, id",
             (sim_time, *idle))
-        for bid, mid in cur.fetchall():
+        for bid, mid, order_ids in cur.fetchall():
             if mid not in idle:
                 continue  # 循环内已被其他批次占用
             states.set_batch_status(conn, cur, sim_time, bid, "打印中")
             states.set_machine_status(conn, cur, sim_time, mid, "打印中")
             states.set_machine_batch(cur, sim_time, mid, None, bid)
+            for oid in json_list(order_ids):
+                states.set_order_status(conn, cur, sim_time, oid, "打印中")  # 已审核→打印中，no-op 幂等
             idle.discard(mid)
             changed += 1
     return changed
+
+
+def _orders_done_this_tick(cur, done_order_ids: set[str]) -> list[str]:
+    """拆批订单完成判定（§3.C）：返回本 tick 应置「完成」的订单 id。
+
+    完成条件 = 订单所属「最新版本」的全部「通过 + start_time 非空」批次均已完成
+    （驳回版本不计入最新版本；陈旧版本/无解批次不影响判定）。用 Python json_list
+    聚合判定，禁 LIKE '%ORD001%' 前缀假匹配（ORD001 vs ORD0010）。
+    """
+    if not done_order_ids:
+        return []
+    cur.execute(
+        "SELECT b.schedule_version_id, b.order_ids, b.status, b.approval_status, "
+        "b.start_time, s.status "
+        "FROM batches b JOIN schedule_versions s ON s.id = b.schedule_version_id")
+    rows = cur.fetchall()
+    latest: dict[str, int] = {}
+    for vid, order_ids, _bstatus, _approval, _start, vstatus in rows:
+        if vstatus == "已驳回":
+            continue  # 驳回版本不计入最新版本
+        for oid in json_list(order_ids):
+            if latest.get(oid, -1) < vid:
+                latest[oid] = vid
+    done: list[str] = []
+    for oid in done_order_ids:
+        vid = latest.get(oid)
+        if vid is None:
+            continue
+        candidates = [
+            bstatus for vid2, order_ids2, bstatus, approval, start, vstatus2 in rows
+            if vid2 == vid and vstatus2 != "已驳回" and oid in json_list(order_ids2)
+            and approval == "通过" and start is not None
+        ]
+        if candidates and all(s == "完成" for s in candidates):
+            done.append(oid)
+    return done
 
 
 def _scrap_inspect(cur, sim_time: datetime, batch_id: str, params: dict) -> None:
@@ -127,7 +172,8 @@ def advance_preprocess(conn, cur, sim_time: datetime) -> int:
     cur.execute(
         "SELECT pt.batch_id, pt.man_hours, pt.assigned_workers, pt.start_time "
         "FROM preprocess_tasks pt JOIN batches b ON b.id = pt.batch_id "
-        "WHERE b.status='前道' AND pt.end_time <= %s", (sim_time,))
+        "WHERE b.status='前道' AND b.approval_status='通过' AND pt.end_time <= %s",
+        (sim_time,))
     done = cur.fetchall()
     for bid, man_hours, workers, start in done:
         elapsed = (sim_time - start).total_seconds() / 3600 if start else man_hours / SHIFT_FACTOR

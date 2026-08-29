@@ -1,12 +1,41 @@
 """审批/排产列表端点集成测试（TestClient + 真 MySQL + STS admin token）。"""
+import pytest
 from fastapi.testclient import TestClient
 
 from demo.api import app
 from demo.auth.token_exchange import STS
+from demo.tools.data import get_connection
 
 
 def _admin_token() -> str:
     return STS().issue_user_token("admin-debug", "admin")
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _seeded_pending_version():
+    """造 1 个待审核版本供本模块端点测试（自隔离，不依赖跨文件残留的版本）。
+
+    全量套件下本文件顺序最末，前序测试（如 test_e2e_m4a）已清理自建版本；
+    直接插版本+批次，避免「应有待审核版本」随套件顺序漂移。
+    """
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("INSERT INTO schedule_versions (created_at, triggered_by, status) "
+                    "VALUES (NOW(), 'test-api', '待审核')")
+        vid = cur.lastrowid
+        cur.execute(
+            "INSERT INTO batches (id, schedule_version_id, process, model_type, "
+            "machine_id, start_time, end_time, post_process_end, status, "
+            "approval_status, source) VALUES ('TAPV0001', %s, 'SLA', '600', 'M0001', "
+            "'2026-09-01 08:00:00', '2026-09-01 10:00:00', '2026-09-01 11:00:00', "
+            "'前道', '待审核', '整批')", (vid,))
+        conn.commit()
+    yield vid
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM approvals WHERE schedule_version_id=%s", (vid,))
+        cur.execute("DELETE FROM preprocess_tasks WHERE batch_id='TAPV0001'")
+        cur.execute("DELETE FROM batches WHERE schedule_version_id=%s", (vid,))
+        cur.execute("DELETE FROM schedule_versions WHERE id=%s", (vid,))
+        conn.commit()
 
 
 def test_versions_list_returns_versions():

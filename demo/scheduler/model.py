@@ -249,28 +249,44 @@ def solve_scheduling(batches: list[dict], snapshot: dict, params: dict | None = 
     out_batches, latencies = [], {}
     weighted = 0.0
     statuses, total_ms, timed_out = [], 0.0, False
+    infeasible_groups: list[str] = []
+    infeasible_order_ids: set[str] = set()
     for proc in sorted(groups):
         sub = groups[proc]
         sub_machines = [m for m in machines if m["process"] == proc]
         out, meta = _solve_group(sub, sub_machines, rate, post, orders, base,
                                  cap_sec, max_time)
-        statuses.append(meta["status"])
         total_ms += meta["duration_ms"]
         timed_out = timed_out or meta["timed_out"]
         if meta["status"] not in ("OPTIMAL", "FEASIBLE"):
-            return _infeasible_schedule(batches), {
-                "status": meta["status"], "objective": None, "latencies": {},
-                "duration_ms": total_ms, "timed_out": timed_out}
+            # 工艺组级部分成功（定稿 u-d-1）：剔除不可行组批次（不入 out_batches），
+            # 其他组照常排；meta 记 infeasible_groups/infeasible_order_ids 供 NFR-01
+            # 输出无解订单清单（保持待排队下轮重排）。
+            infeasible_groups.append(proc)
+            for b in sub:
+                infeasible_order_ids.update(b.get("order_ids", []))
+            continue
+        statuses.append(meta["status"])
         out_batches.extend(out)
         latencies.update(meta["latencies"])
         weighted += meta["objective"] or 0.0
+    if not out_batches:
+        # 全部工艺组不可行 → 返回空排产表（persist 据此跳过建版本，防刷屏）。
+        # _infeasible_schedule 保留仅作兜底（全 None 批次），不再由本循环调用。
+        return {"batches": [], "metrics": {}, "warnings": [], "conflicts": []}, {
+            "status": "INFEASIBLE", "objective": None, "latencies": {},
+            "duration_ms": total_ms, "timed_out": timed_out,
+            "infeasible_groups": infeasible_groups,
+            "infeasible_order_ids": sorted(infeasible_order_ids)}
     # 恢复输入批序（分组求解打乱顺序）
     order = {b["id"]: i for i, b in enumerate(batches)}
     out_batches.sort(key=lambda ob: order.get(ob["id"], 0))
     status = "OPTIMAL" if all(s == "OPTIMAL" for s in statuses) else "FEASIBLE"
     return {"batches": out_batches, "metrics": {}, "warnings": [], "conflicts": []}, {
         "status": status, "objective": weighted, "latencies": latencies,
-        "duration_ms": total_ms, "timed_out": timed_out}
+        "duration_ms": total_ms, "timed_out": timed_out,
+        "infeasible_groups": infeasible_groups,
+        "infeasible_order_ids": sorted(infeasible_order_ids)}
 
 
 def _daily_overlap(start: int, size: int) -> dict[int, int]:
@@ -354,6 +370,12 @@ def _solve_group(batches: list[dict], machines: list[dict], rate: dict, post: di
                      "due_sec": min(due_secs) if due_secs else None,
                      "feasible": [m for m in machines if m["model_type"] == b["model_type"]],
                      "w": _batch_weight(b, orders)})
+    if any(not p["feasible"] for p in prep):
+        # 工艺组无可行设备（快照按 status='空闲' 过滤，组内设备全忙/全故障即零设备；
+        # 或批机型与组内设备机型全不匹配）→ 组不可行。交 solve_scheduling 组级短路
+        # 剔除该组（否则下方 n_by_mt=0 除零崩溃，短路拿不到状态）。
+        return [], {"status": "INFEASIBLE", "objective": None, "latencies": {},
+                    "duration_ms": 0.0, "timed_out": False}
     max_due = max((p["due_sec"] for p in prep if p["due_sec"] is not None),
                   default=30 * _DAY_SEC)
     for p in prep:

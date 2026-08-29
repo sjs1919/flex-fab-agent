@@ -228,16 +228,20 @@ def load_batches(tenant_id: str = "") -> list[dict[str, str]]:
 
 
 def load_latest_batches(tenant_id: str = "") -> list[dict[str, str]]:
-    """加载最新排产版本的批次（资源页用）。
+    """加载全部活动版本（含未完成批次且版本非「已驳回」）的批次（资源页用）。
 
-    背景：schedule_versions/batches 不在 SEED_TABLES，reset 不清，多版本排产累积
-    （验收时可到数千行）→ 资源页全量返回 + el-table 全量渲染卡顿。
-    这里只取 MAX(id) 最新版本（走 idx_batches_version 索引），历史版本为排产快照
-    不走资源页。batches 无 tenant_id 列，参数保留仅为对齐 load_* 签名。
+    弃 MAX(id)：多活动版本并存时只取最新版本会漏报旧版本在途批次；这里聚合所有
+    含未完成批次且版本状态非「已驳回」的版本（口径与 assessment._latest_batches 一致）——
+    驳回版本批次被 E 门禁永久卡在前道，不入资源页（batch_count/舱利用率不虚高）；
+    全完成版本订单已收口，不再跟踪。batches 无 tenant_id 列，参数保留对齐 load_* 签名。
     """
     return _read_rows(
-        "SELECT * FROM batches WHERE schedule_version_id="
-        "(SELECT MAX(id) FROM schedule_versions) ORDER BY id",
+        "SELECT b.* FROM batches b "
+        "JOIN schedule_versions s ON s.id = b.schedule_version_id "
+        "WHERE s.status != '已驳回' "
+        "AND EXISTS (SELECT 1 FROM batches b2 WHERE b2.schedule_version_id = s.id "
+        "            AND b2.status != '完成') "
+        "ORDER BY s.id, b.start_time, b.id",
         (), filename="")
 
 

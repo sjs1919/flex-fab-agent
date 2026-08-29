@@ -80,3 +80,34 @@ def test_model_objective():
     lat = meta["latencies"]  # {batch_id: 延期天数}
     assert lat["B1"] == 1 and lat["B2"] == 0, lat  # 延期低权重 ORD001，保护 ORD002
     assert meta["objective"] == 15  # 加权迟到 = 15（非 8000）
+
+
+# ---- 定稿 v1 §5 model 行 / u-d-1：工艺组级部分成功 + 全不可行 ----
+
+def test_model_group_partial_success():
+    """u-d-1 部分成功：SLA 组可行 + SLM 组无工艺设备不可行 →
+    只返回 SLA 组批次（SLM 组批次不入结果，保待排队下轮重排），
+    meta 记 infeasible_groups / infeasible_order_ids（NFR-01 无解订单清单）。"""
+    s = _snapshot(machines=_machines())  # SLA600 + MJS450，无 SLM 设备
+    s["material"].append({"process": "SLM", "rate_mm_h": 15, "post_process_hours": 12})
+    batches = [_batch("B1", "ORD001"),                                   # SLA/600 → M0001
+               _batch("B2", "ORD002", process="SLM", model_type="600")]  # SLM 无设备 → INFEASIBLE
+    schedule, meta = model.solve_scheduling(batches, s)
+    assert [b["id"] for b in schedule["batches"]] == ["B1"]
+    assert meta["infeasible_groups"] == ["SLM"]
+    assert meta["infeasible_order_ids"] == ["ORD002"]
+    assert meta["status"] == "OPTIMAL"  # 单组 OPTIMAL
+    b1 = schedule["batches"][0]
+    assert b1["machine_id"] == "M0001" and b1["start_time"]  # SLA 组正常求解赋值
+
+
+def test_model_all_groups_infeasible():
+    """全工艺组不可行 → 空排产表 + status=INFEASIBLE（persist 据此跳过建版本防刷屏）。"""
+    s = _snapshot(machines=_machines())
+    s["material"].append({"process": "SLM", "rate_mm_h": 15, "post_process_hours": 12})
+    batches = [_batch("B1", "ORD001", process="SLM", model_type="600")]
+    schedule, meta = model.solve_scheduling(batches, s)
+    assert schedule["batches"] == []
+    assert meta["status"] == "INFEASIBLE"
+    assert meta["infeasible_groups"] == ["SLM"]
+    assert meta["infeasible_order_ids"] == ["ORD001"]

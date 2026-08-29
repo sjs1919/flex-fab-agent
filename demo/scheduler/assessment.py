@@ -13,7 +13,7 @@ import math
 from datetime import date, datetime, timedelta
 
 from demo.config import get_config
-from demo.tools.data import get_connection, load_orders, load_parts, load_preprocess_tasks
+from demo.tools.data import get_connection, load_orders, load_parts
 
 # ── system_config 缺省常量（T4b.1 种子；缺行回落此值）──
 DEFAULT_T_WINDOW_H = 24
@@ -127,11 +127,19 @@ def preprocess_net_capacity_h(shifts: int, shift_hours: int,
 
 
 def preprocess_task_hours(part_count: int, assigned_workers: int,
-                          per_part_eff: float, plan_review_hours: float) -> float:
-    """前道任务时长（§8 C9）= 件数÷(人×件人效) + 方案审核分摊。"""
+                          per_part_eff: float, plan_review_hours: float,
+                          n_batches: int | None = None) -> float:
+    """前道任务时长（§8 C9）= 件数÷(人×件人效) + 方案审核分摊。
+
+    方案审核分摊按版本平摊（定稿 §3.A）：n_batches 给定时每批
+    share = round(plan_review_hours / n_batches, 4)；n_batches=None（存量调用）
+    维持平加全量，兼容既有调用方。
+    """
+    review = (round(plan_review_hours / n_batches, 4)
+              if n_batches else plan_review_hours)
     if assigned_workers <= 0 or per_part_eff <= 0:
-        return plan_review_hours
-    return part_count / (assigned_workers * per_part_eff) + plan_review_hours
+        return review
+    return part_count / (assigned_workers * per_part_eff) + review
 
 
 def clear_eta_hours(remaining_man_hours: float, net_capacity_h_per_day: float) -> float:
@@ -197,17 +205,40 @@ def _rates() -> dict[str, float]:
 
 
 def _latest_batches() -> list[dict]:
-    """最新排产版本（schedule_versions max id）的全部批次行。"""
+    """全部活动版本（含未完成批次且版本非「已驳回」）的批次行（定稿 §5/§3.B/§3.E 聚合口径）。
+
+    弃 MAX(id)：多活动版本并存时 MAX(id) 只取最新版本，旧版本在途批次被漏报——
+    _kpi_done_parts/完成跟踪/舱利用率/前道联表全基于此批次集，漏报会致已完成
+    批次订单被重复计入 KPI。驳回版本批次被 E 门禁永久卡在前道，不入聚合；
+    全完成版本订单已收口，不再跟踪。返回含已完成批次（_kpi_done_parts 口径需要）。
+    """
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT MAX(id) FROM schedule_versions")
-            vid = cur.fetchone()[0]
-            if not vid:
-                return []
             cur.execute(
-                "SELECT id, order_ids, process, machine_id, start_time, end_time, "
-                "post_process_end, status, approval_status "
-                "FROM batches WHERE schedule_version_id=%s", (vid,))
+                "SELECT b.id, b.order_ids, b.process, b.machine_id, b.start_time, b.end_time, "
+                "b.post_process_end, b.status, b.approval_status "
+                "FROM batches b JOIN schedule_versions s ON s.id = b.schedule_version_id "
+                "WHERE s.status != '已驳回' "
+                "AND EXISTS (SELECT 1 FROM batches b2 WHERE b2.schedule_version_id = s.id "
+                "            AND b2.status != '完成') "
+                "ORDER BY s.id, b.start_time, b.id")
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def _completed_batches() -> list[dict]:
+    """所有非「已驳回」版本的已完成批次（KPI 良率/完工件数口径，全完成版本也计入）。
+
+    良率 = 1 − 坏件/完工件数是历史质量口径，不能随「全完成版本退出读路径」
+    （_latest_batches 活动版本跟踪口径）而清零——这里独立查询完成批次，与
+    _latest_batches 解耦。
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT b.id, b.order_ids, b.machine_id, b.status "
+                "FROM batches b JOIN schedule_versions s ON s.id = b.schedule_version_id "
+                "WHERE s.status != '已驳回' AND b.status = '完成'")
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, r)) for r in cur.fetchall()]
 
@@ -232,19 +263,26 @@ def _per_part_eff(process: str) -> float:
 
 
 def preprocess_load() -> dict:
-    """前道人池负载（§3.15）：任务排队/在途、池占用率、预计清空、是否成瓶颈。"""
+    """前道人池负载（§3.15 + 定稿 §3.B/§3.E）：任务排队/在途、池占用率、预计清空、是否成瓶颈。
+
+    观测口径改读落库 SUM(man_hours)（含方案审核分摊），联 batches 过滤
+    「status='前道' 且 approval_status='通过'」（未完成 + 已通过）——前道→待上机即释放，
+    驳回/待审核版本任务不入池（待审窗口假空闲，乐观偏差 ≤ FIFO_AGE_TIMEOUT）。
+    """
     pp = _preprocess_params()
     workers = pp["workers"]
     net_capacity_h = preprocess_net_capacity_h(pp["shifts"], pp["shift_hours"],
                                                pp["changeover_min"], workers)
     now = _now()
-    tasks = [t for t in load_preprocess_tasks()
-             if t.get("end_time") is None or t["end_time"] > now]
-    total_remaining_h = 0.0
-    for t in tasks:
-        total_remaining_h += preprocess_task_hours(
-            _i(t.get("part_count"), 0), _i(t.get("assigned_workers"), 1),
-            _per_part_eff("mix"), pp["plan_review_hours"])
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COALESCE(SUM(pt.man_hours), 0), COUNT(*) "
+                "FROM preprocess_tasks pt JOIN batches b ON b.id = pt.batch_id "
+                "WHERE b.status='前道' AND b.approval_status='通过'")
+            row = cur.fetchone()
+    total_remaining_h = float(row[0]) if row else 0.0
+    pending_tasks = int(row[1]) if row else 0
     utilization = total_remaining_h / net_capacity_h if net_capacity_h > 0 else 1.0
     return {
         "workers": workers,
@@ -252,13 +290,13 @@ def preprocess_load() -> dict:
         "shift_hours": pp["shift_hours"],
         "changeover_min": pp["changeover_min"],
         "net_capacity_h_per_day": net_capacity_h,
-        "pending_tasks": len(tasks),
+        "pending_tasks": pending_tasks,
         "remaining_man_hours": round(total_remaining_h, 2),
         "utilization": round(min(utilization, 9.99), 2),
         "bottleneck": utilization > 1.0,
         "eta_clear": (now + timedelta(hours=clear_eta_hours(total_remaining_h,
                                                             net_capacity_h))
-                      if tasks else None),
+                      if total_remaining_h else None),
     }
 
 

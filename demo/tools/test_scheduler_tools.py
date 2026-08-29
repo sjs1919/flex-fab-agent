@@ -78,8 +78,11 @@ def pending_version():
     vid = persist(schedule, snapshot, triggered_by="test-m4a")
     yield vid
     _exec("DELETE FROM approvals WHERE schedule_version_id=%s", (vid,))
+    _exec("DELETE FROM preprocess_tasks WHERE batch_id LIKE %s", (f"{vid}-%",))
     _exec("DELETE FROM batches WHERE schedule_version_id=%s", (vid,))
     _exec("DELETE FROM schedule_versions WHERE id=%s", (vid,))
+    # 还原 persist 原子锁定的订单（否则下一个 pending_version 触发 PersistConcurrentLockError）
+    _exec("UPDATE orders SET status='待排队' WHERE id='ORD001'")
 
 
 def test_run_scheduling_persists():
@@ -95,8 +98,11 @@ def test_run_scheduling_persists():
     # 清理（版本号由 after 携带）
     for v in after:
         _exec("DELETE FROM approvals WHERE schedule_version_id=%s", (v["id"],))
+        _exec("DELETE FROM preprocess_tasks WHERE batch_id LIKE %s", (f"{v['id']}-%",))
         _exec("DELETE FROM batches WHERE schedule_version_id=%s", (v["id"],))
         _exec("DELETE FROM schedule_versions WHERE id=%s", (v["id"],))
+    # 还原 persist 原子锁定的全部种子订单（否则后续 pending_version 触发 PersistConcurrentLockError）
+    _exec("UPDATE orders SET status='待排队' WHERE status='已审核'")
 
 
 def test_query_schedule_latest_and_specific(pending_version):
@@ -607,8 +613,8 @@ def kpi_tick_env(mysql_source):
     _exec("DELETE FROM orders WHERE id LIKE 'T-%%'")
     _exec("UPDATE machines SET status='空闲', current_batch_id=NULL WHERE id IN ('M0001','M0002')")
     _exec("INSERT INTO orders (id, customer_id, amount, urgent, priority, due_date, status, tenant_id) "
-          "VALUES ('T-ORD001', 'C001', 100000, 0, 40, '2026-09-10', '待排队', 'default'), "
-          "('T-ORD002', 'C001', 60000, 0, 20, '2026-09-08', '待排队', 'default')")
+          "VALUES ('T-ORD001', 'C001', 100000, 0, 40, '2026-09-10', '打印中', 'default'), "
+          "('T-ORD002', 'C001', 60000, 0, 20, '2026-09-08', '打印中', 'default')")
     _exec("INSERT INTO parts (id, order_id, product_id, name, quantity, material, "
           "length, width, height, weight, tenant_id) VALUES "
           "('T-P0001', 'T-ORD001', 'P-T1', '测试件1', 3, 'SLA', 100, 100, 100, 1, 'default'), "

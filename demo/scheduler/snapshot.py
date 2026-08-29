@@ -61,7 +61,10 @@ def _normalize_machines(raw: list[dict]) -> list[dict]:
 
 
 def load_snapshot() -> dict:
-    """单事务只读快照：未完成订单(含违约金费率) + 零件 + 可用设备 + 工艺参数。
+    """单事务只读快照：待排队订单(含违约金费率) + 零件 + 可用设备 + 工艺参数。
+
+    D 幂等（定稿 §3.D）：只取 status='待排队'（persist 锁定为已审核后不再进求解）；
+    parts 同步按待排队订单过滤，防已锁订单零件被 pack_parts 打包进后续版本。
 
     返回规范化结构（Decimal/date → float/str），供 model/solver 直接使用。
     """
@@ -71,10 +74,12 @@ def load_snapshot() -> dict:
             cur.execute(
                 "SELECT o.*, c.penalty_rate "
                 "FROM orders o JOIN customer c ON o.customer_id = c.id "
-                "WHERE o.status != '完成'"
+                "WHERE o.status = '待排队'"
             )
             orders_raw = _fetch(cur)
-            cur.execute("SELECT * FROM parts")
+            cur.execute(
+                "SELECT * FROM parts WHERE order_id IN "
+                "(SELECT id FROM orders WHERE status='待排队')")
             parts_raw = _fetch(cur)
             cur.execute("SELECT * FROM machines")
             machines_raw = _fetch(cur)

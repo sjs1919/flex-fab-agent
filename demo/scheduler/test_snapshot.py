@@ -60,3 +60,34 @@ def test_snapshot_available_machine_count():
     snap = snapshot.load_snapshot()
     assert len(snap["machines"]) == 7
     assert {m["id"] for m in snap["machines"]} == {f"M000{i}" for i in range(1, 8)}
+
+
+# ---- 定稿 v1 §3.D 幂等：仅待排队订单（+其零件）进快照 ----
+
+def test_snapshot_excludes_non_queueing_orders():
+    """D 幂等：status='待排队' 之外订单不进快照，且其零件被排除——
+    防 persist 锁定后旧订单/零件再被 pack_parts 打包进后续版本（重复打印）。"""
+    conn = seed_mod._connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM orders ORDER BY id LIMIT 1")
+            oid = cur.fetchone()[0]
+            cur.execute("UPDATE orders SET status='已审核' WHERE id=%s", (oid,))
+            cur.execute("SELECT COUNT(*) FROM parts WHERE order_id=%s", (oid,))
+            part_count = cur.fetchone()[0]
+        conn.commit()
+    finally:
+        conn.close()
+    try:
+        snap = snapshot.load_snapshot()
+        assert {o["id"] for o in snap["orders"]} != {oid} and oid not in {o["id"] for o in snap["orders"]}
+        assert oid not in {p["order_id"] for p in snap["parts"]}
+    finally:
+        conn = seed_mod._connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE orders SET status='待排队' WHERE id=%s", (oid,))
+            conn.commit()
+        finally:
+            conn.close()
+    assert part_count > 0  # 防误判：该订单确有零件，过滤生效才非空

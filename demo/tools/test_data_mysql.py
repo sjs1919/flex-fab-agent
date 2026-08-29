@@ -212,3 +212,50 @@ def test_load_bad_parts_tenant_filter(monkeypatch):
     monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
     assert data.load_bad_parts(tenant_id="nonexistent") == []
 
+
+# ---- 定稿 v1 §5/§6 T4.3：load_latest_batches 多活动版本聚合 ----
+
+def test_load_latest_batches_aggregates_active_versions(monkeypatch):
+    """弃 MAX(id)：聚合所有含未完成批次且版本非「已驳回」——插单后旧版本在途批次
+    仍被资源页读出；驳回版本批次（被 E 门禁卡在前道）不入；全完成版本退出聚合。
+    自建 AGG-* 批次自隔离，finally 清理不留共享库污染。"""
+    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    vids, bids = [], []
+    try:
+        with data.transaction() as conn:
+            with conn.cursor() as cur:
+                def ins_version(status):
+                    cur.execute(
+                        "INSERT INTO schedule_versions (created_at, triggered_by, params_json, "
+                        "result_json, status) VALUES (NOW(), 'test', '{}', '{}', %s)", (status,))
+                    vid = cur.lastrowid
+                    vids.append(vid)
+                    return vid
+
+                def ins_batch(bid, vid, status, approval):
+                    cur.execute(
+                        "INSERT INTO batches (id, schedule_version_id, order_ids, parts_json, "
+                        "process, model_type, status, approval_status, source) "
+                        "VALUES (%s, %s, '[\"O1\"]', '[]', 'SLA', '600', %s, %s, '整批')",
+                        (bid, vid, status, approval))
+                    bids.append(bid)
+
+                v1 = ins_version("待审核"); ins_batch("AGG-B1", v1, "打印中", "通过")  # 活动：在途
+                v2 = ins_version("已驳回"); ins_batch("AGG-B2", v2, "前道", "通过")    # 驳回版本：不入
+                v3 = ins_version("待审核"); ins_batch("AGG-B3", v3, "完成", "通过")    # 全完成：退出
+        rows = data.load_latest_batches()
+        mine = {r["id"] for r in rows if r["id"] in {"AGG-B1", "AGG-B2", "AGG-B3"}}
+        assert "AGG-B1" in mine, "活动版本（打印中）在途批次应被聚合读出"
+        assert "AGG-B2" not in mine, "驳回版本批次不入资源页"
+        assert "AGG-B3" not in mine, "全完成版本批次退出聚合"
+    finally:
+        if bids or vids:
+            with data.transaction() as conn:
+                with conn.cursor() as cur:
+                    if bids:
+                        ph_b = ",".join(["%s"] * len(bids))
+                        cur.execute(f"DELETE FROM batches WHERE id IN ({ph_b})", bids)
+                    if vids:
+                        ph_v = ",".join(["%s"] * len(vids))
+                        cur.execute(f"DELETE FROM schedule_versions WHERE id IN ({ph_v})", vids)
+

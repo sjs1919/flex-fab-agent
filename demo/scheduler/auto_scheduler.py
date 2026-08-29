@@ -14,7 +14,8 @@ import logging
 import threading
 
 from ..config import (
-    AUTO_APPROVE_TOP_N, AUTO_SCHEDULE_ENABLED, AUTO_SCHEDULE_TICK_INTERVAL, SIM_TICK_SECONDS,
+    AUTO_APPROVE_TOP_N, AUTO_SCHEDULE_ENABLED, AUTO_SCHEDULE_TICK_INTERVAL,
+    FIFO_AGE_TIMEOUT, SIM_TICK_SECONDS,
 )
 
 logger = logging.getLogger(__name__)
@@ -116,7 +117,13 @@ class AutoScheduler:
             logger.error("自动排产失败(%s): %s", trigger, e)
 
     def _fifo_approve(self) -> None:
-        """版本级 FIFO：保留最近 top_n 待审核版本，更早的有批次版本自动通过（approver=system）。"""
+        """版本级 FIFO + 超龄兜底（定稿 §3.D）：approver=system。
+
+        ① 保留最近 top_n 待审核版本，更早的自动通过；
+        ② 最早待审版本龄期（当前 sim 时间 − 建版 sim 时刻）≥ FIFO_AGE_TIMEOUT 即通过
+           ——解决「锁定全部订单后无新单 → 版本数不足 top_n → 永不启动」的停滞；
+           无锚点版本（存量/测试直插）视为已超龄最迟下轮通过；建版晚于当前不计龄（非负校验）。
+        """
         from demo.tools.data import get_connection
         from demo.tools.scheduler_tools import approve_schedule
         try:
@@ -127,9 +134,31 @@ class AutoScheduler:
                     "AND EXISTS (SELECT 1 FROM batches b WHERE b.schedule_version_id=v.id) "
                     "ORDER BY v.id")
                 ids = [r[0] for r in cur.fetchall()]
-            if len(ids) <= self.approve_top_n:
-                return
-            for vid in ids[:-self.approve_top_n]:
+                if not ids:
+                    return
+                # 当前 sim 时间 + 各版本建版 sim 锚点（state_change_log 唯一通道）
+                cur.execute("SELECT current_sim_time FROM sim_clock WHERE id=1")
+                clock_row = cur.fetchone()
+                now = clock_row[0] if clock_row and clock_row[0] is not None else None
+                cur.execute(
+                    "SELECT entity_id, MAX(sim_time) FROM state_change_log "
+                    "WHERE entity_type='version' AND field='created' AND source='solver' "
+                    "GROUP BY entity_id")
+                anchors = {row[0]: row[1] for row in cur.fetchall()}
+            to_approve: set[int] = set()
+            # ① topN：早于最近 top_n 的全部通过
+            if len(ids) > self.approve_top_n:
+                to_approve.update(ids[:-self.approve_top_n])
+            # ② 超龄兜底：最早待审版本
+            first = ids[0]
+            anchor = anchors.get(str(first))
+            if anchor is None:
+                to_approve.add(first)  # 无锚点视为已超龄，最迟下轮通过
+            elif now is not None:
+                age_h = (now - anchor).total_seconds() / 3600
+                if age_h >= 0 and age_h >= FIFO_AGE_TIMEOUT:  # 非负校验：建版晚于当前不计龄
+                    to_approve.add(first)
+            for vid in sorted(to_approve):
                 approve_schedule(vid, "通过", note="自动审批(FIFO)", approver="system")
         except Exception as e:
             logger.error("FIFO 自动审批失败: %s", e)

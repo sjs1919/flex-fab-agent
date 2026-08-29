@@ -3,7 +3,7 @@
 确定性生成（固定随机种子）→ `--reset` 幂等重建（先清后插），满足 todo T1.3 口径：
 - 7 台设备：SLA600×1 + SLA450×2 / MJS600×1 + MJS450×2 / SLM600×1
 - 5 客户（沿用 customers.csv 口径 + 补 penalty_rate：S=0.01/A=0.005/B=C=0.003）
-- 40 订单（amount/urgent/priority/due_date/status=待排队）+ 数百 part（包络盒三边/件重）
+- 20 订单（amount/urgent/priority/due_date/status=待排队）+ 数百 part（包络盒三边/件重）
 - 10 种材料库存（沿用 inventory.csv 口径）
 - 超尺寸样例（≥1 part 某边 >600mm，M2 预警验收预留）
 
@@ -102,11 +102,22 @@ def _connect() -> pymysql.connections.Connection:
 
 
 def _clear(conn: pymysql.connections.Connection) -> None:
-    """清空业务表（先禁 FK，再逐表 TRUNCATE）。"""
+    """清空业务表（先禁 FK，再逐表 TRUNCATE）+ 排产链路表联动清理（spec §5 seed 行）。
+
+    SEED_TABLES 之外，schedule_versions/batches/preprocess_tasks/sim_clock 由 solver/
+    模拟器管；reset 若不清理，升级/重跑后旧轮待审核版本残留、其批次 order_ids 与重灌
+    新订单同号 → 跨轮重复打印（违反「同一订单只打印一次」）。FK 无 CASCADE → 按依赖序
+    DELETE：preprocess_tasks(→batches) → approvals(→schedule_versions)
+    → batches(→schedule_versions) → schedule_versions → sim_clock。state_change_log 为
+    审计表保留（版本已删，残留建版锚点不影响 FIFO）。
+    """
     with conn.cursor() as cur:
         cur.execute("SET FOREIGN_KEY_CHECKS=0")
         for t in SEED_TABLES:
             cur.execute(f"TRUNCATE TABLE `{t}`")
+        for t in ("preprocess_tasks", "approvals", "batches",
+                  "schedule_versions", "sim_clock"):
+            cur.execute(f"DELETE FROM `{t}`")
         cur.execute("SET FOREIGN_KEY_CHECKS=1")
     conn.commit()
 
@@ -167,7 +178,8 @@ def _seed_system_config(cur) -> None:
 
 
 def _seed_orders(cur) -> None:
-    """生成 40 订单：amount/urgent/priority/order_date/due_date/status=待排队。
+    """生成 20 订单（ORDER_COUNT 定稿 20；验证不可行路径时加压到 40）：
+    amount/urgent/priority/order_date/due_date/status=待排队。
 
     order_date 分布在 sim 起始日（9/1）前 30 天内 -- 保证有"历史"供预测聚合，
     且 order_date < due_date（due = 9/1 起 7~30 天）。

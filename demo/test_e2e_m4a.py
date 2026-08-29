@@ -93,6 +93,7 @@ def test_2_3_approval_flow_and_governance():
             assert k in attrs, f"solver span 缺属性 {k}"
     finally:
         _exec("DELETE FROM approvals WHERE schedule_version_id=%s", (vid,))
+        _exec("DELETE FROM preprocess_tasks WHERE batch_id LIKE %s", (f"{vid}-%",))
         _exec("DELETE FROM batches WHERE schedule_version_id=%s", (vid,))
         _exec("DELETE FROM schedule_versions WHERE id=%s", (vid,))
 

@@ -25,6 +25,7 @@ from demo.forecast import forecaster
 from demo.scheduler import assessment
 from demo.scheduler.snapshot import load_snapshot
 from demo.scheduler.solver import persist, solve
+from demo.simulator.states import log_state_change
 from demo.tools.data import (format_table, get_connection, load_customers,
                              load_machines, load_orders, load_parts,
                              transaction)
@@ -34,11 +35,25 @@ _PLACEHOLDER_M5 = ()
 
 
 def run_scheduling(triggered_by: str = "agent") -> str:
-    """触发一轮排产求解并落库（写工具，需 reviewer 审批后生效）。"""
+    """触发一轮排产求解并落库（写工具，需 reviewer 审批后生效）。
+
+    空池/全无解（persist 返回 None，§3.D）→ 返回「无待排订单/全无解，未建版本」
+    文案（**不含版本号**）+ 输出冲突订单（NFR-01）；CLI/_last_version 正则不匹配
+    版本号即不被污染。
+    """
     snapshot = load_snapshot()
     result = solve(snapshot, triggered_by=triggered_by)
     version_id = persist(result, snapshot, triggered_by=triggered_by)
     cache_manager.clear_state_entries()  # 排产后订单/批次状态变化，状态类语义缓存主动失效
+    if version_id is None:
+        # 空池（无待排队订单）或全无解：persist 跳过建版本（防刷屏兜底）
+        if result["conflicts"]:
+            lines = ["❌ 全无解，未建版本（冲突订单保持待排队下轮重排）："]
+            for c in result["conflicts"]:
+                oids = "、".join(c.get("order_ids") or [])
+                lines.append(f"❌ {c['reason']}｜涉及 {oids or '—'}")
+            return "\n".join(lines)
+        return "ℹ️ 无待排订单，未建版本"
     m = result["metrics"]
     lines = [
         f"✅ 排产完成：版本 {version_id}（待审核）",
@@ -109,6 +124,9 @@ def approve_schedule(version_id: int, action: str, note: str = "",
     """排版人审批排产版本：action=通过|驳回（写工具，reviewer 专属）。
 
     单事务：schedule_versions.status + batches.approval_status + approvals 行。
+    版本行 SELECT ... FOR UPDATE 串行化并发通过/驳回（§3.C 防撕裂态）；
+    驳回回退订单 已审核→待排队（带 AND status='已审核' 守卫 + source=agent 日志，
+    §2.2/§3.C，防并发把已上机/已完成订单拉回待排队致重复打印）。
     """
     if action not in ("通过", "驳回"):
         return f"❌ 非法审批动作：{action}（仅支持 通过/驳回）"
@@ -116,7 +134,8 @@ def approve_schedule(version_id: int, action: str, note: str = "",
     try:
         with transaction() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT status FROM schedule_versions WHERE id=%s",
+                # 版本行 FOR UPDATE 串行化通过/驳回（FIFO 通过 vs 人工驳回）
+                cur.execute("SELECT status FROM schedule_versions WHERE id=%s FOR UPDATE",
                             (version_id,))
                 row = cur.fetchone()
                 if not row:
@@ -127,6 +146,26 @@ def approve_schedule(version_id: int, action: str, note: str = "",
                             (version_status, version_id))
                 cur.execute("UPDATE batches SET approval_status=%s "
                             "WHERE schedule_version_id=%s", (action, version_id))
+                if action == "驳回":
+                    # 回退订单：同版本批次关联订单 已审核→待排队（可重排）
+                    cur.execute("SELECT order_ids FROM batches WHERE schedule_version_id=%s",
+                                (version_id,))
+                    oids = sorted({oid for (raw,) in cur.fetchall()
+                                   for oid in json_list(raw)})
+                    if oids:
+                        ph = ",".join(["%s"] * len(oids))
+                        cur.execute(
+                            f"UPDATE orders SET status='待排队' "
+                            f"WHERE id IN ({ph}) AND status='已审核'", oids)
+                        # 驳回回退日志（source=agent，§2.2）：sim_time 取当前 sim 时刻；
+                        # 时钟无行则跳过日志不抛错（state_change_log.sim_time NOT NULL）
+                        cur.execute("SELECT current_sim_time FROM sim_clock WHERE id=1")
+                        clock_row = cur.fetchone()
+                        sim_time = clock_row[0] if clock_row and clock_row[0] is not None else None
+                        if sim_time is not None:
+                            for oid in oids:
+                                log_state_change(cur, sim_time, "order", oid, "status",
+                                                 "已审核", "待排队", source="agent")
                 cur.execute(
                     "INSERT INTO approvals (schedule_version_id, approver, action, "
                     "time, note) VALUES (%s, %s, %s, %s, %s)",
@@ -412,7 +451,9 @@ def kpi_metrics() -> dict:
     # csv 模式（machines.csv 无 id/cabin_size 列）映射后为空 -> 舱利用率降级 None
     cabin = (_kpi_cabin_utilization(batches, parts_by_order, machines)
              if machines else None)
-    done_parts = _kpi_done_parts(batches, parts_by_order)
+    # 良率分母走独立口径（所有非已驳回版本的完成批次，含全完成版本），
+    # 不能随 _latest_batches「全完成版本退出读路径」而清零（定稿 §5 读路径规则）。
+    done_parts = _kpi_done_parts(assessment._completed_batches(), parts_by_order)
     yield_rate = _kpi_yield_rate(scrap, done_parts)
     pp = assessment.preprocess_load()
 
@@ -494,8 +535,8 @@ def _yield_bad_rows() -> list[dict]:
 
 
 def _done_parts_by_machine() -> dict[str, int]:
-    """完成批次件数按设备（良率分母；口径同 _kpi_done_parts）。"""
-    batches = assessment._latest_batches()
+    """完成批次件数按设备（良率分母；口径同 _kpi_done_parts，含全完成版本）。"""
+    batches = assessment._completed_batches()
     by_order: dict[str, list[dict]] = {}
     for p in load_parts():
         by_order.setdefault(p.get("order_id"), []).append(p)

@@ -28,7 +28,21 @@ MACHINE_TRANSITIONS = {
     ("维修中", "空闲"),
 }
 
-_TRANSITIONS = {"batch": BATCH_TRANSITIONS, "machine": MACHINE_TRANSITIONS}
+# 订单状态机（定稿 §2.1）：待排队→已审核（persist 原子锁定，不经守卫）→打印中
+# （engine 上机）→完成（拆批全完成）；已审核→待排队（approve_schedule 驳回回退）。
+ORDER_TRANSITIONS = {
+    ("待排队", "已审核"),
+    ("已审核", "打印中"),
+    ("打印中", "完成"),
+    ("已审核", "待排队"),  # 版本驳回回退（approve_schedule）
+}
+
+# no-op 自环（§2.2 幂等约定）：同订单多批同 tick 陆续上机/完成时，第二次写
+# 不抛错、不重插 log（否则会使整个 tick 事务回滚）。
+ORDER_NOOP_TRANSITIONS = {("打印中", "打印中"), ("完成", "完成")}
+
+_TRANSITIONS = {"batch": BATCH_TRANSITIONS, "machine": MACHINE_TRANSITIONS,
+                "order": ORDER_TRANSITIONS}
 
 
 def assert_transition(entity_kind: str, old: str, new: str) -> None:
@@ -77,6 +91,26 @@ def set_machine_status(conn, cur, sim_time, machine_id: str, new_status: str) ->
     assert_transition("machine", old, new_status)
     cur.execute("UPDATE machines SET status=%s WHERE id=%s", (new_status, machine_id))
     log_state_change(cur, sim_time, "machine", machine_id, "status", old, new_status)
+
+
+def set_order_status(conn, cur, sim_time, order_id: str, new_status: str) -> bool:
+    """推进订单状态 + 写日志。no-op 自环（打印中→打印中、完成→完成）幂等跳过
+    （§2.2），返回 False 不写；其余非法流转抛 ValueError（事务回滚归调用方）。
+
+    注：persist 的待排队→已审核走条件 UPDATE 原子锁定、不经此守卫（§3.C）；
+    approve_schedule 驳回的已审核→待排队走条件 UPDATE + source=agent 日志（§3.C）。
+    """
+    cur.execute("SELECT status FROM orders WHERE id=%s", (order_id,))
+    row = cur.fetchone()
+    if not row:
+        raise ValueError(f"订单不存在：{order_id}")
+    old = row[0]
+    if old == new_status and (old, new_status) in ORDER_NOOP_TRANSITIONS:
+        return False  # 幂等：同订单多批同 tick 陆续流转，第二次不重插 log
+    assert_transition("order", old, new_status)
+    cur.execute("UPDATE orders SET status=%s WHERE id=%s", (new_status, order_id))
+    log_state_change(cur, sim_time, "order", order_id, "status", old, new_status)
+    return True
 
 
 def set_machine_batch(cur, sim_time, machine_id: str, old_batch_id, new_batch_id) -> None:

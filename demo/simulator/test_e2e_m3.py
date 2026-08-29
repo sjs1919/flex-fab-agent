@@ -65,6 +65,16 @@ def e2e():
     result = solve(snapshot, triggered_by="e2e-m3")
     version_id = persist(result, snapshot, triggered_by="e2e-m3")
 
+    # 审批通过（定稿 E 门禁：未通过版本批次不推进/不上机）。M3 验证的是模拟器
+    # 批次生命周期（前道→待上机→打印中→静置→完成），与审批门禁正交，故此处直接
+    # 置通过，隔离审批与模拟器两套机制。
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("UPDATE schedule_versions SET status='已审核' WHERE id=%s",
+                    (version_id,))
+        cur.execute("UPDATE batches SET approval_status='通过' "
+                    "WHERE schedule_version_id=%s", (version_id,))
+        conn.commit()
+
     # 造前道任务：每批次错峰 2~26h 完成（让批次能推进到 待上机/打印中/完成）
     with get_connection() as conn:
         with conn.cursor() as cur:

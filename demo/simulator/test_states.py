@@ -105,3 +105,79 @@ def test_set_machine_status_logs():
             cur.execute("UPDATE machines SET status='空闲' WHERE id='M0001'")
             cur.execute("DELETE FROM state_change_log WHERE entity_id='M0001'")
         conn.commit()
+
+
+# ---- 定稿 v1 §2.1/§2.2：订单状态机 + no-op 幂等 ----
+
+def test_legal_order_transitions():
+    """订单链：待排队→已审核→打印中→完成 + 驳回回退 已审核→待排队 全合法。"""
+    for a, b in [("待排队", "已审核"), ("已审核", "打印中"),
+                 ("打印中", "完成"), ("已审核", "待排队")]:
+        states.assert_transition("order", a, b)
+
+
+def test_illegal_order_transition_raises():
+    """非法订单流转（待排队→完成 / 待排队→打印中 / 完成→待排队）抛 ValueError。"""
+    for a, b in [("待排队", "完成"), ("待排队", "打印中"), ("完成", "待排队")]:
+        with pytest.raises(ValueError):
+            states.assert_transition("order", a, b)
+
+
+def test_order_noop_transitions():
+    """no-op 自环（打印中→打印中 / 完成→完成）定义存在，幂等不抛错（§2.2）。"""
+    assert ("打印中", "打印中") in states.ORDER_NOOP_TRANSITIONS
+    assert ("完成", "完成") in states.ORDER_NOOP_TRANSITIONS
+
+
+def test_set_order_status_noop_returns_false():
+    """set_order_status no-op 自环返回 False 且不重插 log（幂等 §2.2）。"""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO orders (id, customer_id, amount, urgent, priority, due_date, "
+                "status, tenant_id) VALUES ('T-NOOP', 'C001', 1, 0, 0, '2026-09-10', "
+                "'打印中', 'default')")
+        conn.commit()
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                assert states.set_order_status(conn, cur, SIM_T, "T-NOOP",
+                                               "打印中") is False
+                cur.execute("SELECT COUNT(*) FROM state_change_log "
+                            "WHERE entity_id='T-NOOP' AND field='status'")
+                assert cur.fetchone()[0] == 0
+            conn.commit()
+    finally:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM orders WHERE id='T-NOOP'")
+                cur.execute("DELETE FROM state_change_log WHERE entity_id='T-NOOP'")
+            conn.commit()
+
+
+def test_set_order_status_advance_logs():
+    """set_order_status 合法流转（打印中→完成）返回 True + 写日志（source=simulator）。"""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO orders (id, customer_id, amount, urgent, priority, due_date, "
+                "status, tenant_id) VALUES ('T-ADV', 'C001', 1, 0, 0, '2026-09-10', "
+                "'打印中', 'default')")
+        conn.commit()
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                assert states.set_order_status(conn, cur, SIM_T, "T-ADV",
+                                               "完成") is True
+                cur.execute("SELECT status FROM orders WHERE id='T-ADV'")
+                assert cur.fetchone()[0] == "完成"
+                cur.execute("SELECT field, old_value, new_value, source FROM state_change_log "
+                            "WHERE entity_id='T-ADV' AND field='status'")
+                assert cur.fetchone() == ("status", "打印中", "完成", "simulator")
+            conn.commit()
+    finally:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM orders WHERE id='T-ADV'")
+                cur.execute("DELETE FROM state_change_log WHERE entity_id='T-ADV'")
+            conn.commit()
