@@ -105,6 +105,38 @@ def test_run_scheduling_persists():
     _exec("UPDATE orders SET status='待排队' WHERE status='已审核'")
 
 
+def test_run_scheduling_exclude_keeps_pending():
+    """run_scheduling(exclude_order_ids)：被排除订单不进求解、persist 不锁定（保持待排队）。"""
+    import json
+
+    # 复位全部订单待排队，保证可从种子取一批待排队
+    _exec("UPDATE orders SET status='待排队' WHERE status != '完成'")
+    snap = load_snapshot()
+    assert snap["orders"], "种子须有待排队订单"
+    keep_id = snap["orders"][0]["id"]  # 任意保留一单
+    before = _rows("SELECT MAX(id) AS id FROM schedule_versions")[0]["id"] or 0
+    out = scheduler_tools.run_scheduling(exclude_order_ids=[keep_id])
+    assert "版本" in out, f"排除 1 单后其余应可求解建版，实际: {out}"
+    # 新版本批次不含被排除订单
+    after = _rows(
+        "SELECT id FROM schedule_versions WHERE id > %s ORDER BY id DESC", (before,))
+    for v in after:
+        oids = [row["order_ids"] for row in _rows(
+            "SELECT order_ids FROM batches WHERE schedule_version_id=%s", (v["id"],))]
+        ids = {oid for raw in oids if raw for oid in json.loads(raw)}
+        assert keep_id not in ids, f"被排除订单 {keep_id} 不得进批次"
+    # 被排除订单保持待排队
+    row = _rows("SELECT status FROM orders WHERE id=%s", (keep_id,))
+    assert row and row[0]["status"] == "待排队", f"排除订单应保持待排队，实际 {row}"
+    # 清理版本 + 还原订单
+    for v in after:
+        _exec("DELETE FROM approvals WHERE schedule_version_id=%s", (v["id"],))
+        _exec("DELETE FROM preprocess_tasks WHERE batch_id LIKE %s", (f"{v['id']}-%",))
+        _exec("DELETE FROM batches WHERE schedule_version_id=%s", (v["id"],))
+        _exec("DELETE FROM schedule_versions WHERE id=%s", (v["id"],))
+    _exec("UPDATE orders SET status='待排队' WHERE status='已审核'")
+
+
 def test_query_schedule_latest_and_specific(pending_version):
     """query_schedule：默认返回最新版本；指定 version_id 返回对应批次。"""
     out = scheduler_tools.query_schedule()

@@ -23,7 +23,7 @@ def _seed_versions(count: int) -> list[int]:
 
 def test_fifo_approve_keeps_top_n():
     """保留最近 top_n 待审核版本，更早的有批次版本自动通过。"""
-    s = AutoScheduler(interval_ticks=3, approve_top_n=2)
+    s = AutoScheduler(interval_ticks=3, approve_top_n=2, reserve_top_n=0)
     ids = _seed_versions(5)  # id 升序，ids[-2:] 为最新
     try:
         s._fifo_approve()
@@ -134,7 +134,7 @@ def _seed_version_with_anchor(anchor_sim_time_str) -> int:
 def test_fifo_approve_aged_out_version():
     """超龄兜底（§3.D）：最早待审版本龄期 ≥ FIFO_AGE_TIMEOUT 自动通过，
     即使版本数 ≤ top_n（无新单停滞场景）。"""
-    s = AutoScheduler(interval_ticks=3, approve_top_n=5)
+    s = AutoScheduler(interval_ticks=3, approve_top_n=5, reserve_top_n=0)
     _seed_clock("2026-09-05 08:00:00")
     vid = _seed_version_with_anchor("2026-09-02 08:00:00")  # 72h 前建版，超龄(>24h)
     try:
@@ -149,7 +149,7 @@ def test_fifo_approve_aged_out_version():
 
 def test_fifo_approve_not_aged_keeps_waiting():
     """未超龄：最早待审版本龄期 < FIFO_AGE_TIMEOUT 且版本数 ≤ top_n → 保持待审。"""
-    s = AutoScheduler(interval_ticks=3, approve_top_n=5)
+    s = AutoScheduler(interval_ticks=3, approve_top_n=5, reserve_top_n=0)
     _seed_clock("2026-09-05 08:00:00")
     vid = _seed_version_with_anchor("2026-09-05 00:00:00")  # 8h 前建版，未超龄(<24h)
     try:
@@ -164,7 +164,7 @@ def test_fifo_approve_not_aged_keeps_waiting():
 
 def test_fifo_approve_no_anchor_treated_aged():
     """无锚点版本视为已超龄最迟下轮通过（存量/测试直插版本不因缺锚点停滞）。"""
-    s = AutoScheduler(interval_ticks=3, approve_top_n=5)
+    s = AutoScheduler(interval_ticks=3, approve_top_n=5, reserve_top_n=0)
     ids = _seed_versions(2)  # 2 个无锚点版本，≤ top_n=5
     try:
         s._fifo_approve()
@@ -176,3 +176,93 @@ def test_fifo_approve_no_anchor_treated_aged():
     finally:
         _cleanup_versions(ids)
         _clear_clock()
+
+
+# ---- 2026-08-29 自动推进器状态留底（规格 §设计） ----
+
+def _exec(sql, params=()):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+        conn.commit()  # 须在 with get_connection 块内（连接归还池后 commit 会 InvalidConnectionError）
+
+
+def _reset_all_pending():
+    """全部非完成订单置回待排队（测试后还原）。"""
+    _exec("UPDATE orders SET status='待排队' WHERE status != '完成'")
+
+
+def test_auto_schedule_skips_when_pending_low(monkeypatch):
+    """待排队 ≤ top_n → 跳过本轮排产（保留全部待排队样本，不空排产）。"""
+    _reset_all_pending()
+    # 制造仅 1 单待排队（≤ top_n=2）：先全转已审核，再放回 id 最小的一单
+    _exec("UPDATE orders SET status='已审核' WHERE status != '完成'")
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT MIN(id) FROM orders WHERE status='已审核'")
+        min_id = cur.fetchone()[0]
+    _exec("UPDATE orders SET status='待排队' WHERE id=%s", (min_id,))
+    called = []
+    monkeypatch.setattr("demo.tools.scheduler_tools.run_scheduling",
+                        lambda triggered_by, exclude_order_ids=None: called.append(1))
+    s = AutoScheduler(interval_ticks=3, approve_top_n=5, reserve_top_n=2)
+    try:
+        s._auto_schedule("tick")
+        assert called == [], "待排队 ≤ top_n 不应调用 run_scheduling"
+    finally:
+        _reset_all_pending()
+
+
+def test_auto_schedule_excludes_latest_top_n(monkeypatch):
+    """待排队 > top_n → 排产排除最新 top_n（id 降序头部），保留待排队样本。"""
+    _reset_all_pending()
+    calls = []
+    monkeypatch.setattr("demo.tools.scheduler_tools.run_scheduling",
+                        lambda triggered_by, exclude_order_ids=None: calls.append(
+                            (triggered_by, exclude_order_ids)) or "✅ 版本 999")
+    s = AutoScheduler(interval_ticks=3, approve_top_n=5, reserve_top_n=2)
+    try:
+        s._auto_schedule("tick")
+        assert len(calls) == 1, "待排队 > top_n 应触发一次排产"
+        exclude = calls[0][1]
+        assert exclude is not None and len(exclude) == 2, f"应排除最新 2 单，实际 {exclude}"
+        with get_connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT id FROM orders WHERE status='待排队' "
+                        "ORDER BY id DESC LIMIT 2")
+            expect = [r[0] for r in cur.fetchall()]
+        assert exclude == expect, f"排除集应等于最新待排队 {expect}，实际 {exclude}"
+    finally:
+        _reset_all_pending()
+
+
+def test_fifo_approve_skips_when_approved_low():
+    """已审核 ≤ top_n → 跳过本轮审批（版本保持待审，保留已审核样本）。"""
+    _reset_all_pending()  # 已审核 = 0
+    s = AutoScheduler(interval_ticks=3, approve_top_n=5, reserve_top_n=2)
+    ids = _seed_versions(3)
+    try:
+        s._fifo_approve()
+        with get_connection() as conn, conn.cursor() as cur:
+            for vid in ids:
+                cur.execute("SELECT status FROM schedule_versions WHERE id=%s", (vid,))
+                assert cur.fetchone()[0] == "待审核", \
+                    f"已审核 ≤ top_n 不应审批版本 {vid}"
+    finally:
+        _cleanup_versions(ids)
+        _reset_all_pending()
+
+
+def test_fifo_approve_runs_when_approved_sufficient():
+    """已审核 > top_n → 照常审批（原 FIFO 逻辑不受守卫影响）。"""
+    _exec("UPDATE orders SET status='已审核' WHERE status != '完成'")  # 已审核 = 20 > 2
+    s = AutoScheduler(interval_ticks=3, approve_top_n=5, reserve_top_n=2)
+    ids = _seed_versions(2)  # 无锚点版本，最早已超龄
+    try:
+        s._fifo_approve()
+        with get_connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT status FROM schedule_versions WHERE id=%s", (ids[0],))
+            assert cur.fetchone()[0] == "已审核", "已审核充足应照常通过最早版本"
+            cur.execute("SELECT status FROM schedule_versions WHERE id=%s", (ids[1],))
+            assert cur.fetchone()[0] == "待审核"
+    finally:
+        _cleanup_versions(ids)
+        _reset_all_pending()

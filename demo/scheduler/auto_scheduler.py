@@ -15,7 +15,7 @@ import threading
 
 from ..config import (
     AUTO_APPROVE_TOP_N, AUTO_SCHEDULE_ENABLED, AUTO_SCHEDULE_TICK_INTERVAL,
-    FIFO_AGE_TIMEOUT, SIM_TICK_SECONDS,
+    FIFO_AGE_TIMEOUT, SIM_TICK_SECONDS, STATUS_RESERVE_TOP_N,
 )
 
 logger = logging.getLogger(__name__)
@@ -23,10 +23,12 @@ logger = logging.getLogger(__name__)
 
 class AutoScheduler:
     def __init__(self, interval_ticks: int | None = None, approve_top_n: int | None = None,
-                 enabled: bool | None = None):
+                 enabled: bool | None = None, reserve_top_n: int | None = None):
         self.interval_ticks = interval_ticks if interval_ticks is not None else AUTO_SCHEDULE_TICK_INTERVAL
         self.approve_top_n = approve_top_n if approve_top_n is not None else AUTO_APPROVE_TOP_N
         self.enabled = enabled if enabled is not None else AUTO_SCHEDULE_ENABLED.lower() != "off"
+        # 2026-08-29 各状态留底：自动排产/审批保留各状态最新 N 单不被推进
+        self.reserve_top_n = reserve_top_n if reserve_top_n is not None else STATUS_RESERVE_TOP_N
         self._lock = threading.Lock()          # 排产互斥（与 agent/事件并发）
         self._signal = threading.Event()       # 事件即时重排信号
         self._stop = threading.Event()
@@ -105,10 +107,28 @@ class AutoScheduler:
             self._lock.release()
 
     def _auto_schedule(self, trigger: str) -> None:
-        """跑一轮排产（求解器自动分配 machine_id），落库版本。"""
+        """跑一轮排产（求解器自动分配 machine_id），落库版本。
+
+        2026-08-29 各状态留底（规格 §设计）：排产前查待排队订单数——
+          ≤ reserve_top_n → 跳过本轮排产（保留全部待排队样本，避免空排产浪费）；
+          > reserve_top_n → 取最新 reserve_top_n 单（id 降序）排除出本次求解，
+          它们保持待排队不锁定，保证演示任意时刻待排队都有最新样本可查。
+        """
+        from demo.tools.data import get_connection
         from demo.tools.scheduler_tools import run_scheduling
         try:
-            result = run_scheduling(triggered_by=f"auto:{trigger}")
+            with get_connection() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id FROM orders WHERE status='待排队' ORDER BY id DESC")
+                pending_ids = [row[0] for row in cur.fetchall()]
+            # reserve_top_n=0 表示关闭订单留底守卫（存量 FIFO 测试场景用）
+            if self.reserve_top_n > 0 and len(pending_ids) <= self.reserve_top_n:
+                logger.info("自动排产跳过(%s)：待排队 %d 单 ≤ 留底 %d，保留样本",
+                            trigger, len(pending_ids), self.reserve_top_n)
+                return
+            exclude = pending_ids[:self.reserve_top_n]  # 最新 top_n（id 降序头部）
+            result = run_scheduling(triggered_by=f"auto:{trigger}",
+                                    exclude_order_ids=exclude)
             import re
             m = re.search(r"版本 (\d+)", result)
             if m:
@@ -128,6 +148,15 @@ class AutoScheduler:
         from demo.tools.scheduler_tools import approve_schedule
         try:
             with get_connection() as conn, conn.cursor() as cur:
+                # 2026-08-29 已审核留底（规格 §设计）：已审核订单 ≤ top_n → 跳过本轮审批，
+                # 版本继续待审核，不促成已审核被上机消耗；超龄兜底仍可最终放行，不会永久卡死。
+                # reserve_top_n=0 表示关闭订单留底守卫（存量 FIFO 测试场景用）。
+                cur.execute("SELECT COUNT(*) FROM orders WHERE status='已审核'")
+                approved_count = cur.fetchone()[0]
+                if self.reserve_top_n > 0 and approved_count <= self.reserve_top_n:
+                    logger.info("自动审批跳过：已审核订单 %d 单 ≤ 留底 %d，保留样本",
+                                approved_count, self.reserve_top_n)
+                    return
                 cur.execute(
                     "SELECT v.id FROM schedule_versions v "
                     "WHERE v.status='待审核' "

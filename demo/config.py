@@ -207,6 +207,10 @@ AUTO_SCHEDULE_ENABLED = os.getenv("AUTO_SCHEDULE_ENABLED", "on")      # off 关�
 AUTO_SCHEDULE_TICK_INTERVAL = int(os.getenv("AUTO_SCHEDULE_TICK_INTERVAL", "3"))  # 每 N tick 排一轮
 AUTO_APPROVE_TOP_N = int(os.getenv("AUTO_APPROVE_TOP_N", "5"))         # 保留最近 N 个待审核版本，更早自动通过（定稿：20→5）
 FIFO_AGE_TIMEOUT = float(os.getenv("FIFO_AGE_TIMEOUT", "24"))           # 最早待审版本超龄兜底阈值（模拟小时，定稿 §3.D）
+# STATUS_RESERVE_TOP_N：自动推进器各状态留底数（2026-08-29 规格）。auto_scheduler 自动排产/审批时，
+# 每状态（待排队/已审核）保留最新 N 单不被推进，保证演示任何时刻查任意状态都有样本。
+# 与 AUTO_APPROVE_TOP_N（版本级 FIFO 保留数）解耦：这是订单级留底。
+STATUS_RESERVE_TOP_N = int(os.getenv("STATUS_RESERVE_TOP_N", "5"))
 
 # ---- 可观测性 ----
 OTEL_EXPORTER = os.getenv("OTEL_EXPORTER", "console")  # none | console | otel

@@ -97,3 +97,19 @@ def test_fifo_age_timeout_env_override(monkeypatch):
     finally:
         monkeypatch.delenv("FIFO_AGE_TIMEOUT")
         importlib.reload(cfg)
+
+
+def test_status_reserve_top_n_default_5():
+    """STATUS_RESERVE_TOP_N 默认 5（自动推进器各状态留底数，2026-08-29 规格）。"""
+    assert cfg.STATUS_RESERVE_TOP_N == 5
+
+
+def test_status_reserve_top_n_env_override(monkeypatch):
+    """STATUS_RESERVE_TOP_N env 可覆盖（int 解析）。"""
+    monkeypatch.setenv("STATUS_RESERVE_TOP_N", "3")
+    importlib.reload(cfg)
+    try:
+        assert cfg.STATUS_RESERVE_TOP_N == 3
+    finally:
+        monkeypatch.delenv("STATUS_RESERVE_TOP_N")
+        importlib.reload(cfg)

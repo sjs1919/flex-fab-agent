@@ -34,14 +34,24 @@ _PLACEHOLDER_M4B = ()
 _PLACEHOLDER_M5 = ()
 
 
-def run_scheduling(triggered_by: str = "agent") -> str:
+def run_scheduling(triggered_by: str = "agent",
+                   exclude_order_ids: list[str] | None = None) -> str:
     """触发一轮排产求解并落库（写工具，需 reviewer 审批后生效）。
 
     空池/全无解（persist 返回 None，§3.D）→ 返回「无待排订单/全无解，未建版本」
     文案（**不含版本号**）+ 输出冲突订单（NFR-01）；CLI/_last_version 正则不匹配
     版本号即不被污染。
+
+    exclude_order_ids：可选排除的订单 id 列表（2026-08-29 自动推进器状态留底）。
+    排除后这些订单不进求解、persist 不锁定（保持待排队）——auto_scheduler 用它保留
+    最新 top_n 待排队样本；其他入口不传（None）时行为与现状完全一致。
     """
     snapshot = load_snapshot()
+    if exclude_order_ids:
+        excluded = set(exclude_order_ids)
+        snapshot["orders"] = [o for o in snapshot["orders"] if o["id"] not in excluded]
+        snapshot["parts"] = [p for p in snapshot["parts"]
+                             if p["order_id"] not in excluded]
     result = solve(snapshot, triggered_by=triggered_by)
     version_id = persist(result, snapshot, triggered_by=triggered_by)
     cache_manager.clear_state_entries()  # 排产后订单/批次状态变化，状态类语义缓存主动失效
