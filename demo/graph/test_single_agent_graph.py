@@ -607,3 +607,68 @@ def test_loop_guard_fallback_no_internal_diagnostic(monkeypatch):
         f"循环守卫应产出 LOOP_GUARD_FALLBACK_PREFIX 兜底，实际: {result['final_answer']!r}"
     assert "检测到重复检索" not in result["final_answer"], "内部诊断不得泄漏给用户"
     assert "停止继续查询" not in result["final_answer"]
+
+
+# ---- 2026-08-29 修复：单轮同工具多次调用，tool 消息结果错位 ----
+
+def test_multi_same_tool_calls_map_results_by_call_id(monkeypatch):
+    """坑（2026-08-29 复现）：单轮 LLM 同时调 3 次 query_orders（不同 status）时，
+    旧实现按工具名 matching[-1] 把最后一个结果（「完成→未找到」）塞给全部 3 条 tool
+    消息，汇总步 LLM 误读「待排队也空」→ 把 20 条待排队订单吞掉、答「三状态均无记录」。
+    修复后按 tool_call 一一对应注入，各 tool 消息内容 = 各自执行结果。"""
+    from demo.graph import single_agent_graph as sag
+    _disable_compression(monkeypatch)
+
+    class ArgAwareRegistry(FakeRegistry):
+        """query_orders 按 status 参数返回不同结果。"""
+
+        def execute(self, name, arguments):
+            if name == "query_orders":
+                if arguments.get("status") == "待排队":
+                    return "共 20 条订单：ORD001 深圳精密（待排队）"
+                return "未找到匹配的订单。"
+            return super().execute(name, arguments)
+
+    # 单轮返回 3 个 query_orders tool_calls（不同 status 参数，id 各不同）
+    def _make_calls():
+        calls = []
+        for sid, status in [("c1", "待排队"), ("c2", "打印中"), ("c3", "完成")]:
+            calls.append(type("TC", (), {
+                "id": sid,
+                "type": "function",
+                "function": type("F", (), {
+                    "name": "query_orders",
+                    "arguments": json.dumps({"status": status}, ensure_ascii=False),
+                })(),
+            })())
+        return calls
+
+    captured_tool_msgs: list = []
+    responses = iter([
+        FakeResponse(tool_calls=_make_calls()),              # 第一轮：3× query_orders
+        FakeResponse(content="待排队 20 条，其余无。"),        # 汇总步
+    ])
+
+    def fake_call_llm(messages, tools=None, **kwargs):
+        if tools is None:  # generate_answer 综合指令（无工具 schema）
+            captured_tool_msgs.extend(
+                m["content"] for m in messages if m.get("role") == "tool"
+            )
+        return next(responses)
+
+    monkeypatch.setattr(sag, "call_llm", fake_call_llm)
+    app = build_single_agent_graph(ArgAwareRegistry(), checkpointer=None)
+    result = app.invoke({
+        "messages": [{"role": "user", "content": "查询待排队、打印中、完成订单列表"}],
+        "tool_results": [],
+        "iteration": 0,
+        "final_answer": "",
+    })
+
+    # 3 条 tool 消息，各自内容对应各自结果（而非全部=最后一个「未找到」）
+    assert len(captured_tool_msgs) == 3, \
+        f"应注入 3 条 tool 消息，实际 {len(captured_tool_msgs)}"
+    assert "共 20 条订单" in captured_tool_msgs[0], "待排队结果应保留 20 条订单"
+    assert "共 20 条订单" not in captured_tool_msgs[1], "打印中结果不得误带待排队内容"
+    assert "共 20 条订单" not in captured_tool_msgs[2], "完成结果不得误带待排队内容"
+    assert result["final_answer"] == "待排队 20 条，其余无。"

@@ -176,7 +176,8 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
             state["needs_retry"] = False
             return state
 
-        # 执行每个 tool_call
+        # 执行每个 tool_call，记录 (tool_call, result) 一一对应关系
+        executed: list[tuple[Any, str]] = []
         for tc in msg.tool_calls:
             tool_name = tc.function.name
             try:
@@ -192,6 +193,7 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
             preview = result[:120].replace("\n", " ")
             print(f"   结果：{preview}...")
             state["tool_results"].append({"tool": tool_name, "arguments": args, "result": result})
+            executed.append((tc, result))
 
         # 注入 assistant 消息（含 tool_calls 元数据）
         state["messages"].append({
@@ -203,11 +205,12 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
                 for tc in msg.tool_calls
             ],
         })
-        # 逐个注入 tool 消息（含执行结果）
-        for tc in msg.tool_calls:
-            matching = [r for r in state["tool_results"] if r["tool"] == tc.function.name]
-            result_text = matching[-1]["result"] if matching else ""
-            state["messages"].append({"role": "tool", "tool_call_id": tc.id, "content": result_text})
+        # 逐个注入 tool 消息（按 tool_call 一一对应执行结果，不按工具名取末条）。
+        # 修复（2026-08-29）：单轮同工具多次调用（如 3× query_orders 不同 status）时，
+        # 旧实现按工具名 matching[-1] 把最后一个结果（如「完成→未找到」）塞给全部 tool
+        # 消息，汇总步 LLM 误读「待排队也空」，把 20 条待排队订单吞掉。
+        for tc, result in executed:
+            state["messages"].append({"role": "tool", "tool_call_id": tc.id, "content": result})
 
         state["iteration"] += 1
         return state
