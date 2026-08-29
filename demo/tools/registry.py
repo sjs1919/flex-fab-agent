@@ -204,7 +204,7 @@ def build_default_registry() -> ToolRegistry:
         "例：'交期在7/30之前的A级客户3D打印订单' → "
         "query_orders(due_before='2026-07-30', customer_level='A', process='3D打印', sort_by='priority', limit=5)",
         {"type": "object", "properties": {
-            "status": {"type": "string", "description": "订单状态（紧急/生产中/待排产/排期中/即将完成），空=全部"},
+            "status": {"type": "string", "description": "订单状态（待排队/已审核/打印中/完成），空=全部"},
             "customer_name": {"type": "string", "description": "客户名模糊匹配，空=全部"},
             "customer_level": {"type": "string", "description": "客户等级（S/A/B/C/D），空=全部（R7新增）"},
             "process": {"type": "string", "description": "工艺类型（3D打印/CNC/注塑/表面处理），空=全部（R7新增）"},

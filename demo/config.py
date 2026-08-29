@@ -110,25 +110,25 @@ def _env_or_cred(env_key: str, cred_key: str = "", default: str = "") -> str:
 # Provider 注册表：列表顺序即 fallback 顺序，第一个成功即返回。
 # 三家均为 OpenAI 兼容协议，代码层只差 base_url + api_key + model。
 # 新增 provider 只需在此追加一项，全项目自动支持。
-# 主备切换：设 PRIMARY_PROVIDER 环境变量（如 "DeepSeek"）可把指定 provider
-# 提到列表最前，无需改代码。火山豆包配额恢复后 unset 即可回到默认顺序。
+# 主备切换：默认 DeepSeek 主用（豆包配额打光期间省回落耗时）；设 PRIMARY_PROVIDER
+# 环境变量（如 "火山豆包(coding)"）可把指定 provider 提到列表最前，无需改代码。
 PRIMARY_PROVIDER = os.getenv("PRIMARY_PROVIDER", "")
 PROVIDERS = [
-    {
-        "name": "火山豆包(coding)",
-        "enabled": True,
-        "api_key": _env_or_cred("VOLC_API_KEY", "VOLC_API_KEY"),
-        "base_url": os.getenv("VOLC_BASE_URL", "https://ark.cn-beijing.volces.com/api/coding/v3"),
-        "model": os.getenv("VOLC_MODEL", "ark-code-latest"),
-        "note": "主用 · 字节编程套餐 · 端点 /api/coding/v3",
-    },
     {
         "name": "DeepSeek",
         "enabled": True,
         "api_key": _env_or_cred("DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY"),
         "base_url": os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
         "model": os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"),
-        "note": "备用1 · ¥1/百万Token · OpenAI 兼容",
+        "note": "主用 · ¥1/百万Token · OpenAI 兼容",
+    },
+    {
+        "name": "火山豆包(coding)",
+        "enabled": True,
+        "api_key": _env_or_cred("VOLC_API_KEY", "VOLC_API_KEY"),
+        "base_url": os.getenv("VOLC_BASE_URL", "https://ark.cn-beijing.volces.com/api/coding/v3"),
+        "model": os.getenv("VOLC_MODEL", "ark-code-latest"),
+        "note": "备用1 · 字节编程套餐 · 端点 /api/coding/v3",
     },
     {
         "name": "Kimi(coding)",
