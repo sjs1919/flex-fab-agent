@@ -674,3 +674,111 @@ def test_multi_same_tool_calls_map_results_by_call_id(monkeypatch):
     assert "共 20 条订单" not in captured_tool_msgs[1], "打印中结果不得误带待排队内容"
     assert "共 20 条订单" not in captured_tool_msgs[2], "完成结果不得误带待排队内容"
     assert result["final_answer"] == "待排队 20 条，其余无。"
+
+
+# ---- 2026-08-30 修复：纯资源查询 LLM 已答即收尾（has_order 硬要求误拉回）----
+
+class FakeResourceRegistry(FakeRegistry):
+    """仅资源类工具（query_machine_load），无订单工具——模拟「查空闲设备」场景。"""
+
+    def __init__(self):
+        self.schemas = {"query_machine_load": {"server": "resource_server"}}
+
+
+def test_pure_resource_query_clean_answer_terminates(monkeypatch):
+    """坑（2026-08-30 复现，trace 372ae82d）：纯资源查询「帮我查一下空闲的设备」，
+    LLM 决策轮调 query_machine_load 拿到空闲表，答案轮已给干净文本答案时，
+    **不得被 evaluate 的 has_order 硬要求（needs_more）拉回继续工具轮**——
+    否则正确设备列表被后续反问话术（「需要我帮您查看待排产的订单…」）覆盖。
+    修复后：LLM 已答 + 有工具结果 -> 直接 ready_for_answer，答案轮即收尾。"""
+    from demo.graph import single_agent_graph as sag
+    _disable_compression(monkeypatch)
+    calls: list = []
+    responses = [
+        FakeResponse(tool_calls=_make_tool_call("query_machine_load")),  # 决策轮
+        FakeResponse(content="当前全部 7 台设备空闲，可承接新订单。"),    # 答案轮
+    ]
+
+    def fake_call_llm(messages, tools=None, **kwargs):
+        calls.append(messages)
+        return responses.pop(0) if responses else FakeResponse(content="兜底答案")
+
+    monkeypatch.setattr(sag, "call_llm", fake_call_llm)
+    app = build_single_agent_graph(FakeResourceRegistry(), checkpointer=None)
+    result = app.invoke({
+        "messages": [{"role": "user", "content": "帮我查一下空闲的设备"}],
+        "tool_results": [],
+        "iteration": 0,
+        "final_answer": "",
+    })
+
+    assert result["final_answer"] == "当前全部 7 台设备空闲，可承接新订单。", \
+        f"LLM 已答应作为最终答案，实际: {result['final_answer']!r}"
+    assert len(calls) == 2, \
+        f"LLM 已答即收尾，不应再拉回工具轮，实际 {len(calls)} 次 LLM 调用"
+
+
+def test_run_scheduling_intent_not_truncated(monkeypatch):
+    """A 分支放置优先级：用户明确要求「跑排产」但 run_scheduling 尚未执行时，
+    即使 LLM 已输出文本也不得收尾（否则写工具被跳过、排产未落地）。
+    收尾分支必须位于 run_intent 强制检查之后。"""
+    from demo.graph import single_agent_graph as sag
+    _disable_compression(monkeypatch)
+    calls: list = []
+    responses = iter([
+        FakeResponse(tool_calls=_make_tool_call("query_machine_load")),  # 第1轮查资源
+        FakeResponse(content="好的，我来安排排产"),                       # 第2轮 LLM 误以为答完
+        FakeResponse(content="正在触发排产求解，请稍候"),                 # 第3轮继续工具轮
+        FakeResponse(content="排产版本 13 已生成"),                        # 第4轮
+    ])
+
+    def fake_call_llm(messages, tools=None, **kwargs):
+        calls.append(messages)
+        return next(responses) if responses else FakeResponse(content="兜底答案")
+
+    monkeypatch.setattr(sag, "call_llm", fake_call_llm)
+    app = build_single_agent_graph(FakeResourceRegistry(), checkpointer=None)
+    result = app.invoke({
+        "messages": [{"role": "user", "content": "帮我跑一轮排产"}],
+        "tool_results": [],
+        "iteration": 0,
+        "final_answer": "",
+    })
+
+    assert len(calls) >= 3, \
+        f"排产意图未调写工具，不得在第 2 轮提前收尾，实际 {len(calls)} 次 LLM 调用"
+    assert result["final_answer"] != "好的，我来安排排产", \
+        "「好的，我来安排排产」这类提前收尾文本不得成为最终答案"
+
+
+def test_pure_resource_query_no_order_forced(monkeypatch):
+    """B 加强（根因修复）：纯资源查询（非排产意图）不强制查订单——
+    第 1 轮调 query_machine_load 后 evaluate 即判数据充足（ready_for_answer），
+    即使 LLM 下一轮被系统 prompt「先查订单再查资源」引导想补调 query_orders，
+    也不应执行（否则纯查询空转一轮、浪费 token；本次 bug 的根因正是 has_order
+    对非订单查询的误判把 LLM 拉回）。"""
+    from demo.graph import single_agent_graph as sag
+    _disable_compression(monkeypatch)
+    responses = [
+        FakeResponse(tool_calls=_make_tool_call("query_machine_load")),  # 决策轮查设备
+        FakeResponse(tool_calls=_make_tool_call("query_orders")),        # 被引导想补查订单（应被 B 阻断）
+    ]
+
+    def fake_call_llm(messages, tools=None, **kwargs):
+        if tools is None:  # generate_answer 汇总轮：直接给干净文本答案
+            return FakeResponse(content="当前 7 台设备全部空闲")
+        return responses.pop(0) if responses else FakeResponse(content="兜底答案")
+
+    monkeypatch.setattr(sag, "call_llm", fake_call_llm)
+    app = build_single_agent_graph(FakeResourceRegistry(), checkpointer=None)
+    result = app.invoke({
+        "messages": [{"role": "user", "content": "帮我查一下空闲的设备"}],
+        "tool_results": [],
+        "iteration": 0,
+        "final_answer": "",
+    })
+
+    # 只执行 query_machine_load，未补调 query_orders（纯查询不强制补订单）
+    assert {t["tool"] for t in result["tool_results"]} == {"query_machine_load"}, \
+        f"纯资源查询不应补调订单工具，实际工具: {[t['tool'] for t in result['tool_results']]}"
+    assert result["final_answer"] != "", "纯查询不应无答案"

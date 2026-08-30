@@ -114,7 +114,7 @@ python -m demo.main --rollback v1
 uvicorn demo.api:app --reload --port 8000
 ```
 
-> Windows 用户无需手动设 `PYTHONIOENCODING`：`demo/__init__.py` 已把标准输出重配为 UTF-8。
+> 本项目测试/构建/部署均在 WSL 下运行（默认 UTF-8），不涉及 Windows GBK 兼容。
 
 ## 4. 调用建议
 
@@ -135,7 +135,7 @@ uvicorn demo.api:app --reload --port 8000
 
 ```
 demo/
-├── __init__.py              # 包入口；UTF-8 输出修复（Windows GBK 兼容）
+├── __init__.py              # 包入口
 ├── main.py                  # 统一入口：--check/--demo/--sim/--init-schedule/--rollback
 ├── api.py                   # FastAPI 网关：/ask + /sim/* + /schedule/* + /kpi + /dashboard/*
 ├── config.py                # 统一 .env 加载 + PROVIDERS 列表 + 数据源配置 + system_config

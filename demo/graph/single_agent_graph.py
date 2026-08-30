@@ -320,6 +320,21 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
             state["ready_for_answer"] = False
             return state
 
+        # 2026-08-30 修复：LLM 已答干净文本 + 已收集工具数据 -> 直接收尾（trace 372ae82d 根因）。
+        # evaluate 的 has_order 硬要求对非订单查询（查设备/库存/客户）误判「数据不足」，
+        # 把「LLM 已给正确文本答案」的轮次拉回继续工具轮，正确答案被后续反问话术覆盖。
+        # 此分支必须位于 run_intent/app_intent 写操作强制检查之后：排产/审批意图未执行
+        # 写工具时（上文已 return needs_more）不在此兜底，保证写操作仍被推进。
+        last_msg = state["messages"][-1] if state["messages"] else {}
+        if (last_msg.get("role") == "assistant"
+                and last_msg.get("content")
+                and not last_msg.get("tool_calls")):
+            state["evaluation_notes"] = "LLM 已给出文本答案且已收集工具数据，直接收尾"
+            state["ready_for_answer"] = True
+            state["needs_more"] = False
+            state["needs_retry"] = False
+            return state
+
         # 检查数据完整性（排产场景至少需要订单 + 某类资源数据）
         has_order = any(t in tool_names for t in ["query_orders", "get_order_detail"])
         has_resource = any(t in tool_names for t in ["query_inventory", "query_machine_load", "query_customer"])
@@ -332,8 +347,21 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
             state["needs_more"] = False
             state["needs_retry"] = False
         elif not has_order:
-            state["evaluation_notes"] = "尚未查询订单数据，建议先查订单"
-            state["needs_more"] = True
+            # B 加强（2026-08-30）：has_order 硬要求只对排产/审批意图生效。
+            # 纯查询场景（查设备/库存/客户）不强制补查订单——否则 evaluate 误判
+            # 「尚未查询订单数据」把 LLM 拉回继续工具轮，正确答案被后续反问覆盖
+            # （trace 372ae82d）。run_intent/app_intent 复用上方写操作检查已算的关键词。
+            if run_intent or app_intent:
+                state["evaluation_notes"] = "排产意图但尚未查询订单数据，建议先查订单"
+                state["needs_more"] = True
+            elif has_resource:
+                state["evaluation_notes"] = "纯查询已获资源数据，数据充足"
+                state["ready_for_answer"] = True
+                state["needs_more"] = False
+                state["needs_retry"] = False
+            else:
+                state["evaluation_notes"] = "尚未查询订单数据，建议先查订单"
+                state["needs_more"] = True
         elif not has_resource:
             state["evaluation_notes"] = "已查订单，建议补充查询库存或设备数据"
             state["needs_more"] = True

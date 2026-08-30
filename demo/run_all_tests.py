@@ -16,14 +16,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Windows 控制台默认 GBK，无法输出 emoji，重配为 UTF-8
-for _stream in (sys.stdin, sys.stdout, sys.stderr):
-    if hasattr(_stream, "reconfigure"):
-        try:
-            _stream.reconfigure(encoding="utf-8")
-        except Exception:
-            pass
-
 DEMO_ROOT = Path(__file__).resolve().parent
 PYTHON = sys.executable
 
