@@ -5,7 +5,7 @@
 | 日期 | 2026-08-22 |
 | 状态 | 已批准（用户确认方案 2 + 6 节设计） |
 | 背景 | flex-fab-agent 第二阶段重构（MySQL + 环境模拟器 + OR-Tools CP-SAT + LLM 在环）为多 Phase 大工程，需要 spec -> plan -> todo -> 四门禁全流程；`project-standards/` v1.2 模板包正是该流程的载体 |
-| 关联 | [重构方案 v1](../../demo/04-plans/重构方案-v1-2026-08-21.md) · [需求规格 v1](../../demo/02-specs/需求规格-v1-2026-08-21.md) · [模板包 README](../../../project-standards/README.md) |
+| 关联 | [重构方案 v1](../../demo/04-plans/重构方案-v1-2026-08-21.md) · [需求规格 v1](../../demo/02-specs/需求规格-v1-2026-08-21.md) · [模板包 README](https://github.com/sjs1919/agent-training/blob/main/project-standards/README.md) |
 
 ---
 

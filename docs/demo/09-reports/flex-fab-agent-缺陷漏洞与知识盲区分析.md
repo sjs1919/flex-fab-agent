@@ -155,49 +155,49 @@
 
 | 盲区 | 对应已学课程/资料 | 链接 | 掌握度 |
 |------|------------------|------|--------|
-| Harness 概念框架 | 《从能回答到能办事》主题 6/7 提炼 | [`courses/从能回答到能办事-重点提炼.md`](从能回答到能办事-重点提炼.md) | 理论已学，代码未落地 |
-| 业务数据包设计 | 课程主题 3 提炼 + week2 RAG | [`courses/从能回答到能办事-重点提炼.md`](从能回答到能办事-重点提炼.md) · [`week2/day4_guide.md`](../week2/day4_guide.md) | 理论已学，未封装成类 |
-| 长任务步骤控制 | 课程主题 5 + week3 LangGraph | [`courses/从能回答到能办事-重点提炼.md`](从能回答到能办事-重点提炼.md) · [`week3/day3_5_guide.md`](../week3/day3_5_guide.md) | 有 iteration 上限，缺 todo/校验 |
-| 多 Agent 协作 | week4 多 Agent + 鉴权 | [`week4/day1_2_guide.md`](../week4/day1_2_guide.md) · [`week4/day3_5_guide.md`](../week4/day3_5_guide.md) | 有基础，缺动态分解 |
-| RAG 混合检索 | week2 RAG + BM25 + 重排 | [`week2/week2_代码深度解读.md`](../week2/week2_代码深度解读.md) | 有实现，缺结构化筛选 |
+| Harness 概念框架 | 《从能回答到能办事》主题 6/7 提炼 | [`courses/从能回答到能办事-重点提炼.md`](https://github.com/sjs1919/agent-training/blob/main/docs/demo/09-reports/%E4%BB%8E%E8%83%BD%E5%9B%9E%E7%AD%94%E5%88%B0%E8%83%BD%E5%8A%9E%E4%BA%8B-%E9%87%8D%E7%82%B9%E6%8F%90%E7%82%BC.md) | 理论已学，代码未落地 |
+| 业务数据包设计 | 课程主题 3 提炼 + week2 RAG | [`courses/从能回答到能办事-重点提炼.md`](https://github.com/sjs1919/agent-training/blob/main/docs/demo/09-reports/%E4%BB%8E%E8%83%BD%E5%9B%9E%E7%AD%94%E5%88%B0%E8%83%BD%E5%8A%9E%E4%BA%8B-%E9%87%8D%E7%82%B9%E6%8F%90%E7%82%BC.md) · [`week2/day4_guide.md`](https://github.com/sjs1919/agent-training/blob/main/docs/demo/week2/day4_guide.md) | 理论已学，未封装成类 |
+| 长任务步骤控制 | 课程主题 5 + week3 LangGraph | [`courses/从能回答到能办事-重点提炼.md`](https://github.com/sjs1919/agent-training/blob/main/docs/demo/09-reports/%E4%BB%8E%E8%83%BD%E5%9B%9E%E7%AD%94%E5%88%B0%E8%83%BD%E5%8A%9E%E4%BA%8B-%E9%87%8D%E7%82%B9%E6%8F%90%E7%82%BC.md) · [`week3/day3_5_guide.md`](https://github.com/sjs1919/agent-training/blob/main/docs/demo/week3/day3_5_guide.md) | 有 iteration 上限，缺 todo/校验 |
+| 多 Agent 协作 | week4 多 Agent + 鉴权 | [`week4/day1_2_guide.md`](https://github.com/sjs1919/agent-training/blob/main/docs/demo/week4/day1_2_guide.md) · [`week4/day3_5_guide.md`](https://github.com/sjs1919/agent-training/blob/main/docs/demo/week4/day3_5_guide.md) | 有基础，缺动态分解 |
+| RAG 混合检索 | week2 RAG + BM25 + 重排 | [`week2/week2_代码深度解读.md`](https://github.com/sjs1919/agent-training/blob/main/docs/demo/week2/week2_%E4%BB%A3%E7%A0%81%E6%B7%B1%E5%BA%A6%E8%A7%A3%E8%AF%BB.md) | 有实现，缺结构化筛选 |
 | 可观测体系 | week5 tracer + exporter + cost | [`代码阅读指南`](../11-manuals/代码阅读指南.md) 第 12 层 | 有零件，缺告警/采样 |
-| Agent 评测 | 美团图灵 Agent 评测文章 | [`courses/Agent评测漫谈-由浅入深讲解Agent评测.md`](Agent评测漫谈-由浅入深讲解Agent评测.md) | 刚整理，未接入 flex-fab-agent |
-| 企业级 Agent 入门 | 培训分享稿 | [`train/企业Agent开发入门-20260722.md`](../train/企业Agent开发入门-20260722.md) | 已学，需回炉到 flex-fab-agent |
-| 行业对标 | 12 家 Agent 公司深度分析 | [`hangye/README.md`](../hangye/README.md) | 已读，需提取 Harness 实践 |
-| Claude Code Harness 解剖 | learn-claude-code s01-s20 | [`learn-claude-code/README-zh.md`](../../learn-claude-code/README-zh.md) | 待深入（s05/s08/s11/s12 最相关） |
+| Agent 评测 | 美团图灵 Agent 评测文章 | [`courses/Agent评测漫谈-由浅入深讲解Agent评测.md`](https://github.com/sjs1919/agent-training/blob/main/docs/demo/09-reports/Agent%E8%AF%84%E6%B5%8B%E6%BC%AB%E8%B0%88-%E7%94%B1%E6%B5%85%E5%85%A5%E6%B7%B1%E8%AE%B2%E8%A7%A3Agent%E8%AF%84%E6%B5%8B.md) | 刚整理，未接入 flex-fab-agent |
+| 企业级 Agent 入门 | 培训分享稿 | [`train/企业Agent开发入门-20260722.md`](https://github.com/sjs1919/agent-training/blob/main/docs/demo/train/%E4%BC%81%E4%B8%9AAgent%E5%BC%80%E5%8F%91%E5%85%A5%E9%97%A8-20260722.md) | 已学，需回炉到 flex-fab-agent |
+| 行业对标 | 12 家 Agent 公司深度分析 | [`hangye/README.md`](https://github.com/sjs1919/agent-training/blob/main/docs/demo/hangye/README.md) | 已读，需提取 Harness 实践 |
+| Claude Code Harness 解剖 | learn-claude-code s01-s20 | [`learn-claude-code/README-zh.md`](https://github.com/sjs1919/agent-training/blob/main/docs/learn-claude-code/README-zh.md) | 待深入（s05/s08/s11/s12 最相关） |
 
 ### 7.2 仍需补充的权威教程（知识盲区 → 权威源）
 
 | 盲区 | 需补充的知识 | 权威教程来源 | 优先级 |
 |------|------------|------------|--------|
 | **Guardrails 输出护栏** | 如何校验 LLM 输出（JSON schema、敏感词、越权指令） | [Guardrails AI 官方文档](https://www.guardrailsai.com/docs) · [NVIDIA NeMo Guardrails](https://github.com/NVIDIA/NeMo-Guardrails) | 最高 |
-| **上下文压缩工程** | 长上下文截断/压缩策略（snip/micro/budget/auto） | [learn-claude-code s08 Context Compact](../../learn-claude-code/s08_context_compact) · [Anthropic Context Window 最佳实践](https://docs.anthropic.com/en/docs/build-with-claude/context-window) | 高 |
+| **上下文压缩工程** | 长上下文截断/压缩策略（snip/micro/budget/auto） | [learn-claude-code s08 Context Compact](https://github.com/sjs1919/agent-training/blob/main/docs/learn-claude-code/s08_context_compact) · [Anthropic Context Window 最佳实践](https://docs.anthropic.com/en/docs/build-with-claude/context-window) | 高 |
 | **NL2SQL / 结构化查询** | 让 Agent 用自然语言查结构化数据库 | [Vanna AI NL2SQL](https://vanna.ai/) · [LangChain SQL Agent](https://python.langchain.com/docs/use_cases/sql/) | 高 |
 | **声明式工作流编排** | YAML/DSL 定义多 Agent 工作流（非硬编码） | [LangGraph Studio 工作流](https://langchain-ai.github.io/langgraph/) · [Temporal.io 工作流](https://docs.temporal.io/) | 中 |
-| **Agent 评估与回归** | 如何建立 Task-based 评测体系（prompt-expected-trace 三元组） | [Anthropic AI Agent 评估博客](https://www.anthropic.com/research/evaluating-ai-agents) · [课程附录：长程Agent评测开源调研](Agent评测漫谈-由浅入深讲解Agent评测.md) | 高 |
+| **Agent 评估与回归** | 如何建立 Task-based 评测体系（prompt-expected-trace 三元组） | [Anthropic AI Agent 评估博客](https://www.anthropic.com/research/evaluating-ai-agents) · [课程附录：长程Agent评测开源调研](https://github.com/sjs1919/agent-training/blob/main/docs/demo/09-reports/Agent%E8%AF%84%E6%B5%8B%E6%BC%AB%E8%B0%88-%E7%94%B1%E6%B5%85%E5%85%A5%E6%B7%B1%E8%AE%B2%E8%A7%A3Agent%E8%AF%84%E6%B5%8B.md) | 高 |
 | **成本治理与多租户** | 按 user/tenant 计费、配额、限流 | [OpenAI Usage Tiers](https://platform.openai.com/docs/guides/rate-limits) · [API 网关限流模式](https://konghq.com/blog/how-to-design-rate-limiting) | 中 |
 | **Prompt 版本管理与 A/B 测试** | Prompt 迭代版本控制、效果对比 | [LangSmith Prompt Hub](https://docs.smith.langchain.com/prompt_hub) · [Weights & Biases Prompts](https://docs.wandb.ai/guides/prompts) | 中 |
 | **业务闭环（MES 集成）** | 从"给建议"到"驱动业务系统" | [OPC UA / MES 集成指南](https://opcfoundation.org/about/opc-technologies/opc-ua/) · [工业 4.0 AAS 架构](https://www.plattform-i40.de/IP/Navigation/EN/Home/home.html) | 低（后期） |
 | **SLA 定义与监控** | Agent 系统 SLA 设计（延迟/准确率/可用性） | [Google SRE Book - SLI/SLO/SLA](https://sre.google/sre-book/table-of-contents/) · [Datadog APM SLA 监控](https://docs.datadoghq.com/monitors/types/apm/) | 中 |
-| **Vibe Coding 方法论** | 迭代式对话开发、bad case 驱动优化 | [课程主题 4 提炼](从能回答到能办事-重点提炼.md) · [Cursor Composer 工作流](https://docs.cursor.com/composer) | 中 |
+| **Vibe Coding 方法论** | 迭代式对话开发、bad case 驱动优化 | [课程主题 4 提炼](https://github.com/sjs1919/agent-training/blob/main/docs/demo/09-reports/%E4%BB%8E%E8%83%BD%E5%9B%9E%E7%AD%94%E5%88%B0%E8%83%BD%E5%8A%9E%E4%BA%8B-%E9%87%8D%E7%82%B9%E6%8F%90%E7%82%BC.md) · [Cursor Composer 工作流](https://docs.cursor.com/composer) | 中 |
 
 ### 7.3 推荐阅读路径（按优先级排序）
 
 **立即读（本周）**：
-1. [learn-claude-code s05 TodoWrite](../../learn-claude-code/s05_todo_write) → 补"长任务步骤控制"代码实现
-2. [learn-claude-code s08 Context Compact](../../learn-claude-code/s08_context_compact) → 补"上下文压缩"代码实现
+1. [learn-claude-code s05 TodoWrite](https://github.com/sjs1919/agent-training/blob/main/docs/learn-claude-code/s05_todo_write) → 补"长任务步骤控制"代码实现
+2. [learn-claude-code s08 Context Compact](https://github.com/sjs1919/agent-training/blob/main/docs/learn-claude-code/s08_context_compact) → 补"上下文压缩"代码实现
 3. [Guardrails AI Quickstart](https://www.guardrailsai.com/docs) → 补"输出护栏"概念
 
 **下周读**：
 4. [Anthropic AI Agent 评估博客](https://www.anthropic.com/research/evaluating-ai-agents) → 补"Agent 评测"体系
-5. [课程主题 3 提炼](从能回答到能办事-重点提炼.md) → 回炉"业务数据包"设计
+5. [课程主题 3 提炼](https://github.com/sjs1919/agent-training/blob/main/docs/demo/09-reports/%E4%BB%8E%E8%83%BD%E5%9B%9E%E7%AD%94%E5%88%B0%E8%83%BD%E5%8A%9E%E4%BA%8B-%E9%87%8D%E7%82%B9%E6%8F%90%E7%82%BC.md) → 回炉"业务数据包"设计
 6. [Vanna AI NL2SQL](https://vanna.ai/) → 补"结构化筛选"能力
 
 **后续读**：
-7. [learn-claude-code s11 Error Recovery](../../learn-claude-code/s11_error_recovery) → 补"重试/熔断"机制
-8. [learn-claude-code s12 Task System](../../learn-claude-code/s12_task_system) → 补"任务持久化/恢复"
-9. [行业报告：中科闻歌 Harness 架构](../hangye/Wenge_中科闻歌_深度分析报告.html) → 补"企业级 Harness 实践"
-10. [行业报告：语核科技 长任务控制](../hangye/LangCore_语核科技_深度分析报告.html) → 补"反幻觉/步骤校验"实践
+7. [learn-claude-code s11 Error Recovery](https://github.com/sjs1919/agent-training/blob/main/docs/learn-claude-code/s11_error_recovery) → 补"重试/熔断"机制
+8. [learn-claude-code s12 Task System](https://github.com/sjs1919/agent-training/blob/main/docs/learn-claude-code/s12_task_system) → 补"任务持久化/恢复"
+9. [行业报告：中科闻歌 Harness 架构](https://github.com/sjs1919/agent-training/blob/main/docs/demo/hangye/Wenge_%E4%B8%AD%E7%A7%91%E9%97%BB%E6%AD%8C_%E6%B7%B1%E5%BA%A6%E5%88%86%E6%9E%90%E6%8A%A5%E5%91%8A.html) → 补"企业级 Harness 实践"
+10. [行业报告：语核科技 长任务控制](https://github.com/sjs1919/agent-training/blob/main/docs/demo/hangye/LangCore_%E8%AF%AD%E6%A0%B8%E7%A7%91%E6%8A%80_%E6%B7%B1%E5%BA%A6%E5%88%86%E6%9E%90%E6%8A%A5%E5%91%8A.html) → 补"反幻觉/步骤校验"实践
 
 ---
 

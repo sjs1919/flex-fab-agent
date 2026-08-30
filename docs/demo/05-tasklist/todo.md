@@ -8,7 +8,7 @@
 |---------|------|
 | [todo-M1-20260822.md](todo-M1-20260822.md) | ✅ 已完成（M1 数据层，167 tests 全绿，门禁2/门禁3 已过） |
 | [todo-M2-20260822.md](todo-M2-20260822.md) | ✅ 已完成（M2 求解器） |
-| [todo-M3-20260823.md](todo-M3-20260823.md) | ✅ 已完成（M3 环境模拟器，commit `1f04948`） |
+| [todo-M3-20260823.md](https://github.com/sjs1919/agent-training/blob/main/docs/demo/05-tasklist/todo-M3-20260823.md) | ✅ 已完成（M3 环境模拟器，commit `1f04948`） |
 | [todo-M4a-20260823.md](todo-M4a-20260823.md) | ✅ 已完成（M4a 集成骨架，280 tests，commit `ac563f8`） |
 | [todo-M4b-20260823.md](todo-M4b-20260823.md) | ✅ 已完成（M4b 业务工具+B3 路由+C2，323 tests，commit `cc0bcda`） |
 | [todo-M5a-20260823.md](todo-M5a-20260823.md) | ✅ 已完成（M5a 后端能力，387 tests，commit `14eca13`） |
