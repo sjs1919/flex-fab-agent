@@ -82,9 +82,9 @@ def seeded_mysql():
         conn.commit()
     finally:
         conn.close()
-    os.environ["DEMO_DATA_SOURCE"] = "mysql"
+    os.environ["FLEX_FAB_AGENT_DATA_SOURCE"] = "mysql"
     yield
-    os.environ["DEMO_DATA_SOURCE"] = "csv"
+    os.environ["FLEX_FAB_AGENT_DATA_SOURCE"] = "csv"
 
 
 def test_metrics():

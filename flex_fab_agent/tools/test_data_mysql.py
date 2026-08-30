@@ -22,7 +22,7 @@ def _mysql_query(query, params=()):
 
 def test_read_rows_mysql_param(monkeypatch):
     """mysql 分流：参数化查询返回 list[dict]，key=列名。"""
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "mysql")
     rows = data._read_rows("SELECT * FROM orders WHERE customer_id=%s", ("C001",))
     assert isinstance(rows, list) and rows
     assert {"id", "customer_id", "amount", "status"}.issubset(rows[0].keys())
@@ -31,7 +31,7 @@ def test_read_rows_mysql_param(monkeypatch):
 
 def test_read_rows_param_special_char(monkeypatch):
     """参数化查询：特殊字符不报错、不注入。"""
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "mysql")
     # 恶意参数：单引号拼接攻击，应被参数化隔离（查询结果为空而非注入全表）
     rows = data._read_rows("SELECT * FROM orders WHERE id=%s", ("ORD001' OR '1'='1",))
     assert rows == []
@@ -39,7 +39,7 @@ def test_read_rows_param_special_char(monkeypatch):
 
 def test_read_rows_missing_dsn_fallback(monkeypatch, caplog):
     """缺连接串 → 报错提示 + 自动降级 csv 兜底，不抛异常。"""
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "mysql")
     monkeypatch.setattr(data_mod, "get_mysql_dsn", lambda: (_ for _ in ()).throw(
         RuntimeError("缺少 MySQL 口令")
     ))
@@ -54,14 +54,14 @@ def test_read_rows_missing_dsn_fallback(monkeypatch, caplog):
 
 def test_read_rows_csv_default(monkeypatch):
     """csv 分流：默认读 CSV。"""
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "csv")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "csv")
     rows = data._read_rows("SELECT * FROM orders", filename="orders.csv")
     assert len(rows) == 15  # 现有 orders.csv 15 条
 
 
 def test_read_rows_tenant_sql(monkeypatch):
     """R8：SQL 层租户过滤（mysql 路径）。"""
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "mysql")
     rows = data._read_rows("SELECT * FROM orders WHERE tenant_id=%s", ("nonexistent",))
     assert rows == []
 
@@ -70,7 +70,7 @@ def test_read_rows_tenant_sql(monkeypatch):
 
 def test_load_orders_mysql_40(monkeypatch):
     """mysql 路径 load_orders 返回 seed 订单数（20，2026-08-28 从 40 调低），字段对齐新表。"""
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "mysql")
     orders = data.load_orders()
     assert len(orders) == 20
     assert {"id", "customer_id", "amount", "urgent", "priority", "due_date", "status"}.issubset(orders[0].keys())
@@ -78,13 +78,13 @@ def test_load_orders_mysql_40(monkeypatch):
 
 def test_load_orders_tenant_nonexistent_mysql(monkeypatch):
     """R8：mysql 路径 load_orders(tenant_id=nonexistent) == []。"""
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "mysql")
     assert data.load_orders(tenant_id="nonexistent") == []
 
 
 def test_load_machines_mysql_7(monkeypatch):
     """mysql 路径 load_machines 返回 7 台，字段含 process/model_type/cabin_size/max_weight。"""
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "mysql")
     machines = data.load_machines()
     assert len(machines) == 7
     assert {"process", "model_type", "cabin_size", "max_weight"}.issubset(machines[0].keys())
@@ -92,7 +92,7 @@ def test_load_machines_mysql_7(monkeypatch):
 
 def test_load_parts_mysql(monkeypatch):
     """新增 load_parts：mysql 路径返回数百条（seed 20 订单 ~174 part），含包络盒三边/件重。"""
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "mysql")
     parts = data.load_parts()
     assert len(parts) >= 100
     assert {"id", "order_id", "material", "length", "width", "height", "weight"}.issubset(parts[0].keys())
@@ -100,7 +100,7 @@ def test_load_parts_mysql(monkeypatch):
 
 def test_load_inventory_mysql_10(monkeypatch):
     """mysql 路径 load_inventory 返回 10 种材料。"""
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "mysql")
     items = data.load_inventory()
     assert len(items) == 10
     assert "库存量" in items[0]
@@ -111,7 +111,7 @@ def test_new_functions_passthrough(monkeypatch):
 
     M2/M3 后 batches/preprocess_tasks 由求解器与 E2E 落库，不再假设空表。
     """
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "mysql")
     with data.get_connection() as conn:
         with conn.cursor() as cur:
             counts = {}
@@ -127,7 +127,7 @@ def test_new_functions_passthrough(monkeypatch):
 
 def test_transaction_atomic_rollback(monkeypatch):
     """同一事务写 2 行后制造异常 → 两行均不存在（无半写）。"""
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "mysql")
     try:
         with data.transaction() as conn:
             with conn.cursor() as cur:
@@ -148,7 +148,7 @@ def test_transaction_atomic_rollback(monkeypatch):
 
 def test_transaction_commit(monkeypatch):
     """成功路径：多写均落库。"""
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "mysql")
     with data.transaction() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -176,14 +176,14 @@ def _clear_test_bad_parts(all_rows: bool = False):
 
 def test_load_bad_parts_empty_table(monkeypatch):
     """空表返回 []（bad_parts 由 simulator 落库，测试清 TESTBP 前缀后验证）。"""
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "mysql")
     _clear_test_bad_parts(all_rows=True)
     assert data.load_bad_parts() == []
 
 
 def test_load_bad_parts_filter_dimensions(monkeypatch):
     """插入后按 machine_id/batch_id/material 维度 filter_by 走通。"""
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "mysql")
     _clear_test_bad_parts()
     with data.transaction() as conn:
         with conn.cursor() as cur:
@@ -209,7 +209,7 @@ def test_load_bad_parts_filter_dimensions(monkeypatch):
 
 def test_load_bad_parts_tenant_filter(monkeypatch):
     """R8：load_bad_parts(tenant_id=nonexistent) == []。"""
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "mysql")
     assert data.load_bad_parts(tenant_id="nonexistent") == []
 
 
@@ -219,7 +219,7 @@ def test_load_latest_batches_aggregates_active_versions(monkeypatch):
     """弃 MAX(id)：聚合所有含未完成批次且版本非「已驳回」——插单后旧版本在途批次
     仍被资源页读出；驳回版本批次（被 E 门禁卡在前道）不入；全完成版本退出聚合。
     自建 AGG-* 批次自隔离，finally 清理不留共享库污染。"""
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "mysql")
     vids, bids = [], []
     try:
         with data.transaction() as conn:

@@ -4,9 +4,9 @@
 
 ## 1. csv 模式 kpi_metrics KeyError 'id' 新暴露路径：MySQL 连接 + csv load_machines 错配（存量 bug 复发）
 
-- **根因**：`DEMO_DATA_SOURCE` 默认 csv，`load_machines()` 走 csv.DictReader 返回中文表头键（机器编号/型号）无 `id`，`{m["id"]: m ...}` 抛 KeyError。M5a 已记录（csv 模式 query_kpi 本就不通）。M5b 把 `kpi_metrics()` 挂进每 tick 后，**新的暴露路径**：`test_runner_ticks` 一直处于「MySQL 连接 + csv 读取」错配态（M5b 前 run_tick 不读 load_machines 所以从未触发），现在每 tick 抛 KeyError + 额外 DB 查询，10s 死线被撑爆。
-- **教训**：依赖 DB 计算的测试必须显式 `DEMO_DATA_SOURCE=mysql`（仓库既有约定：test_scheduler_tools fixture、forecast/assessment/solver 测试都这么做）。csv 是离线兜底不是正式数据源。
-- **规避**：`test_runner_ticks` 加 `monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")`。csv 模式的 query_kpi 修复记为待办（不属 M5b 范围）。
+- **根因**：`FLEX_FAB_AGENT_DATA_SOURCE` 默认 csv，`load_machines()` 走 csv.DictReader 返回中文表头键（机器编号/型号）无 `id`，`{m["id"]: m ...}` 抛 KeyError。M5a 已记录（csv 模式 query_kpi 本就不通）。M5b 把 `kpi_metrics()` 挂进每 tick 后，**新的暴露路径**：`test_runner_ticks` 一直处于「MySQL 连接 + csv 读取」错配态（M5b 前 run_tick 不读 load_machines 所以从未触发），现在每 tick 抛 KeyError + 额外 DB 查询，10s 死线被撑爆。
+- **教训**：依赖 DB 计算的测试必须显式 `FLEX_FAB_AGENT_DATA_SOURCE=mysql`（仓库既有约定：test_scheduler_tools fixture、forecast/assessment/solver 测试都这么做）。csv 是离线兜底不是正式数据源。
+- **规避**：`test_runner_ticks` 加 `monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "mysql")`。csv 模式的 query_kpi 修复记为待办（不属 M5b 范围）。
 - **升级为规则**：否（M5a 已记 #1；本轮是同一根因的新暴露路径）。
 
 ## 2. GIL 饿死忙等主线程：CPU 密集 kpi_metrics 进 worker 后，测试忙等 10s/tick（本轮新增）

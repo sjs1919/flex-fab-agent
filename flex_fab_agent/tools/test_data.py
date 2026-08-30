@@ -46,7 +46,7 @@ def test_load_orders_tenant_filter():
 
 def test_load_orders_normalizes_csv_columns(monkeypatch):
     """csv 模式：交期/状态列归一为 schema 键，旧状态枚举转新枚举（M6 联调修复）。"""
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "csv")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "csv")
     by_id = {o["id"]: o for o in load_orders()}
     assert by_id["ORD001"]["status"] == "打印中"           # 生产中→打印中
     assert by_id["ORD001"]["due_date"] == "2026-07-25"     # 交期→due_date

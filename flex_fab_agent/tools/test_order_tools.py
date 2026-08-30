@@ -15,9 +15,9 @@ from flex_fab_agent.tools.order_tools import get_order_detail, get_production_st
 def seeded_mysql():
     """模块级：重置种子数据到 MySQL + 数据源指向 mysql。"""
     seed_mod.reset()
-    os.environ["DEMO_DATA_SOURCE"] = "mysql"
+    os.environ["FLEX_FAB_AGENT_DATA_SOURCE"] = "mysql"
     yield
-    os.environ["DEMO_DATA_SOURCE"] = "csv"
+    os.environ["FLEX_FAB_AGENT_DATA_SOURCE"] = "csv"
 
 
 def test_query_orders_all():
@@ -109,7 +109,7 @@ def test_get_production_status_missing():
 
 def test_query_orders_csv_mode_fields_and_new_enum(monkeypatch):
     """csv 模式（M6 联调修复）：列别名 + 旧枚举归一后字段可见、新枚举筛选命中。"""
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "csv")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "csv")
     all_orders = query_orders()
     assert "深圳精密五金" in all_orders            # csv 客户名不再被空 customer_id 覆盖
     assert "待排队" in all_orders                  # 状态列归一为新枚举
@@ -121,7 +121,7 @@ def test_query_orders_csv_mode_fields_and_new_enum(monkeypatch):
 
 def test_query_orders_status_old_vocab(monkeypatch):
     """csv 模式：LLM 传旧枚举/口吻词（排期中/待排产/排队）宽容归一为待排队命中。"""
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "csv")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "csv")
     for old in ("排期中", "待排产", "排队", "排队中", "排产中"):
         out = query_orders(status=old)
         assert "ORD005" in out and "ORD007" in out, f"status={old} 应归一为待排队"

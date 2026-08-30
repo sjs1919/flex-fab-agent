@@ -60,7 +60,7 @@ pip install fastapi uvicorn redis opentelemetry-api opentelemetry-sdk
 ```
 
 ### 数据库（v2 必需）
-MySQL 8.0+，库名 `demo_scheduling`，建表脚本见 `demo/schema/schema.sql`：
+MySQL 8.0+，库名 `flex_fab_agent`，建表脚本见 `flex_fab_agent/schema/schema.sql`：
 ```bash
 python -m flex_fab_agent.schema.migrate --up    # 幂等迁移（schema_version 管理）
 ```
@@ -75,10 +75,10 @@ PRIMARY_PROVIDER=              # 可选：提权重排主备，如 "火山豆包
 # MySQL（v2，M1）
 MYSQL_HOST=127.0.0.1
 MYSQL_PORT=3306
-MYSQL_USER=demo_sched
+MYSQL_USER=flex_fab_agent
 MYSQL_PASSWORD=...
-MYSQL_DB=demo_scheduling
-DEMO_DATA_SOURCE=mysql          # mysql | csv（默认 csv，兼容 v1）
+MYSQL_DB=flex_fab_agent
+FLEX_FAB_AGENT_DATA_SOURCE=mysql          # mysql | csv（默认 csv，兼容 v1）
 
 # 自动排产调度器（v3）
 AUTO_SCHEDULE_ENABLED=on        # off 关闭自动排产
@@ -166,9 +166,9 @@ cd web && npm install && npm run build
 ## 5. 目录说明
 
 ```
-demo/
+flex_fab_agent/
 ├── __init__.py              # 包入口
-├── main.py                  # 统一入口：--check/--demo/--sim/--init-schedule/--rollback
+├── main.py                  # 统一入口：--check/--flex_fab_agent/--sim/--init-schedule/--rollback
 ├── api.py                   # FastAPI 网关（28 端点 + 前端托管 + 自动调度启动）
 ├── config.py                # 统一 .env 加载 + PROVIDERS + credentials 双源 + 全部配置
 │
@@ -338,7 +338,7 @@ web/                        # 前端控制台（Vue3 + Vite + Element Plus + ECh
 
 ### 7.1 数据层（M1）：从 CSV 到 MySQL
 
-`tools/data.py` 提供统一数据访问接口，支持 CSV 和 MySQL 双模式，由 `DEMO_DATA_SOURCE` 环境变量切换。
+`tools/data.py` 提供统一数据访问接口，支持 CSV 和 MySQL 双模式，由 `FLEX_FAB_AGENT_DATA_SOURCE` 环境变量切换。
 
 **关键能力**：
 - `get_connection()`：从连接池取连接（MySQL 模式，PooledDB）
@@ -538,12 +538,12 @@ python -m flex_fab_agent.scheduler.solver --solve --out result.json
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `DEMO_DATA_SOURCE` | `csv` | 数据源：csv / mysql |
+| `FLEX_FAB_AGENT_DATA_SOURCE` | `csv` | 数据源：csv / mysql |
 | `MYSQL_HOST` | `127.0.0.1` | MySQL 主机 |
 | `MYSQL_PORT` | `3306` | MySQL 端口 |
-| `MYSQL_USER` | `demo_sched` | MySQL 用户 |
+| `MYSQL_USER` | `flex_fab_agent` | MySQL 用户 |
 | `MYSQL_PASSWORD` | - | MySQL 密码（env 或 credentials.local.md） |
-| `MYSQL_DB` | `demo_scheduling` | MySQL 库名 |
+| `MYSQL_DB` | `flex_fab_agent` | MySQL 库名 |
 | `FORCE_TENANT` | `false` | 强制租户隔离 |
 
 ### 模拟器 + 求解器
@@ -590,7 +590,7 @@ python run_all_tests.py --eval
 python run_all_tests.py --report
 
 # 部署冒烟测试（S0-S10，S10 调真实 LLM 可跳过）
-python demo/smoke_test.py --skip-llm
+python flex_fab_agent/smoke_test.py --skip-llm
 
 # 三层评估：工具 / 轨迹 / 语义（需真实 LLM）
 python -m flex_fab_agent.eval.runner
@@ -604,10 +604,10 @@ python -m flex_fab_agent.eval.ragas_regression
 python -m flex_fab_agent.backtest.runner
 
 # 排产求解器单测
-python -m pytest demo/scheduler/test_solver.py -v
+python -m pytest flex_fab_agent/scheduler/test_solver.py -v
 
 # 模拟器单测
-python -m pytest demo/simulator/ -v
+python -m pytest flex_fab_agent/simulator/ -v
 ```
 
 > 测试基线：v2 里程碑 449 passed 只增不减；v3 新增自动调度器/审批/资源/调试台/循环守卫回归测试。全量测试在 WSL 下运行。

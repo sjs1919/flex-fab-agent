@@ -1,6 +1,6 @@
 -- ============================================================
 -- demo 业务库建表脚本（M1 · v2 重构方案 §4.1 + v1 §3 字段定义）
--- 库：demo_scheduling（WSL MySQL 8.0，utf8mb4）
+-- 库：flex_fab_agent（WSL MySQL 8.0，utf8mb4）
 --
 -- 表所有权（v2 §4.2，写方唯一，交叉只读快照）：
 --   业务表   customer/orders/parts/machines/material/inventory/personnel → 写方 seed + 模拟器 B 层（订单到达/restock/leave）

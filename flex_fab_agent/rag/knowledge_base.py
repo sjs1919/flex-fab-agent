@@ -1,6 +1,6 @@
 """合同知识库 -- 文档加载 + 分块 + Chroma 向量库。
 
-数据在 demo/data/：
+数据在 flex_fab_agent/data/：
   contracts/             3 份合同特殊条款 txt
   历史延期记录.txt        历史延期案例
   chroma_db/             已灌好的 Chroma 向量库（直接复用，无需重建）

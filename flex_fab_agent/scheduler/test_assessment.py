@@ -122,9 +122,9 @@ def seeded_mysql():
     from flex_fab_agent.simulator import seed as seed_mod
     seed_mod.reset()
     import os
-    os.environ["DEMO_DATA_SOURCE"] = "mysql"
+    os.environ["FLEX_FAB_AGENT_DATA_SOURCE"] = "mysql"
     yield
-    os.environ.pop("DEMO_DATA_SOURCE", None)
+    os.environ.pop("FLEX_FAB_AGENT_DATA_SOURCE", None)
 
 
 def test_load_assessment_structure(seeded_mysql):

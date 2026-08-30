@@ -231,7 +231,7 @@ def status() -> dict:
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
-    p = argparse.ArgumentParser(description="demo_scheduling 数据库迁移器（M1）")
+    p = argparse.ArgumentParser(description="flex_fab_agent 数据库迁移器（M1）")
     g = p.add_mutually_exclusive_group(required=True)
     g.add_argument("--up", action="store_true", help="应用迁移（幂等，连跑两次第二次 no-op）")
     g.add_argument("--down", action="store_true", help="回滚当前版本（可回滚路径）")

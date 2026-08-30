@@ -26,7 +26,7 @@ T0 = datetime(2026, 9, 2, 8, 0, 0)
 @pytest.fixture(autouse=True)
 def _env(monkeypatch):
     """mysql 数据源 + 固定时钟 + 打桩 run_single_agent（不打真实 LLM）。"""
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "mysql")
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM kpi_snapshot")

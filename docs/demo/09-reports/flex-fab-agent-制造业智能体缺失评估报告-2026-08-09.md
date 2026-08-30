@@ -1,7 +1,7 @@
 # 制造业智能体 flex-fab-agent 缺失评估报告 — 行业最佳实践对照
 
 > **日期：2026-08-09**
-> **评估对象：** `projects/agent-training/demo/`（多 Agent 排产助手，LangGraph + LLM API）
+> **评估对象：** `projects/agent-training/flex_fab_agent/`（多 Agent 排产助手，LangGraph + LLM API）
 > **评估方式：** CodeGraph 全模块静态分析 + 真实运行验证（`--check` / pytest 128 passed）+ 行业实践调研
 > **评审团：** CLAUDE.md 9 角色评估表（开发者/测试者/架构审查/安全审查/DBA 运维/前端架构师/前端开发工程师/代码走读/法律合规审查）+ AI 专家 + 技术专家
 
@@ -185,7 +185,7 @@ CodeGraph 索引 **115 文件 / 1,438 节点 / 2,894 边**。flex-fab-agent 采�
 
 ## 五、与 flex-fab-agent 已有 README 差距表的对照
 
-demo/README.md §9 已有「与行业推荐方案的差距表」（12 项）。本报告是其**行业基准化升级**：
+flex_fab_agent/README.md §9 已有「与行业推荐方案的差距表」（12 项）。本报告是其**行业基准化升级**：
 
 | README 已有差距 | 本报告补充 |
 |----------------|-----------|

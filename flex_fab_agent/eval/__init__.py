@@ -1,4 +1,4 @@
-# demo/eval — Agent 评估模块（R6 缺陷修复 + 三层评估升级）
+# flex_fab_agent/eval — Agent 评估模块（R6 缺陷修复 + 三层评估升级）
 from .metrics import compute_all_metrics, tool_call_accuracy, answer_completeness
 from .trajectory import compute_trajectory_score
 from .trajectory_capture import rebuild_trajectory

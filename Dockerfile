@@ -11,13 +11,13 @@ RUN pip install torch --index-url https://download.pytorch.org/whl/cpu
 
 WORKDIR /app
 
-COPY requirements-demo.txt .
-RUN pip install -r requirements-demo.txt
+COPY requirements-flex-fab-agent.txt .
+RUN pip install -r requirements-flex-fab-agent.txt
 
-# flex_fab_agent/ 含业务数据（csv/contracts，随镜像）；运行时产物走挂载卷（DEMO_RUNTIME_DIR）
+# flex_fab_agent/ 含业务数据（csv/contracts，随镜像）；运行时产物走挂载卷（FLEX_FAB_AGENT_RUNTIME_DIR）
 COPY flex_fab_agent/ ./flex_fab_agent/
 
-ENV DEMO_RUNTIME_DIR=/data/runtime \
+ENV FLEX_FAB_AGENT_RUNTIME_DIR=/data/runtime \
     OTEL_EXPORTER=console \
     CHECKPOINTER=sqlite \
     SEMANTIC_CACHE=on

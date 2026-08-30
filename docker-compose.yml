@@ -9,7 +9,7 @@ services:
     env_file:
       - .env
     environment:
-      - DEMO_RUNTIME_DIR=/data/runtime
+      - FLEX_FAB_AGENT_RUNTIME_DIR=/data/runtime
       # HuggingFace 国内镜像，加速模型下载（sentence-transformers / reranker）
       - HF_ENDPOINT=https://hf-mirror.com
       # host 模式下容器即宿主网络，MYSQL_HOST 沿用 .env 的 127.0.0.1 即可

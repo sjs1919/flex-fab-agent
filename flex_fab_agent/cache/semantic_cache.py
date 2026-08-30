@@ -8,7 +8,7 @@ sentence-transformers，~95MB；torch/sentence-transformers 依赖项目已装�
 
 ⚠️ 踩坑 #14（2026-08-24 实证）：Chroma 默认 MiniLM 对中文短问句几乎无区分度
 （「有哪些订单在打印？」与「有哪些订单在排队？」距离 0.0，缓存张冠李戴），
-必须用中文 embedding。换 embedding 模型后**必须清 demo/data/cache_db**
+必须用中文 embedding。换 embedding 模型后**必须清 flex_fab_agent/data/cache_db**
 （向量维度/语义空间不同，旧缓存不可比）。
 
 阈值校准（bge-small-zh cosine distance，越小越相似）：
@@ -69,7 +69,7 @@ def _ttl(sensitive: bool) -> int:
 
 
 def _get_collection():
-    """懒加载缓存 collection（cosine 空间，持久化到 demo/data/cache_db/）。
+    """懒加载缓存 collection（cosine 空间，持久化到 flex_fab_agent/data/cache_db/）。
 
     双检锁：tick 线程与 /ask 线程可能同时首访问，chroma PersistentClient
     对同一 path 的共享单例并发初始化会崩（见 _collection_lock 注释）。

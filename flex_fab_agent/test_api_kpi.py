@@ -1,7 +1,7 @@
 """api.py /order/{id}/tracking 与 /kpi 端点测试（M4b T4b.8，需 WSL MySQL）。
 
 覆盖：订单跟踪 200 + 结构、不存在订单 404、/kpi 200 + 5 项指标齐全。
-端点内部 load_orders/load_machines 等按 DEMO_DATA_SOURCE 路由，必须切 mysql
+端点内部 load_orders/load_machines 等按 FLEX_FAB_AGENT_DATA_SOURCE 路由，必须切 mysql
 （英文列名）才能与 get_connection 的 MySQL 表一致（同 test_scheduler_tools）。
 """
 import pytest
@@ -14,7 +14,7 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def _mysql_source(monkeypatch):
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "mysql")
     yield
 
 

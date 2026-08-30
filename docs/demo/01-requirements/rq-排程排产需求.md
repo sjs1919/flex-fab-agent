@@ -418,7 +418,7 @@
 ### 3.24 可观测 Dashboard（2026-08-21 确认入案 · B8）
 
 - **JD 证据**：安克/绿联"可观测 / 监控"。
-- **需求**：静态 HTML 看板——`python -m demo.observability.dashboard` 生成 `tmp/dashboard.html`：① KPI 随时间曲线（准交率/延期金额/良率/舱利用率，query_kpi 同口径聚合）；② 成本统计分模型（B3 落库）；③ trace 摘要（solver 耗时/工具调用分布）。复用 eval/report.py HTML 先例。
+- **需求**：静态 HTML 看板——`python -m flex_fab_agent.observability.dashboard` 生成 `tmp/dashboard.html`：① KPI 随时间曲线（准交率/延期金额/良率/舱利用率，query_kpi 同口径聚合）；② 成本统计分模型（B3 落库）；③ trace 摘要（solver 耗时/工具调用分布）。复用 eval/report.py HTML 先例。
 - **边界（用户确认）**：静态报告非实时 Web，M5 打磨期顺手做，不阻塞 M4。
 - **衔接（2026-08-21 补充）**：看板作为主页（Agent 调试台）的**二级页面 `GET /dashboard`**，主页顶部入口点击打开；由 FastAPI 托管/渲染（替换纯静态文件方案，展示内容不变）。
 

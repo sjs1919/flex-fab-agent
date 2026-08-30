@@ -13,7 +13,7 @@
 | 三层评估（工具/轨迹/语义） | ✅ 完成 | judge.py + trajectory.py + metrics.py 增强 |
 | 可视化 HTML 报告 | ✅ 完成 | report.py，单页三层指标 |
 | 全 flex-fab-agent 单元测试 | ✅ 完成 | 128 个测试全绿 |
-| 一键自动化脚本 | ✅ 完成 | run_all_tests.py + test_demo.sh |
+| 一键自动化脚本 | ✅ 完成 | run_all_tests.py + test_flex_fab_agent.sh |
 | 回测模块 | ✅ 完成 | backtest/，5 个历史复盘场景 |
 | 真实 LLM 评估 | 🔶 部分 | 主 provider 配额超限，DeepSeek 兜底成功，回归基线待账户恢复后重跑 |
 
@@ -89,9 +89,9 @@
 
 ## 五、遗留与下一步
 
-1. **火山豆包配额恢复后**：重跑 `python -m demo.eval.runner --report` 拿真实回归基线
+1. **火山豆包配额恢复后**：重跑 `python -m flex_fab_agent.eval.runner --report` 拿真实回归基线
 2. **接 CI**：把 `run_all_tests.py` 接入 CI（用户决定放 GitLab 还是本地）
-3. **回测真实跑**：`python -m demo.backtest.runner` 需真实 LLM
+3. **回测真实跑**：`python -m flex_fab_agent.backtest.runner` 需真实 LLM
 4. **补数据列**：orders.csv 加 `客户等级`/`工艺` 列，启用 R7 完整筛选
 
 ---
@@ -100,17 +100,17 @@
 
 | 文件 | 动作 |
 |------|------|
-| `demo/eval/judge.py` / `judge_prompt.py` | 新增 LLM-as-Judge |
-| `demo/eval/trajectory.py` / `trajectory_capture.py` | 新增轨迹评估 |
-| `demo/eval/report.py` | 新增 HTML 报告 |
-| `demo/eval/metrics.py` | 修改：min_tools_called 校验 |
-| `demo/eval/runner.py` | 修改：三层聚合 + --no-judge + --report |
-| `demo/graph/single_agent_graph.py` | 修改：evaluate 清残留标记（bug fix） |
-| `demo/observability/cost.py` | 修改：死锁修复（bug fix） |
-| `demo/backtest/` | 新增：回测模块 |
-| `demo/run_all_tests.py` / `test_demo.sh` | 新增：一键自动化脚本 |
-| `demo/pytest.ini` / `demo/conftest.py` | 新增：测试基础设施 |
-| `demo/*/test_*.py`（17 个） | 新增：全 flex-fab-agent 测试 |
+| `flex_fab_agent/eval/judge.py` / `judge_prompt.py` | 新增 LLM-as-Judge |
+| `flex_fab_agent/eval/trajectory.py` / `trajectory_capture.py` | 新增轨迹评估 |
+| `flex_fab_agent/eval/report.py` | 新增 HTML 报告 |
+| `flex_fab_agent/eval/metrics.py` | 修改：min_tools_called 校验 |
+| `flex_fab_agent/eval/runner.py` | 修改：三层聚合 + --no-judge + --report |
+| `flex_fab_agent/graph/single_agent_graph.py` | 修改：evaluate 清残留标记（bug fix） |
+| `flex_fab_agent/observability/cost.py` | 修改：死锁修复（bug fix） |
+| `flex_fab_agent/backtest/` | 新增：回测模块 |
+| `flex_fab_agent/run_all_tests.py` / `test_flex_fab_agent.sh` | 新增：一键自动化脚本 |
+| `flex_fab_agent/pytest.ini` / `flex_fab_agent/conftest.py` | 新增：测试基础设施 |
+| `flex_fab_agent/*/test_*.py`（17 个） | 新增：全 flex-fab-agent 测试 |
 
 ---
 
@@ -121,7 +121,7 @@
 ### 阶段 0：现状探查与方向确定（08-08 晚）
 
 **做了什么**：
-1. 读 `demo/eval/` 三个文件（metrics.py / runner.py / ground_truth.json），确认现状是 R6 手写规则 eval，不是 ragas
+1. 读 `flex_fab_agent/eval/` 三个文件（metrics.py / runner.py / ground_truth.json），确认现状是 R6 手写规则 eval，不是 ragas
 2. 识别 4 个硬伤：`min_tools_called` 字段从没被读、完整性是子串匹配（语义不对也判过）、缺 LLM-as-Judge 语义指标、缺 trajectory 评估、`search_knowledge_base` 把检索 hits 展平成字符串（context 无法给 RAGAS 用）
 3. 查 ragas：`pip index versions ragas` 确认 **0.4.3 就是 PyPI 最高版本**，无更新可升
 4. 查依赖：ragas 0.4.3 代码写死 `from langchain_community.chat_models.vertexai import ChatVertexAI`，而新版 langchain-community（0.4.x）已移除该模块 → **是 ragas 过时导致不兼容，不是 langchain 的问题**
@@ -135,7 +135,7 @@
 | 坑 | 定位 | 解决 |
 |----|------|------|
 | ragas 无法 import（`No module named 'langchain_community.chat_models.vertexai'`） | 读已装包 metadata Requires-Dist，确认 ragas 依赖宽松但代码写死旧模块 | 确认"ragas 过时"根因，放弃引 ragas，改自研 |
-| 计划里 conftest 最初写"加 flex-fab-agent 根到 sys.path" | `python -c "from demo.eval.runner import run_eval"` 在 agent-training 根成功、flex-fab-agent 根失败（GBK 打 ✅ 报错掩盖了真因） | 验证后改为 **加 agent-training 根**（eval 内部用相对导入 `from ..core.llm_client`，必须 `flex-fab-agent` 作父包） |
+| 计划里 conftest 最初写"加 flex-fab-agent 根到 sys.path" | `python -c "from flex_fab_agent.eval.runner import run_eval"` 在 agent-training 根成功、flex-fab-agent 根失败（GBK 打 ✅ 报错掩盖了真因） | 验证后改为 **加 agent-training 根**（eval 内部用相对导入 `from ..core.llm_client`，必须 `flex-fab-agent` 作父包） |
 
 ---
 
@@ -143,16 +143,16 @@
 
 **做了什么**：
 1. 发现 flex-fab-agent **零测试、无 pytest 配置**（全库只有 `scripts/week3/test_mcp_client.py` 一个）
-2. 建 `demo/pytest.ini`（testpaths 覆盖 eval/tests/backtest）
-3. 建 `demo/conftest.py`（加 agent-training 根到 sys.path）
-4. 建 `demo/eval/test_smoke.py` 冒烟测试（含 `test_demo_package_importable` 验证 conftest 路径）
+2. 建 `flex_fab_agent/pytest.ini`（testpaths 覆盖 eval/tests/backtest）
+3. 建 `flex_fab_agent/conftest.py`（加 agent-training 根到 sys.path）
+4. 建 `flex_fab_agent/eval/test_smoke.py` 冒烟测试（含 `test_demo_package_importable` 验证 conftest 路径）
 
 **坑与解决**：
 
 | 坑 | 定位 | 解决 |
 |----|------|------|
-| pytest 未安装 | `import pytest` ModuleNotFoundError | `pip install pytest`（pytest 9.1.1，不写入 requirements-demo.txt） |
-| `from demo.eval.metrics` 在 flex-fab-agent 目录下失败 | `flex-fab-agent` 作为包需要父目录在 sys.path | conftest 加 agent-training 根，测试统一 `from demo.*` 导入 |
+| pytest 未安装 | `import pytest` ModuleNotFoundError | `pip install pytest`（pytest 9.1.1，不写入 requirements-flex-fab-agent.txt） |
+| `from flex_fab_agent.eval.metrics` 在 flex-fab-agent 目录下失败 | `flex-fab-agent` 作为包需要父目录在 sys.path | conftest 加 agent-training 根，测试统一 `from flex_fab_agent.*` 导入 |
 
 **验证**：`python -m pytest eval/test_smoke.py` → 2 passed ✅
 **提交**：`test(eval): 建立 pytest 测试基础设施`
@@ -182,7 +182,7 @@
 **做了什么**（TDD）：
 1. 写 `judge_prompt.py`（system prompt 要求 JSON 输出 faithfulness/answer_relevancy 两项）
 2. 写 `test_judge.py`（消息结构/JSON 解析/合法/非法/空/LLM 调用/LLM 失败降级/context 提取/空 context）
-3. 跑 → 全部 FAIL（`ModuleNotFoundError: No module named 'demo.eval.judge'`）
+3. 跑 → 全部 FAIL（`ModuleNotFoundError: No module named 'flex_fab_agent.eval.judge'`）
 4. 实现 `judge.py`：复用 `call_llm`（同一调用层），`_extract_context` 从 tool_results 提取 `search_knowledge_base` 结果作 context，`parse_judge_response` 用正则抓 JSON，LLM 异常降级 0 分
 5. 跑 → 8 passed ✅
 
@@ -229,7 +229,7 @@
 
 | 坑 | 定位 | 解决 |
 |----|------|------|
-| 局部 import 让 monkeypatch 失效 | 测试断言 judge 不被调用时，若 runner 在函数内 import judge 则 patch 不到 | runner 改**模块级 import**（验证 `python -c "from demo.eval import runner; runner.judge_semantic_quality"` 绑定正确） |
+| 局部 import 让 monkeypatch 失效 | 测试断言 judge 不被调用时，若 runner 在函数内 import judge 则 patch 不到 | runner 改**模块级 import**（验证 `python -c "from flex_fab_agent.eval import runner; runner.judge_semantic_quality"` 绑定正确） |
 | 完整测试 2.86s（怀疑真实 LLM） | 检查 runner 模块级绑定 | 确认是 mock 生效，耗时来自 pytest 启动 + import langgraph |
 
 5. 全量 → 33 passed ✅
@@ -365,7 +365,7 @@
 
 | 坑 | 定位 | 解决 |
 |----|------|------|
-| pytest 执行卡在测试前 | `timeout 30 python -c "from demo.observability.cost import CostTracker; c=CostTracker(); c.record(...)"` 也卡 | 独立脚本加 `flush=True` 逐步打点，定位到 `c.record()` 这一行 |
+| pytest 执行卡在测试前 | `timeout 30 python -c "from flex_fab_agent.observability.cost import CostTracker; c=CostTracker(); c.record(...)"` 也卡 | 独立脚本加 `flush=True` 逐步打点，定位到 `c.record()` 这一行 |
 | **根因：CostTracker.record 死锁** | `threading.Lock` 非可重入，`record()` 在 `with self._lock:` 内调 `self.total_cost`（其内部再次 `with self._lock:`) → 同一非重入锁二次 acquire 死锁 | **修复真实 bug**：锁内直接 `sum(e.cost_total...)`，不再调 property |
 | 为什么之前 eval 没卡 | 之前 `test_runner`/`test_e2e` 用 FakeCost mock 掉了；真实 `call_llm` 才走真 CostTracker | 本次测试首次让真 CostTracker 跑 |
 
@@ -406,7 +406,7 @@
 
 | 坑 | 定位 | 解决 |
 |----|------|------|
-| llm_cache 用模块级 `_DB_PATH` 指向 RUNTIME_DIR（demo/data/llm_cache.db） | 测试会污染真实缓存 | `monkeypatch.setattr(lc, "_DB_PATH", tmp_path/...)` + 重置 `lc._conn = None` 指向新路径 |
+| llm_cache 用模块级 `_DB_PATH` 指向 RUNTIME_DIR（flex_fab_agent/data/llm_cache.db） | 测试会污染真实缓存 | `monkeypatch.setattr(lc, "_DB_PATH", tmp_path/...)` + 重置 `lc._conn = None` 指向新路径 |
 | 语义缓存依赖 Chroma 重依赖 | import chromadb 慢/重 | 测试只验证接口可调用 + 函数存在，不触发真实 Chroma |
 
 验证 → 8 passed ✅
@@ -419,17 +419,17 @@
 
 **做了什么**：
 1. 写 `run_all_tests.py`（pytest 全量 → 可选 --eval 三层评估 → 可选 --report 报告）
-2. 写 `test_demo.sh`（bash 入口，`bash test_demo.sh --eval`）
+2. 写 `test_flex_fab_agent.sh`（bash 入口，`bash test_flex_fab_agent.sh --eval`）
 
 **坑与解决**：
 
 | 坑 | 定位 | 解决 |
 |----|------|------|
-| 脚本 print emoji（✅）在 GBK 控制台报 `UnicodeEncodeError` | 独立脚本不触发 `demo/__init__.py` 的 reconfigure（那只对 flex-fab-agent 包内生效） | 脚本开头自己重配 stdin/stdout/stderr 为 UTF-8 |
+| 脚本 print emoji（✅）在 GBK 控制台报 `UnicodeEncodeError` | 独立脚本不触发 `flex_fab_agent/__init__.py` 的 reconfigure（那只对 flex-fab-agent 包内生效） | 脚本开头自己重配 stdin/stdout/stderr 为 UTF-8 |
 
 3. 跑 `python run_all_tests.py` → 全量通过 + 汇总 ✅
 
-**提交**：`feat(flex-fab-agent): 一键自动化测试脚本（run_all_tests.py + test_demo.sh）`
+**提交**：`feat(flex-fab-agent): 一键自动化测试脚本（run_all_tests.py + test_flex_fab_agent.sh）`
 
 ---
 
@@ -454,7 +454,7 @@
 ### 阶段 16：真实 LLM 评估验证 + 收尾
 
 **做了什么**：
-1. 跑 `python -m demo.eval.runner --report`（真实 LLM，10 case）
+1. 跑 `python -m flex_fab_agent.eval.runner --report`（真实 LLM，10 case）
 2. 先遇 `ModuleNotFoundError: No module named 'langgraph.checkpoint.sqlite'` → 装 `langgraph-checkpoint-sqlite`
 3. 转后台跑，约几分钟
 
@@ -462,7 +462,7 @@
 
 | 坑 | 定位 | 解决 |
 |----|------|------|
-| `langgraph.checkpoint.sqlite` 缺失 | requirements-demo.txt 声明了但当前环境未装 | `pip install langgraph-checkpoint-sqlite>=2.0` |
+| `langgraph.checkpoint.sqlite` 缺失 | requirements-flex-fab-agent.txt 声明了但当前环境未装 | `pip install langgraph-checkpoint-sqlite>=2.0` |
 | **主 provider 火山豆包 429 配额超限**（AccountQuotaExceeded） | 每次调用先试火山豆包失败再切 DeepSeek | DeepSeek 备用成功兜底（L1 缓存命中多次）→ **主备 fallback 架构真实验证成立**；回归基线待账户恢复后重跑 |
 | 后台任务 stdout 部分丢失（只捕获 stderr） | 命令管道 buffer | 从 output 文件读尾部确认关键信息 |
 
@@ -544,16 +544,16 @@ ccb5a4b feat(eval): 自研 LLM-as-Judge 语义指标
 ### 坑 2：conftest 加错 sys.path（阶段 0/1）
 
 **如何发现**：
-写计划时 conftest 最初设计成"把 flex-fab-agent 根加进 sys.path"。写后验证时 `python -c "from demo.eval.runner import run_eval"` 在 agent-training 根成功，但从 flex-fab-agent 根跑报错。
+写计划时 conftest 最初设计成"把 flex-fab-agent 根加进 sys.path"。写后验证时 `python -c "from flex_fab_agent.eval.runner import run_eval"` 在 agent-training 根成功，但从 flex-fab-agent 根跑报错。
 
 **定位过程**：
-1. 第一次在 flex-fab-agent 根测 `import demo.eval.metrics` 报 `ModuleNotFoundError`，误以为是路径问题
+1. 第一次在 flex-fab-agent 根测 `import flex_fab_agent.eval.metrics` 报 `ModuleNotFoundError`，误以为是路径问题
 2. 用 `tail` 看真实报错 → 是 **Windows GBK 打 emoji ✅ 的 UnicodeEncodeError 掩盖了真因**（import 实际成功）
-3. 彻底验证：从 agent-training 根 `from demo.eval.runner import run_eval` 成功、flex-fab-agent 根 `from eval.runner import ...` 失败 → 确认 eval 内部用相对导入 `from ..core.llm_client`，**必须 `flex-fab-agent` 作为父包**，conftest 该加的是 **agent-training 根**，不是 flex-fab-agent 根
+3. 彻底验证：从 agent-training 根 `from flex_fab_agent.eval.runner import run_eval` 成功、flex-fab-agent 根 `from eval.runner import ...` 失败 → 确认 eval 内部用相对导入 `from ..core.llm_client`，**必须 `flex-fab-agent` 作为父包**，conftest 该加的是 **agent-training 根**，不是 flex-fab-agent 根
 
 **根因归属**：**【理解 Agent 过程】**（这里是 Python 包机制）——flex-fab-agent 是包（有 `__init__.py`），eval 子包内部用相对导入，顶层测试必须从 flex-fab-agent 的父目录导入。这暴露了对 flex-fab-agent 包结构理解不深。
 
-**思考解决**：conftest 加 `AGENT_TRAINING_ROOT = Path(__file__).parent.parent`，测试统一 `from demo.*` 导入。并给计划文档标注这个"导入路径关键决策"。
+**思考解决**：conftest 加 `AGENT_TRAINING_ROOT = Path(__file__).parent.parent`，测试统一 `from flex_fab_agent.*` 导入。并给计划文档标注这个"导入路径关键决策"。
 
 ---
 
@@ -561,17 +561,17 @@ ccb5a4b feat(eval): 自研 LLM-as-Judge 语义指标
 
 **如何发现**：
 - 阶段 1：`import pytest` → ModuleNotFoundError（flex-fab-agent 零测试，pytest 从未装过）
-- 阶段 10：`from demo.rag.retriever import ...` → `No module named 'jieba'`，接着 `sentence_transformers` 也缺
-- 阶段 16：`python -m demo.eval.runner` → `No module named 'langgraph.checkpoint.sqlite'`
+- 阶段 10：`from flex_fab_agent.rag.retriever import ...` → `No module named 'jieba'`，接着 `sentence_transformers` 也缺
+- 阶段 16：`python -m flex_fab_agent.eval.runner` → `No module named 'langgraph.checkpoint.sqlite'`
 
 **定位过程**：
 1. pytest/jieba 直接 import 报错即知
 2. sentence-transformers 较大（含 torch），pip 安装转后台
-3. langgraph.checkpoint.sqlite 是 `langgraph-checkpoint-sqlite` 独立包（requirements-demo.txt 声明了但当前环境没装）——用 `pip list | grep langgraph` 确认只有 `langgraph-checkpoint`（memory）没有 `-sqlite`
+3. langgraph.checkpoint.sqlite 是 `langgraph-checkpoint-sqlite` 独立包（requirements-flex-fab-agent.txt 声明了但当前环境没装）——用 `pip list | grep langgraph` 确认只有 `langgraph-checkpoint`（memory）没有 `-sqlite`
 
 **根因归属**：**【自身】**——环境初始化不足，与代码无关。
 
-**思考解决**：逐个 `pip install`。**关键决策**：pytest 是开发依赖，**不写入 requirements-demo.txt**（容器运行依赖），保持运行镜像干净。其他三个（jieba/sentence-transformers/langgraph-checkpoint-sqlite）本就是 flex-fab-agent 运行依赖，是环境该有但没装。
+**思考解决**：逐个 `pip install`。**关键决策**：pytest 是开发依赖，**不写入 requirements-flex-fab-agent.txt**（容器运行依赖），保持运行镜像干净。其他三个（jieba/sentence-transformers/langgraph-checkpoint-sqlite）本就是 flex-fab-agent 运行依赖，是环境该有但没装。
 
 ---
 
@@ -625,7 +625,7 @@ TDD 写了 `test_retry_quality_with_retries`：1 次调用 + 2 次重试，断�
 写 `test_runner.py` 用 `monkeypatch.setattr(runner_mod, "judge_semantic_quality", ...)`，但跑测试时 judge 的 mock 没生效（或 use_judge=False 的断言失败）。
 
 **定位过程**：
-思考 Python import 机制：如果 runner 在**函数内** `from .judge import judge_semantic_quality`，那 monkeypatch 改的是模块级绑定 `runner_mod.judge_semantic_quality`，但函数内 import 引用的是 `judge` 模块自己的全局名，patch 不到。验证：`python -c "from demo.eval import runner; print(runner.judge_semantic_quality)"` 看绑定。
+思考 Python import 机制：如果 runner 在**函数内** `from .judge import judge_semantic_quality`，那 monkeypatch 改的是模块级绑定 `runner_mod.judge_semantic_quality`，但函数内 import 引用的是 `judge` 模块自己的全局名，patch 不到。验证：`python -c "from flex_fab_agent.eval import runner; print(runner.judge_semantic_quality)"` 看绑定。
 
 **根因归属**：**【理解 Agent 过程】**（这里是 Python 导入/绑定机制）——monkeypatch 只能替换**被 patch 模块的属性引用**，函数内局部 import 会绕过这个绑定。
 
@@ -761,7 +761,7 @@ TDD 写了 `test_retry_quality_with_retries`：1 次调用 + 2 次重试，断�
 
 **如何发现**：
 - guard 测试：`FORCE_TENANT` 是环境变量，`check_tool_permission` 读 `os.getenv("FORCE_TENANT")`。若一个测试 setenv 后不还原，影响其他测试
-- cache 测试：`llm_cache` 用模块级 `_DB_PATH = RUNTIME_DIR / "llm_cache.db"`，直接跑会读写 demo/data/ 下的真实缓存
+- cache 测试：`llm_cache` 用模块级 `_DB_PATH = RUNTIME_DIR / "llm_cache.db"`，直接跑会读写 flex_fab_agent/data/ 下的真实缓存
 
 **定位过程**：
 1. guard 测试逐个 setenv/delenv FORCE_TENANT → 意识到残留风险
@@ -793,7 +793,7 @@ TDD 写了 `test_retry_quality_with_retries`：1 次调用 + 2 次重试，断�
 ### 坑 16：真实评估的三个环境问题（checkpoint.sqlite / 火山 429 / stdout 丢失）（阶段 16）
 
 **如何发现**：
-`python -m demo.eval.runner --report` 真实跑：
+`python -m flex_fab_agent.eval.runner --report` 真实跑：
 1. 先报 `No module named 'langgraph.checkpoint.sqlite'`
 2. 转后台跑完，输出里**大量** `[火山豆包(coding)] 失败: RateLimitError 429 AccountQuotaExceeded`
 3. 但 DeepSeek 有 `[L1缓存命中]` → 兜底成功
@@ -850,7 +850,7 @@ TDD 写了 `test_retry_quality_with_retries`：1 次调用 + 2 次重试，断�
 | # | 坑 | 最终动作对象 | 为什么这么选 | 动的文件 |
 |---|----|------------|-------------|---------|
 | 1 | ragas 无法 import | **修技术选型**（方案级） | ragas 已停滞，是它过时——**不修也不迁就**，换自研方案 | 无（改计划） |
-| 2 | conftest sys.path | **修测试基础设施** | conftest 本身就是测试文件，加错路径是测试配置错 | `demo/conftest.py` |
+| 2 | conftest sys.path | **修测试基础设施** | conftest 本身就是测试文件，加错路径是测试配置错 | `flex_fab_agent/conftest.py` |
 | 3 | 依赖缺失 | **修环境** | pytest 是开发依赖不写容器；其余是 flex-fab-agent 本就该有的运行依赖，只是没装 | 无（pip install） |
 | 4 | min_tools_called 硬伤 | **修代码**（+评估标准生效） | 约束已定义却从不生效，是代码漏读——实现行为错误，修代码 | `eval/metrics.py` |
 | 5 | judge 无 context / 多余文字 | **修代码** + **修评估标准** | 无 context 给 0 分、relevancy 兜底是**评估标准设计**；正则抓 JSON + 降级是**代码防御** | `eval/judge.py` + `judge_prompt.py` |

@@ -17,11 +17,11 @@
   S11 前端页面     页面 HTTP 200（可选，需前端已启动）
 
 用法：
-  python demo/smoke_test.py                    # 默认全跑（S0-S10，S10 调 LLM）
-  python demo/smoke_test.py --skip-llm         # 跳过 S10（不烧 token）
-  python demo/smoke_test.py --check-frontend   # 追加 S11
-  python demo/smoke_test.py --scan-secrets     # 只跑 S0 安全扫描（快速校验）
-  python demo/smoke_test.py --base-url http://host:8000  # HTTP 模式（默认进程内）
+  python flex_fab_agent/smoke_test.py                    # 默认全跑（S0-S10，S10 调 LLM）
+  python flex_fab_agent/smoke_test.py --skip-llm         # 跳过 S10（不烧 token）
+  python flex_fab_agent/smoke_test.py --check-frontend   # 追加 S11
+  python flex_fab_agent/smoke_test.py --scan-secrets     # 只跑 S0 安全扫描（快速校验）
+  python flex_fab_agent/smoke_test.py --base-url http://host:8000  # HTTP 模式（默认进程内）
 
 退出码：
   0   全部通过

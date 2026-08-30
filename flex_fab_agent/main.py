@@ -23,7 +23,7 @@ from .tools.registry import build_default_registry
 from .observability import tracer, cost_tracker
 from .observability.request_context import new_trace_id
 
-DEMO_SCENARIOS = [
+FLEX_FAB_AGENT_SCENARIOS = [
     "今天先做哪些订单？帮我综合考虑交期紧迫度、客户等级、材料库存和设备负载情况，给出优先级排序。",
     "ORD001 能按时交付吗？帮我查一下这个订单的当前状态、所需材料和设备情况。",
     "现在有哪些紧急订单？哪些设备和材料是瓶颈？",
@@ -109,15 +109,15 @@ def main():
         return
 
     if mode == "demo":
-        print(f"\n📋 预设场景（共 {len(DEMO_SCENARIOS)} 个）：\n")
-        for idx, s in enumerate(DEMO_SCENARIOS, 1):
+        print(f"\n📋 预设场景（共 {len(FLEX_FAB_AGENT_SCENARIOS)} 个）：\n")
+        for idx, s in enumerate(FLEX_FAB_AGENT_SCENARIOS, 1):
             print(f"  {idx}. {s}")
         print()
         try:
             choice = input("选择场景编号（回车=全部）> ").strip()
         except (EOFError, KeyboardInterrupt):
             choice = ""
-        targets = [DEMO_SCENARIOS[int(choice) - 1]] if choice.isdigit() and 1 <= int(choice) <= len(DEMO_SCENARIOS) else DEMO_SCENARIOS
+        targets = [FLEX_FAB_AGENT_SCENARIOS[int(choice) - 1]] if choice.isdigit() and 1 <= int(choice) <= len(FLEX_FAB_AGENT_SCENARIOS) else FLEX_FAB_AGENT_SCENARIOS
         for s in targets:
             _run_with_trace(run_single_agent, s)
         return

@@ -13,9 +13,9 @@ from flex_fab_agent.scheduler import snapshot
 @pytest.fixture(scope="module", autouse=True)
 def seeded_mysql():
     seed_mod.reset()
-    os.environ["DEMO_DATA_SOURCE"] = "mysql"
+    os.environ["FLEX_FAB_AGENT_DATA_SOURCE"] = "mysql"
     yield
-    os.environ["DEMO_DATA_SOURCE"] = "csv"
+    os.environ["FLEX_FAB_AGENT_DATA_SOURCE"] = "csv"
 
 
 def test_snapshot_load_fields():

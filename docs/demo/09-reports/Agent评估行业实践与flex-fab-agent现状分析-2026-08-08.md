@@ -11,9 +11,9 @@
 
 | 文件 | 作用 |
 |------|------|
-| `demo/eval/ground_truth.json` | 10 个排产场景（expected_tools / expected_order_ids / checks） |
-| `demo/eval/metrics.py` | 手写 3 指标：工具 F1×0.3 + 完整性×0.5 + 订单召回×0.2 |
-| `demo/eval/runner.py` | 遍历 10 case 跑真实 Agent，case ≥0.6 算 pass，回归基线 ≥7/10 |
+| `flex_fab_agent/eval/ground_truth.json` | 10 个排产场景（expected_tools / expected_order_ids / checks） |
+| `flex_fab_agent/eval/metrics.py` | 手写 3 指标：工具 F1×0.3 + 完整性×0.5 + 订单召回×0.2 |
+| `flex_fab_agent/eval/runner.py` | 遍历 10 case 跑真实 Agent，case ≥0.6 算 pass，回归基线 ≥7/10 |
 
 **硬伤：**
 - `ground_truth.json` 的 `min_tools_called` 字段，`metrics.py` 根本没读

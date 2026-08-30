@@ -15,13 +15,13 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
 
-# 数据目录（demo/data/）-- 工具层和 RAG 层都从这里读
+# 数据目录（flex_fab_agent/data/）-- 工具层和 RAG 层都从这里读
 DATA_DIR = Path(__file__).resolve().parent / "data"
 
 # 运行时数据目录：checkpoints.db / cache_db / chroma_db 落此处。
-# 默认同 DATA_DIR（宿主跑行为不变）；容器内设 DEMO_RUNTIME_DIR 指向挂载卷，
+# 默认同 DATA_DIR（宿主跑行为不变）；容器内设 FLEX_FAB_AGENT_RUNTIME_DIR 指向挂载卷，
 # 与 bake 进镜像的业务数据（csv/contracts）分离，卷持久化跨容器重建。
-RUNTIME_DIR = Path(os.getenv("DEMO_RUNTIME_DIR", str(DATA_DIR)))
+RUNTIME_DIR = Path(os.getenv("FLEX_FAB_AGENT_RUNTIME_DIR", str(DATA_DIR)))
 
 # 凭据文件：gitignored，真实口令只在此处。解析为 {占位符: 真实值}
 CREDENTIALS_FILE = PROJECT_ROOT / "docs" / "demo" / "credentials.local.md"
@@ -155,7 +155,7 @@ def available_providers() -> list[dict]:
 # ---- M1 数据源扩展（v2 重构方案 A1/C4/F 组）----
 
 # 数据源：csv（默认，CSV 兜底）| mysql（MySQL 业务库，WSL）
-DEMO_DATA_SOURCE = os.getenv("DEMO_DATA_SOURCE", "csv")
+FLEX_FAB_AGENT_DATA_SOURCE = os.getenv("FLEX_FAB_AGENT_DATA_SOURCE", "csv")
 
 # ============================================================
 # 全局配置集中导出（各模块一律 from .config import XXX，不直接 os.getenv）
@@ -219,7 +219,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 
 def get_data_source() -> str:
     """当前数据源：csv | mysql。实时读 env（测试可 monkeypatch）。"""
-    return os.getenv("DEMO_DATA_SOURCE", "csv")
+    return os.getenv("FLEX_FAB_AGENT_DATA_SOURCE", "csv")
 
 
 def get_mysql_dsn() -> str:
@@ -235,8 +235,8 @@ def get_mysql_dsn() -> str:
         )
     host = _env_or_cred("MYSQL_HOST", "MYSQL_HOST", "127.0.0.1")
     port = _env_or_cred("MYSQL_PORT", "MYSQL_PORT", "3306")
-    db = _env_or_cred("MYSQL_DB", "MYSQL_DB", "demo_scheduling")
-    user = _env_or_cred("MYSQL_USER", "MYSQL_USER", "demo_sched")
+    db = _env_or_cred("MYSQL_DB", "MYSQL_DB", "flex_fab_agent")
+    user = _env_or_cred("MYSQL_USER", "MYSQL_USER", "flex_fab_agent")
     return f"mysql+pymysql://{user}:{password}@{host}:{port}/{db}?charset=utf8mb4"
 
 

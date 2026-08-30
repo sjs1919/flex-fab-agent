@@ -22,11 +22,11 @@
 
 | 路径 | 内容 | 必要性 |
 |------|------|--------|
-| `demo/` | Python 应用核心（scheduler/simulator/agents/graph/rag/tools 等） | ✅ 核心 |
+| `flex_fab_agent/` | Python 应用核心（scheduler/simulator/agents/graph/rag/tools 等） | ✅ 核心 |
 | `web/` | Vue3 前端控制台 | ✅ 核心 |
 | `docs/demo/` | 文档仓（01-requirements ~ 11-manuals 全部） | ✅ 文档 |
 | `Dockerfile` / `docker-compose.yml` | 部署配置 | ✅ |
-| `requirements.txt` / `requirements-demo.txt` | 依赖 | ✅ |
+| `requirements.txt` / `requirements-flex-fab-agent.txt` | 依赖 | ✅ |
 | `.dockerignore` / `.gitignore` | 构建与忽略规则 | ✅ |
 | `.githooks/` | commit-msg 规范（含中文提交规范） | ✅ |
 | `rules/` | 项目编码规范（rules-index + common + stack-python） | ✅ |
@@ -81,7 +81,7 @@ cd /tmp/flex-fab-agent-mirror
 
 # 2) 按路径过滤：一次指定所有要保留的路径
 git filter-repo \
-  --path demo/ \
+  --path flex_fab_agent/ \
   --path web/ \
   --path docs/demo/ \
   --path Dockerfile \
@@ -135,7 +135,7 @@ flex-fab-agent/
 ├── README.md              # 项目定位 + 能力 + 快速开始 + 架构总览（可复用介绍页/功能介绍内容）
 ├── LICENSE                # 推荐 MIT（简历作品常见、宽松）
 ├── docs/                  # = 迁移后的 docs/demo/
-├── demo/  web/  Dockerfile  docker-compose.yml  requirements*.txt
+├── flex_fab_agent/  web/  Dockerfile  docker-compose.yml  requirements*.txt
 └── CLAUDE.md              # 精简版项目规范（剥离训练环境内容）
 ```
 
@@ -153,13 +153,13 @@ flex-fab-agent/
 
 | 对象 | 现在 | 迁移后 |
 |------|------|--------|
-| Python 包目录 | `demo/` | `flex_fab_agent/`（包名用下划线） |
-| 模块引用 | `from demo.xxx` / `python -m demo.xxx` / pytest 收集 | `from flex_fab_agent.xxx` / `python -m flex_fab_agent.xxx` |
+| Python 包目录 | `flex_fab_agent/` | `flex_fab_agent/`（包名用下划线） |
+| 模块引用 | `from flex_fab_agent.xxx` / `python -m flex_fab_agent.xxx` / pytest 收集 | `from flex_fab_agent.xxx` / `python -m flex_fab_agent.xxx` |
 | 文件名含 flex-fab-agent | `demo-*.md`（如 09-reports 评估报告、todo 文件） | `flex-fab-agent-*.md` |
 | 文档正文 | 提到 flex-fab-agent | flex-fab-agent（或项目名） |
-| 镜像/容器名 | agent-training-demo-api | flex-fab-agent-api |
+| 镜像/容器名 | flex-fab-agent-api | flex-fab-agent-api |
 
-> **决策（2026-08-30 用户拍板）**：**包名全量改** —— `demo/` → `flex_fab_agent/`，全部 `import` / CLI 命令 / pytest 收集 / Dockerfile / config / 文档正文同步改，文件名含 flex-fab-agent 的同步改名。**Python 包名定为 `flex_fab_agent`**（PEP 8 小写下划线；已否决 `com.flex.fab.agent` Java 逆向域名风格——Python 中 `.` 为包层级分隔，会变 4 层嵌套包、import 冗长、社区不标准）。P4 阶段用 `python run_all_tests.py` + `npm run build` + Docker 构建**全量回归**，回归通过才算完成；回归失败则回退到「包名保留 flex-fab-agent」方案（已备）。
+> **决策（2026-08-30 用户拍板）**：**包名全量改** —— `flex_fab_agent/` → `flex_fab_agent/`，全部 `import` / CLI 命令 / pytest 收集 / Dockerfile / config / 文档正文同步改，文件名含 flex-fab-agent 的同步改名。**Python 包名定为 `flex_fab_agent`**（PEP 8 小写下划线；已否决 `com.flex.fab.agent` Java 逆向域名风格——Python 中 `.` 为包层级分隔，会变 4 层嵌套包、import 冗长、社区不标准）。P4 阶段用 `python run_all_tests.py` + `npm run build` + Docker 构建**全量回归**，回归通过才算完成；回归失败则回退到「包名保留 flex-fab-agent」方案（已备）。
 
 ### 4.5 开源必需文件
 
@@ -172,7 +172,7 @@ flex-fab-agent/
 
 ## 5. 验证标准（独立仓自包含）
 
-1. `git log` 可见 flex-fab-agent 全部历史（预计 111+ 涉及 demo/ 的提交 + web/docs 相关）。
+1. `git log` 可见 flex-fab-agent 全部历史（预计 111+ 涉及 flex_fab_agent/ 的提交 + web/docs 相关）。
 2. 敏感信息扫描（§3.3 命令）零命中。
 3. WSL 下 `npm run build` 通过；`.venv/bin/python run_all_tests.py` 全绿。
 4. `docker compose build && docker compose up -d` 可启动；浏览器访问控制台正常。

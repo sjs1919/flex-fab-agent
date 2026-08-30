@@ -3,7 +3,7 @@
 基线（docs/demo/09-reports/评测报告-RAG质量-ragas-v1-2026-08-21.md，Q1-Q5）：
   context_precision 0.60 / faithfulness 0.80 / answer_relevancy 0.80 / context_recall 0.90
 
-评估对象为重构后 demo/rag 管线（E5 调参 + E6 权限过滤后的 retrieve_hybrid）。
+评估对象为重构后 flex_fab_agent/rag 管线（E5 调参 + E6 权限过滤后的 retrieve_hybrid）。
 四指标方法同 scripts/week4/ragas_eval.py（RAGAS 方法论 LLM-as-Judge 手写实现）；
 Q2/Q4 涉保密文档（广州航天精工），用 reviewer 子 Token 检索（confidential 可检）。
 
@@ -192,7 +192,7 @@ def _reviewer_perms() -> set[str]:
 def run_ragas_regression() -> dict:
     """跑 Q1-Q5 四指标回归，返回 {rows, avg, baseline, pass}。"""
     print("=" * 70)
-    print("RAGAS 四指标回归：评估重构后 demo/rag 管线（E5+E6）")
+    print("RAGAS 四指标回归：评估重构后 flex_fab_agent/rag 管线（E5+E6）")
     print("=" * 70)
     print("\n📦 初始化检索管线（向量库 + BM25 + Reranker）...")
     collection = get_or_build_vectorstore()

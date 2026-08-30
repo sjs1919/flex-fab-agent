@@ -48,7 +48,7 @@ def _insert_daily(order_prefix: str, start: date, daily_parts: list[int]):
 @pytest.fixture()
 def constant_history(monkeypatch):
     """10 天恒定负载：每天 5 件 / 10 机时（指数平滑/MA 预测都应是恒定值）。"""
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "mysql")
     _clear("TESTF")
     _insert_daily("TESTF", date(2026, 8, 10), [5] * 10)
     yield
@@ -87,7 +87,7 @@ def test_forecast_n_days_override(constant_history):
 
 def test_forecast_no_history(monkeypatch):
     """无历史订单 -> 空预测 + 友好说明。"""
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "mysql")
     out = forecaster.forecast(tenant_id="no-such-tenant")
     assert out["materials"] == {} and out["days"] == []
     assert "无历史" in out["note"]
@@ -105,7 +105,7 @@ def test_forecast_invalid_method_falls_back(monkeypatch, constant_history):
 def test_forecast_ma_method_trending_series(monkeypatch):
     """method=ma 切换生效：上升趋势序列（件数 1..8）-> MA(5) 预测 = 末 5 期均值 6.0
     （区别于指数平滑的 5.86，验证算法确实切换）。"""
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "mysql")
     real = forecaster.get_config
     monkeypatch.setattr(forecaster, "get_config",
                         lambda c, k, d="": "ma" if k == "forecast_method" else real(c, k, d))

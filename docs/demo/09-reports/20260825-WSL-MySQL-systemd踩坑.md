@@ -201,10 +201,10 @@ sudo mysqladmin shutdown -S /var/run/mysqld/mysqld.sock
 
 ---
 
-## 坑 6：demo_sched 用户 TCP 连接卡住 / 超时
+## 坑 6：flex_fab_agent 用户 TCP 连接卡住 / 超时
 
 ### 现象
-用户建好了，库也有，但 `mysql -h 127.0.0.1 -u demo_sched -pxxxx demo_scheduling` 一直卡住不返回。
+用户建好了，库也有，但 `mysql -h 127.0.0.1 -u flex_fab_agent -pxxxx flex_fab_agent` 一直卡住不返回。
 
 ### 可能原因
 1. MySQL 的 `caching_sha2_password` 插件需要 SSL 连接，客户端没 SSL 证书会卡住
@@ -213,12 +213,12 @@ sudo mysqladmin shutdown -S /var/run/mysqld/mysqld.sock
 ### 解决
 **方式一：连接时加 SSL 参数**
 ```bash
-mysql -h 127.0.0.1 -u demo_sched -p --ssl-mode=required demo_scheduling
+mysql -h 127.0.0.1 -u flex_fab_agent -p --ssl-mode=required flex_fab_agent
 ```
 
 **方式二：把认证插件改成 mysql_native_password（兼容旧客户端）**
 ```sql
-ALTER USER 'demo_sched'@'127.0.0.1' IDENTIFIED WITH mysql_native_password BY '口令';
+ALTER USER 'flex_fab_agent'@'127.0.0.1' IDENTIFIED WITH mysql_native_password BY '口令';
 FLUSH PRIVILEGES;
 ```
 

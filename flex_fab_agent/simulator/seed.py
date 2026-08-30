@@ -1,4 +1,4 @@
-"""种子生成器（M1 T1.3，⭐ 新建 demo/simulator/ 包）。
+"""种子生成器（M1 T1.3，⭐ 新建 flex_fab_agent/simulator/ 包）。
 
 确定性生成（固定随机种子）→ `--reset` 幂等重建（先清后插），满足 todo T1.3 口径：
 - 7 台设备：SLA600×1 + SLA450×2 / MJS600×1 + MJS450×2 / SLM600×1
@@ -9,7 +9,7 @@
 
 CLI：`python -m flex_fab_agent.simulator.seed --reset | --seed`
 连接说明：运维脚本（批量 DML），直连 pymysql（解析 config.get_mysql_dsn()），
-不走业务连接池（T2.1 R-D3 验收 grep 豁免 demo/schema/ 与 demo/simulator/）。
+不走业务连接池（T2.1 R-D3 验收 grep 豁免 flex_fab_agent/schema/ 与 flex_fab_agent/simulator/）。
 """
 from __future__ import annotations
 

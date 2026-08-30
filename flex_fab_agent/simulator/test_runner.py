@@ -38,10 +38,10 @@ def _env():
 def test_runner_ticks(monkeypatch):
     """SIM_TICK_SECONDS 加速跑 3 tick：sim_clock +3h，tick_count=3，scene_version +3。
 
-    DEMO_DATA_SOURCE=mysql：tick 内 kpi_metrics 读 load_machines 走 mysql 列名
+    FLEX_FAB_AGENT_DATA_SOURCE=mysql：tick 内 kpi_metrics 读 load_machines 走 mysql 列名
     （csv 模式下 query_kpi/KPI 计算本就不同源，属存量限制，见 test_run_tick_writes_kpi_snapshot 注释）。
     """
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "mysql")
     import time as _time
     start_version = llm_cache.get_scene_version()
     r = runner_mod.SimulatorRunner(tick_seconds=0.02)
@@ -108,11 +108,11 @@ def test_tick_atomic_rollback(monkeypatch):
 def test_run_tick_writes_kpi_snapshot(monkeypatch):
     """M5b T5b.5：run_tick 事务提交后落一条 KPI 快照（与 kpi_metrics 同源）。
 
-    DEMO_DATA_SOURCE=mysql：kpi_metrics 读 load_* 走 mysql 列名（csv 模式下
+    FLEX_FAB_AGENT_DATA_SOURCE=mysql：kpi_metrics 读 load_* 走 mysql 列名（csv 模式下
     query_kpi/KPI 计算本就不通，属存量限制，快照侧由 try/except 降级为告警）。
     """
     import os
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "mysql")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "mysql")
     _exec("DELETE FROM kpi_snapshot")
     try:
         r = runner_mod.SimulatorRunner()

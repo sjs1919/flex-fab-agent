@@ -10,7 +10,7 @@
 ## 任务
 
 - [ ] 写评估与计划文档 `docs/demo/04-plans/2026-08-30-flex-fab-agent独立开源计划.md`
-- [ ] 确认 git 历史迁移方案：`git filter-repo`（推荐）按路径抽取，一次指定 `demo/` + `web/` + `docs/demo/` + Dockerfile + docker-compose.yml + requirements 等全部路径，保留这些路径的完整历史；**会改写 commit hash**；历史中的敏感信息（.env / credentials）需 `--replace-text` 或人工清理
+- [ ] 确认 git 历史迁移方案：`git filter-repo`（推荐）按路径抽取，一次指定 `flex_fab_agent/` + `web/` + `docs/demo/` + Dockerfile + docker-compose.yml + requirements 等全部路径，保留这些路径的完整历史；**会改写 commit hash**；历史中的敏感信息（.env / credentials）需 `--replace-text` 或人工清理
 - [ ] 计划经用户确认后登记执行拆分的 todo
 
 ## 验收 checklist

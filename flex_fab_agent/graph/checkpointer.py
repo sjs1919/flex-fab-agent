@@ -6,7 +6,7 @@
   - 重启不丢：sqlite 落盘，新进程读同一 db 即可恢复
 
 backend 由 CHECKPOINTER 环境变量选：
-  sqlite（默认）落盘 demo/data/checkpoints.db，重启可恢复
+  sqlite（默认）落盘 flex_fab_agent/data/checkpoints.db，重启可恢复
   memory        进程内存，重启即失（仅演示 checkpoint 概念）
   none          不持久化（等价 week4 无 checkpointer）
 

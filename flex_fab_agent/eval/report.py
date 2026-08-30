@@ -92,7 +92,7 @@ tr.fail {{ background: #fff3f3; }}
 
 def save_report(results: list[dict], summary: dict | None = None,
                 path: str | None = None) -> Path:
-    """渲染并保存 HTML 报告。默认存到 demo/eval/reports/。"""
+    """渲染并保存 HTML 报告。默认存到 flex_fab_agent/eval/reports/。"""
     out = Path(path) if path else Path(__file__).parent / "reports" / "eval_report.html"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(render_html_report(results, summary), encoding="utf-8")

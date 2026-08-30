@@ -37,7 +37,7 @@ def _snap(parts, orders, machines=_MACHINES, params=_PARAMS):
 def seeded_mysql():
     seed_mod.reset()
     os_environ = dict(__import__("os").environ)
-    __import__("os").environ["DEMO_DATA_SOURCE"] = "mysql"
+    __import__("os").environ["FLEX_FAB_AGENT_DATA_SOURCE"] = "mysql"
     yield
     __import__("os").environ.clear()
     __import__("os").environ.update(os_environ)

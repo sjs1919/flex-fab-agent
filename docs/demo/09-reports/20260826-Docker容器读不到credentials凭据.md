@@ -12,7 +12,7 @@
 - 容器日志：
 
 ```
-File "/app/demo/api.py", line 148, in sim_start
+File "/app/flex_fab_agent/api.py", line 148, in sim_start
     with get_connection() as conn:
 RuntimeError: 缺少 MySQL 口令：请填写 docs/demo/credentials.local.md 的 {{MYSQL_PASSWORD}}（gitignored，不提交）
 ```
@@ -22,7 +22,7 @@ RuntimeError: 缺少 MySQL 口令：请填写 docs/demo/credentials.local.md 的
 
 ## 根因
 
-`demo/config.py` 有两个读凭据的函数，行为不同：
+`flex_fab_agent/config.py` 有两个读凭据的函数，行为不同：
 
 | 函数 | 行为 | 容器场景 |
 |------|------|---------|
@@ -47,7 +47,7 @@ get_mysql_dsn()                             # 抛 '缺少 MySQL 口令'
 
 ## 修复
 
-`demo/config.py`：`get_mysql_dsn()` / `get_redis_config()` 里所有 `_cred(...)` 改为 `_env_or_cred(KEY, KEY, default)`。
+`flex_fab_agent/config.py`：`get_mysql_dsn()` / `get_redis_config()` 里所有 `_cred(...)` 改为 `_env_or_cred(KEY, KEY, default)`。
 
 ```python
 # 改前
@@ -60,7 +60,7 @@ password = _env_or_cred("MYSQL_PASSWORD", "MYSQL_PASSWORD", "")
 
 - 凭据经 compose `env_file: .env` 注入（.env gitignored，不入库）
 - `docker-compose.yml` 加 `extra_hosts: host.docker.internal:host-gateway` + `MYSQL_HOST=host.docker.internal`（容器内 127.0.0.1 是容器自身，不是宿主 MySQL）
-- Dockerfile 只 `COPY demo/`，`docs/` 不在镜像里——所以容器**不可能**走 `_cred` 文件路径，只能走 env
+- Dockerfile 只 `COPY flex_fab_agent/`，`docs/` 不在镜像里——所以容器**不可能**走 `_cred` 文件路径，只能走 env
 
 ## 经验
 

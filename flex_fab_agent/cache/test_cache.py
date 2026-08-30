@@ -1,6 +1,6 @@
 """缓存层单元测试：LLM 精确缓存（L1）+ 语义缓存（L2）。
 
-L1 用临时 SQLite（monkeypatch _DB_PATH），不污染 demo/data/llm_cache.db。
+L1 用临时 SQLite（monkeypatch _DB_PATH），不污染 flex_fab_agent/data/llm_cache.db。
 L2 用 mock Chroma collection。
 """
 import json

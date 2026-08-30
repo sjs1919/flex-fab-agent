@@ -30,7 +30,7 @@ docker compose up -d
 ### 本地方式
 
 ```bash
-pip install -r requirements-demo.txt
+pip install -r requirements-flex-fab-agent.txt
 cp .env.example .env            # 填 LLM API Key 与 MySQL
 python -m flex_fab_agent.schema.migrate --up   # 建表
 python -m flex_fab_agent.main --check          # 地基自检
@@ -59,7 +59,7 @@ cd web && npm install && npm run dev   # http://localhost:5173
 
 ```bash
 python run_all_tests.py                    # 全量单测（mock LLM，零成本）
-python demo/smoke_test.py --skip-llm       # 部署冒烟 S0-S11
+python flex_fab_agent/smoke_test.py --skip-llm       # 部署冒烟 S0-S11
 python -m flex_fab_agent.eval.runner       # 三层评估（真实 LLM）
 ```
 

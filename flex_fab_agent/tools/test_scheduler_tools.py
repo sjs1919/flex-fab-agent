@@ -204,9 +204,9 @@ def test_approve_schedule_not_found():
 def mysql_source():
     """切 MySQL 数据源（评估读业务库）。"""
     import os
-    os.environ["DEMO_DATA_SOURCE"] = "mysql"
+    os.environ["FLEX_FAB_AGENT_DATA_SOURCE"] = "mysql"
     yield
-    os.environ.pop("DEMO_DATA_SOURCE", None)
+    os.environ.pop("FLEX_FAB_AGENT_DATA_SOURCE", None)
 
 
 def test_query_load_assessment_four_sections(mysql_source):
@@ -577,14 +577,14 @@ def test_kpi_metrics_json_serializable(mysql_source):
 
 def test_kpi_metrics_csv_mode_degrades(monkeypatch):
     """csv 模式下 cabin_utilization 降级 None，不抛 KeyError 'id'。"""
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "csv")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "csv")
     m = scheduler_tools.kpi_metrics()
     assert m["cabin_utilization"] is None
 
 
 def test_query_kpi_csv_mode_no_crash(monkeypatch):
     """csv 模式 query_kpi 输出完整（舱利用率行显示暂无提示），不抛错。"""
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "csv")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "csv")
     out = scheduler_tools.query_kpi()
     assert "📈 排产 KPI" in out
     assert "暂无设备数据" in out
@@ -592,7 +592,7 @@ def test_query_kpi_csv_mode_no_crash(monkeypatch):
 
 def test_query_load_assessment_csv_mode_no_crash(monkeypatch):
     """csv 模式 load_assessment 不抛 KeyError 'process'；旧枚举归一后排队分布可读。"""
-    monkeypatch.setenv("DEMO_DATA_SOURCE", "csv")
+    monkeypatch.setenv("FLEX_FAB_AGENT_DATA_SOURCE", "csv")
     a = assessment.load_assessment()
     assert "ORD005" in a["distribution"]["排队"]   # 排期中→待排队
     out = scheduler_tools.query_load_assessment()

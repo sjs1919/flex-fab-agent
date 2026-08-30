@@ -13,9 +13,9 @@
 
 ## 数据源与配置
 
-- `tools/data.py` 的 DataSource 抽象是数据层唯一入口（`DEMO_DATA_SOURCE=csv|mysql` 切换），工具函数签名返回 `list[dict]` 不变。
+- `tools/data.py` 的 DataSource 抽象是数据层唯一入口（`FLEX_FAB_AGENT_DATA_SOURCE=csv|mysql` 切换），工具函数签名返回 `list[dict]` 不变。
 - `config.py` 是配置唯一来源；禁止业务代码散落 `os.getenv`。
 
 ## 求解器/模拟器边界
 
-- `demo/scheduler/`、`demo/simulator/` 是独立模块，与 Agent 只经工具通信；模拟器不做业务决策，求解器无常驻进程。
+- `flex_fab_agent/scheduler/`、`flex_fab_agent/simulator/` 是独立模块，与 Agent 只经工具通信；模拟器不做业务决策，求解器无常驻进程。

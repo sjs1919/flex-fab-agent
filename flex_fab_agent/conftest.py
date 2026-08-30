@@ -6,6 +6,6 @@ eval/ 内部用相对导入（from ..core.llm_client），必须让 `demo` 作�
 import sys
 from pathlib import Path
 
-AGENT_TRAINING_ROOT = Path(__file__).resolve().parent.parent  # demo/../ = agent-training/
+AGENT_TRAINING_ROOT = Path(__file__).resolve().parent.parent  # flex_fab_agent/../ = agent-training/
 if str(AGENT_TRAINING_ROOT) not in sys.path:
     sys.path.insert(0, str(AGENT_TRAINING_ROOT))

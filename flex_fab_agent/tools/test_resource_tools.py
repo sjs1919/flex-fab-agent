@@ -13,9 +13,9 @@ from flex_fab_agent.tools.resource_tools import query_customer, query_inventory,
 @pytest.fixture(scope="module", autouse=True)
 def seeded_mysql():
     seed_mod.reset()
-    os.environ["DEMO_DATA_SOURCE"] = "mysql"
+    os.environ["FLEX_FAB_AGENT_DATA_SOURCE"] = "mysql"
     yield
-    os.environ["DEMO_DATA_SOURCE"] = "csv"
+    os.environ["FLEX_FAB_AGENT_DATA_SOURCE"] = "csv"
 
 
 def test_query_inventory_all():

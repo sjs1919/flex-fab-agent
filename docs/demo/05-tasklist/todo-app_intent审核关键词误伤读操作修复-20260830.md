@@ -24,7 +24,7 @@
 
 ## 任务拆分
 
-- [x] **T1 TDD 红测试**（`demo/graph/test_single_agent_graph.py`）：
+- [x] **T1 TDD 红测试**（`flex_fab_agent/graph/test_single_agent_graph.py`）：
   - `test_query_approved_batches_is_read_not_approve`：「帮我查询审核通过的批次」→ 不强制 `approve_schedule`、不注入审批指令、正常汇总收尾
   - `test_approve_intent_forced_by_orchestrator`：审批意图 + LLM 连续 2 轮不执行 → 编排层代执行 `approve_schedule`（tool_results 含该工具）
 - [x] **T2 实现**：

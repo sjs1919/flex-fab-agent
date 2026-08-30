@@ -8,7 +8,7 @@
 
 ## 根因链
 
-1. **`app_intent` 关键词误伤**（`demo/graph/single_agent_graph.py:277`）：`app_intent = any(k in user_text for k in ("审批", "驳回", "审核"))`——用户文本「帮我**查询**审核通过的批次」含「审核」→ `app_intent = True`
+1. **`app_intent` 关键词误伤**（`flex_fab_agent/graph/single_agent_graph.py:277`）：`app_intent = any(k in user_text for k in ("审批", "驳回", "审核"))`——用户文本「帮我**查询**审核通过的批次」含「审核」→ `app_intent = True`
 2. **读操作被当写操作强制推进**（`:285`）：`if app_intent and "approve_schedule" not in tool_names:` → 用户没让审批，LLM 自然不调 `approve_schedule` → evaluate 每轮都 `needs_more` 强制继续工具轮
 3. **pending_write 注入矛盾指令**（`:164`）：select_and_execute 注入「用户明确要求执行 approve_schedule（审批排产版本）…请立即调用该工具完成操作，不要只做查询或输出建议」——**与真实用户意图（查询）冲突**
 4. **LLM 被矛盾指令带偏**：既不能调 approve_schedule（用户没让审批），又被系统催着「执行审批」→ 反复 `query_schedule`（含 3 次无意义的 `version_id:0`）找「已审核」数据 → 最后查到订单（`status=已审核`）→ 基于混乱数据生成「综合调度分析与建议」

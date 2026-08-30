@@ -38,7 +38,7 @@ Phase D  深化评估体系本身（CI 持续化 + 逐工具规则 + 检索阈�
 
 | 项 | 内容 |
 |----|------|
-| **任务** | A1.1 把 DeepSeek 设为第一 provider（临时，等火山配额恢复）<br>A1.2 火山配额恢复后重跑 `python -m demo.eval.runner --report` 拿真实回归基线 |
+| **任务** | A1.1 把 DeepSeek 设为第一 provider（临时，等火山配额恢复）<br>A1.2 火山配额恢复后重跑 `python -m flex_fab_agent.eval.runner --report` 拿真实回归基线 |
 | **验收** | `--check` 显示第一 provider 为 DeepSeek；真实回归基线 ≥7/10 |
 | **动作对象** | 修环境/账户（非代码） |
 
@@ -58,7 +58,7 @@ Phase D  深化评估体系本身（CI 持续化 + 逐工具规则 + 检索阈�
 
 | 项 | 内容 |
 |----|------|
-| **任务** | A3.1 跑 `python -m demo.backtest.runner`（需真实 LLM + DeepSeek 优先）<br>A3.2 若某个场景覆盖度过低，分析是 Agent 理解问题还是场景设计问题 |
+| **任务** | A3.1 跑 `python -m flex_fab_agent.backtest.runner`（需真实 LLM + DeepSeek 优先）<br>A3.2 若某个场景覆盖度过低，分析是 Agent 理解问题还是场景设计问题 |
 | **验收** | 5 场景全部跑出覆盖率；基线 ≥0.6 达成 |
 | **动作对象** | 验证（模块已实现） |
 
@@ -231,7 +231,7 @@ Phase D  深化评估体系本身（CI 持续化 + 逐工具规则 + 检索阈�
 
 | 项 | 内容 |
 |----|------|
-| **任务** | D6.1 `run_all_tests.py` / `demo.eval.runner` 增加 `--no-cache` 或评估前自动 `clear()` L1 缓存<br>D6.2 CI 持续评估（C3）强制评估前清 L1，保证每次结果真实 |
+| **任务** | D6.1 `run_all_tests.py` / `flex_fab_agent.eval.runner` 增加 `--no-cache` 或评估前自动 `clear()` L1 缓存<br>D6.2 CI 持续评估（C3）强制评估前清 L1，保证每次结果真实 |
 | **验收** | 评估前自动清 L1；CI 评估结果不被旧缓存污染 |
 | **对应角色** | 测试者/运维 |
 | **来源** | 9.8 节遗留观察「L1 缓存影响评估」 |
@@ -356,7 +356,7 @@ TDD：`test_compress_messages_idempotent`（断言压缩后字数 ≤ MAX_CHARS�
 ### A 阶段待观察项
 
 - **回测覆盖度波动**：bt_002/bt_005 受 LLM 随机性影响，同 query 有时覆盖 3/4、有时 0%（回测对 LLM 稳定性敏感，非代码缺陷）。后续可考虑：① 回测跑 N 次取平均；② 场景 prompt 加稳定化指令。
-- **真实回归基线（2026-08-09 实测）**：`python -m demo.eval.runner` 全 10 case 跑通，**通过 4/10（40%），综合 0.54，未达 7/10 基线**。三层均值：工具 0.73 / 轨迹 0.48 / 语义 0.16。
+- **真实回归基线（2026-08-09 实测）**：`python -m flex_fab_agent.eval.runner` 全 10 case 跑通，**通过 4/10（40%），综合 0.54，未达 7/10 基线**。三层均值：工具 0.73 / 轨迹 0.48 / 语义 0.16。
   - **主因分析**：语义层仅 0.16——多数 case 不调 `search_knowledge_base`（无 context → faithfulness 给 0，坑 5 已知设计）；轨迹层 0.48（工具调用有冗余/重试）；工具层 0.73 较稳。
   - **判断**：非 A 阶段改造问题（A1/A2/A3 均完成），是「LLM 随机性 + 语义层无 context 惩罚」的评估标准/模型行为问题。降低语义层权重或给非 RAG case 豁免语义分，需用户决策（属 Phase D 评估标准深化）。
   - **参考**：eval_010（延期记录，RAG case）语义 0.95 高分，证明 RAG case 的语义评估有效；非 RAG case 的语义 0 分是设计预期。
@@ -604,7 +604,7 @@ state["iteration"] += 1   # ← 只在工具调用分支执行
 
 **第 1 轮 · 症状：评估报告生成不了（误以为是 CLI/管道问题）**
 
-- 现象：`python -m demo.eval.runner --report` 后台跑，超时被杀 / 静默退出，报告不生成
+- 现象：`python -m flex_fab_agent.eval.runner --report` 后台跑，超时被杀 / 静默退出，报告不生成
 - 尝试：`--no-judge` 加速 → 报告生成了但全红（冷启动 LLM 随机性）→ 误判「评估对随机性敏感」
 - 尝试：改独立脚本 `run_eval_report.py` → 7 case 跑完，eval_008 触发 `BudgetExceededError`（¥5.0151 > 上限 ¥5）→ 误判「预算不够」
 - 调 `LLM_BUDGET_LIMIT=20` 重跑 → **eval_006 卡死 14 分钟**，压缩循环 179 次
@@ -646,4 +646,4 @@ state["iteration"] += 1   # ← 只在工具调用分支执行
 
 - **真实评估超默认 ¥5 预算**：全量 10 case + judge 实际花费 ¥5-6，触发 `BudgetExceededError`（¥5.0151 > 上限 ¥5）。需 `LLM_BUDGET_LIMIT=20` 重跑。真实评估的预算上限应独立于运行时（属 C3 CI 持续评估配置项）。
 - **火山豆包 429 配额持续超限**：DeepSeek 兜底正常，但每次评估 DeepSeek 是唯一可用 provider，成本集中。火山 2026-08-21 配额重置前，DeepSeek 为评估主 provider。
-- **全量评估耗时**：10 case + judge 约 10 分钟（RAG case 占大头），后台 CLI 管道会卡死/静默退出——需用独立脚本（`demo/run_eval_report.py`）输出到日志文件跑。
+- **全量评估耗时**：10 case + judge 约 10 分钟（RAG case 占大头），后台 CLI 管道会卡死/静默退出——需用独立脚本（`flex_fab_agent/run_eval_report.py`）输出到日志文件跑。

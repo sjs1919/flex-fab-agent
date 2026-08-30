@@ -2,7 +2,7 @@
 
 覆盖：up-up 幂等、down-up 可重建（DBA 红线：有回滚路径）、
 v2 增量（orders.order_date 列 + bad_parts 表）、v2 幂等重跑。
-测试直接操作 demo_scheduling 库（运维脚本，与业务连接池隔离）。
+测试直接操作 flex_fab_agent 库（运维脚本，与业务连接池隔离）。
 """
 import flex_fab_agent.schema.migrate as m
 

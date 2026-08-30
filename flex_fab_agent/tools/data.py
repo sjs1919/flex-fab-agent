@@ -4,7 +4,7 @@
 生产环境把 CSV 换成数据库，工具接口不变。
 类比 Java 的 DAO 层，上层 Service 不关心数据来自哪里。
 
-数据文件在 demo/data/：
+数据文件在 flex_fab_agent/data/：
   orders.csv    订单（15 条）
   inventory.csv 材料库存（10 种）
   machines.csv  设备（8 台）

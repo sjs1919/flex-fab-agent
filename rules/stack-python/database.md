@@ -14,6 +14,6 @@
 
 - **tenant_id 过滤强制**（R8）：所有业务查询带 `WHERE tenant_id=?`，新表新查询不得遗漏。
 - schema 变更必须有回滚路径（down 脚本或备份兜底）。
-- 种子数据脚本化可重建（`demo/simulator/seed.py`），禁止手改库。
+- 种子数据脚本化可重建（`flex_fab_agent/simulator/seed.py`），禁止手改库。
 - 密钥只在 `.env` / `docs/demo/credentials.local.md`；代码与文档永远留占位符。
 - 基础设施存储（checkpoints.db/tokens.db/llm_cache.db/cache_db/chroma_db/audit.jsonl/cases.jsonl）不进 MySQL，边界见重构方案 §2.2。

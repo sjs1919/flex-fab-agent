@@ -16,7 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-DEMO_ROOT = Path(__file__).resolve().parent
+FLEX_FAB_AGENT_ROOT = Path(__file__).resolve().parent
 PYTHON = sys.executable
 
 
@@ -25,7 +25,7 @@ def run_unit_tests() -> bool:
     print("\n" + "=" * 60)
     print(" 步骤 1/3：pytest 全量测试（mock LLM，零成本）")
     print("=" * 60)
-    result = subprocess.run([PYTHON, "-m", "pytest", "-v"], cwd=DEMO_ROOT)
+    result = subprocess.run([PYTHON, "-m", "pytest", "-v"], cwd=FLEX_FAB_AGENT_ROOT)
     return result.returncode == 0
 
 
@@ -37,7 +37,7 @@ def run_eval(use_judge: bool) -> bool:
     cmd = [PYTHON, "-m", "flex_fab_agent.eval.runner"]
     if not use_judge:
         cmd.append("--no-judge")
-    result = subprocess.run(cmd, cwd=DEMO_ROOT)
+    result = subprocess.run(cmd, cwd=FLEX_FAB_AGENT_ROOT)
     return result.returncode == 0
 
 
@@ -49,7 +49,7 @@ def generate_report() -> bool:
     # 复用 runner 的 --report 逻辑
     result = subprocess.run(
         [PYTHON, "-m", "flex_fab_agent.eval.runner", "--report", "--no-judge"],
-        cwd=DEMO_ROOT,
+        cwd=FLEX_FAB_AGENT_ROOT,
     )
     return result.returncode == 0
 
