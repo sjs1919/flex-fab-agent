@@ -782,3 +782,90 @@ def test_pure_resource_query_no_order_forced(monkeypatch):
     assert {t["tool"] for t in result["tool_results"]} == {"query_machine_load"}, \
         f"纯资源查询不应补调订单工具，实际工具: {[t['tool'] for t in result['tool_results']]}"
     assert result["final_answer"] != "", "纯查询不应无答案"
+
+
+# ---- 2026-08-30 修复：汇总步 _SUMMARY_NUDGE 措辞误导（「工具已不可用」被误读为故障）----
+
+def _capture_nudge(fake_call_llm_messages: list) -> list:
+    """从 generate_answer 的 messages 中提取注入的 _SUMMARY_NUDGE 文本。"""
+    out: list = []
+    for msgs in fake_call_llm_messages:
+        for m in msgs:
+            if m.get("role") == "user" and "系统提示" in (m.get("content") or ""):
+                out.append(m["content"])
+    return out
+
+
+def test_summary_nudge_no_fault_implication(monkeypatch):
+    """坑（2026-08-30 复现，trace 8516ffd）：汇总步标记文本重试时注入的
+    _SUMMARY_NUDGE 措辞不得含「工具已不可用」这类会被 LLM 误读为系统故障的表述——
+    否则 LLM 据此拒绝任务（「抱歉，我无法完成这个查询…工具已不可用」）。
+    应明确「工具结果已收集齐全，直接基于结果作答」。
+
+    复现路径：query_orders 空结果（「未找到匹配的订单。」）→ evaluate 空结果拦截
+    → generate_answer 汇总步 LLM 输出标记文本 → 注入 NUDGE。"""
+    from demo.graph import single_agent_graph as sag
+    _disable_compression(monkeypatch)
+    all_llm_messages: list = []
+    responses = [
+        FakeResponse(tool_calls=_make_tool_call("query_orders", '{"status": "待排队"}')),
+        FakeResponse(content=_MARKUP),                     # 汇总步第1次：标记文本
+        FakeResponse(content="当前没有待排产的订单。"),      # 汇总步第2次：正常答案
+    ]
+
+    def fake_call_llm(messages, tools=None, **kwargs):
+        if tools is None:  # generate_answer
+            all_llm_messages.append(messages)
+        return responses.pop(0) if responses else FakeResponse(content="兜底答案")
+
+    monkeypatch.setattr(sag, "call_llm", fake_call_llm)
+    app = build_single_agent_graph(FakeEmptyRegistry(), checkpointer=None)
+    result = app.invoke({
+        "messages": [{"role": "user", "content": "帮我查一下所有待排产的订单"}],
+        "tool_results": [],
+        "iteration": 0,
+        "final_answer": "",
+    })
+
+    nudges = _capture_nudge(all_llm_messages)
+    assert nudges, "应注入 _SUMMARY_NUDGE"
+    nudge = nudges[-1]
+    assert "工具已不可用" not in nudge, f"NUDGE 不得暗示工具故障，实际: {nudge}"
+    assert ("基于" in nudge and "结果" in nudge) or "工具结果" in nudge, \
+        f"NUDGE 应引导基于已有结果作答，实际: {nudge}"
+    assert result["final_answer"] == "当前没有待排产的订单。", \
+        f"汇总步重试应产出正常答案，实际: {result['final_answer']!r}"
+
+
+def test_summary_nudge_includes_tool_results(monkeypatch):
+    """B 加强：汇总步标记文本重试时，NUDGE 应附已收集工具结果摘要（含 query_orders
+    空结果「未找到匹配的订单。」），引导 LLM 基于数据作答（不信「未找到」时不再盲目再查）。"""
+    from demo.graph import single_agent_graph as sag
+    _disable_compression(monkeypatch)
+    all_llm_messages: list = []
+    responses = [
+        FakeResponse(tool_calls=_make_tool_call("query_orders", '{"status": "待排队"}')),
+        FakeResponse(content=_MARKUP),
+        FakeResponse(content="没有待排产订单"),
+    ]
+
+    def fake_call_llm(messages, tools=None, **kwargs):
+        if tools is None:
+            all_llm_messages.append(messages)
+        return responses.pop(0) if responses else FakeResponse(content="兜底答案")
+
+    monkeypatch.setattr(sag, "call_llm", fake_call_llm)
+    app = build_single_agent_graph(FakeEmptyRegistry(), checkpointer=None)
+    result = app.invoke({
+        "messages": [{"role": "user", "content": "帮我查一下所有待排产的订单"}],
+        "tool_results": [],
+        "iteration": 0,
+        "final_answer": "",
+    })
+
+    nudges = _capture_nudge(all_llm_messages)
+    assert nudges, "应注入 _SUMMARY_NUDGE"
+    nudge = nudges[-1]
+    assert "未找到匹配的订单" in nudge, \
+        f"重试消息应附工具结果摘要（含 query_orders 空结果），实际: {nudge}"
+    assert result["final_answer"] == "没有待排产订单"

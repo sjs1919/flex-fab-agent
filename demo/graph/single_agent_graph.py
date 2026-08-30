@@ -82,8 +82,9 @@ _NUDGE = ("（系统提示：上一轮输出是未解析的工具调用标记文
           "请改用标准 tool_calls 发起调用，或直接用中文回答。）")
 # 汇总步专用纠错提示（2026-08-26）：本轮工具已不可用，不能沿用 _NUDGE 的
 # 「改用标准 tool_calls」指引（会诱导模型再次输出工具调用语法），应明确禁止。
-_SUMMARY_NUDGE = ("（系统提示：上一轮输出是未解析的工具调用标记文本。本轮为最终汇总，"
-                  "工具已不可用，请勿输出任何工具调用语法，仅用中文输出综合结论。）")
+_SUMMARY_NUDGE = ("（系统提示：上一轮输出是未解析的工具调用标记文本，本轮为最终汇总。"
+                  "工具结果已收集齐全，请勿再次调用工具或输出任何工具调用语法，"
+                  "直接基于上述工具查询结果用中文给出最终回答。）")
 _GRACEFUL_FALLBACK = "（抱歉，本次回答生成异常，请重试或换个问法。）"
 
 # 循环守卫兜底前缀（2026-08-27 修复）：不再泄漏「检测到重复检索」内部诊断，改为
@@ -454,8 +455,17 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
                 # 汇总步标记文本：与 select_and_execute 对齐，注入纠错提示重试，
                 # 而不是直接降级为死胡同兜底（2026-08-26 复现：工具数据全拿到，
                 # 汇总步模型偶发输出 DSML 标记文本 -> 用户只看到兜底道歉）。
+                # 2026-08-30 修复：NUDGE 措辞不得含「工具已不可用」（会被 LLM 误读为
+                # 系统故障而拒绝任务，trace 8516ffd）；重试时附已收集工具结果摘要，
+                # 引导 LLM 基于数据作答（B 加强）。
                 if retry < MAX_RETRIES:
-                    state["messages"].append({"role": "user", "content": _SUMMARY_NUDGE})
+                    tool_lines = "\n".join(
+                        f"- {tr.get('tool', '?')}: {(tr.get('result') or '')[:200]}"
+                        for tr in state.get("tool_results", []))
+                    nudge = _SUMMARY_NUDGE
+                    if tool_lines:
+                        nudge += "\n\n【已收集的工具结果】\n" + tool_lines
+                    state["messages"].append({"role": "user", "content": nudge})
                     print(f"  ⚠️  [汇总步标记文本] 第 {retry + 1} 次重试...")
                     continue
                 # 重试耗尽仍产出标记文本 -> 优雅提示，不进入答案/缓存
