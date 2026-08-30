@@ -1,4 +1,4 @@
-"""demo 一键自动化测试脚本。
+"""flex-fab-agent 一键自动化测试脚本。
 
 用法：
   python run_all_tests.py              # 全量单测 + 集成测试
@@ -55,7 +55,7 @@ def generate_report() -> bool:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="demo 一键自动化测试")
+    parser = argparse.ArgumentParser(description="flex-fab-agent 一键自动化测试")
     parser.add_argument("--eval", action="store_true", help="跑三层评估（真实 LLM）")
     parser.add_argument("--no-judge", action="store_true", help="评估跳过 LLM-as-Judge")
     parser.add_argument("--report", action="store_true", help="生成 HTML 报告")
@@ -79,7 +79,7 @@ def main():
             print("\n⚠️ 报告生成失败")
 
     print("\n" + "=" * 60)
-    print(" 🎉 demo 自动化测试完成")
+    print(" 🎉 flex-fab-agent 自动化测试完成")
     print("=" * 60)
 
 
