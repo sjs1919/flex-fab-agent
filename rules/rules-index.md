@@ -23,5 +23,6 @@
 | MySQL / 迁移 / 种子数据 / tenant_id / WSL 数据库 | -> `stack-python/database.md` |
 | Python 测试执行 / pytest / mock LLM / eval | -> `stack-python/testing.md` |
 | Python 版本 / Docker / WSL 构建 | -> `stack-python/ops-build.md` |
+| LLM 提示词 / Agent 编排 / 输出纠错 / NUDGE | -> `common/llm-agent.md` |
 
 > `common/` 永不因换栈修改 -- 通用层与语言无关，新技术栈只做追加，不动已有文件。
