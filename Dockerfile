@@ -16,6 +16,8 @@ RUN pip install -r requirements-flex-fab-agent.txt
 
 # flex_fab_agent/ 含业务数据（csv/contracts，随镜像）；运行时产物走挂载卷（FLEX_FAB_AGENT_RUNTIME_DIR）
 COPY flex_fab_agent/ ./flex_fab_agent/
+# 前端构建产物（web/ 本地 npm run build 产出，随镜像）→ FastAPI 同源托管
+COPY web/dist ./web/dist
 
 ENV FLEX_FAB_AGENT_RUNTIME_DIR=/data/runtime \
     OTEL_EXPORTER=console \

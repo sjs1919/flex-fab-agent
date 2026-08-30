@@ -1,6 +1,8 @@
 services:
   flex-fab-agent-api:
     build: .
+    # 生产部署用预构建镜像（本地 docker build + save/load 推服务器）；无镜像时才 build
+    image: sjs1919/flex-fab-agent:20260830
     container_name: flex-fab-agent-api
     # host 网络：容器直接用 WSL 网络栈。本机 MySQL 只监听 127.0.0.1:3306，
     # bridge 模式下容器经 host.docker.internal(172.17.0.1) 连不上（Connection refused）。
@@ -23,8 +25,6 @@ services:
       # 不挂载：非 RAG 问正常，RAG 问报 reranker 加载错
       - ${HF_CACHE_HOST:-/home/wenext/.cache/huggingface}:/root/.cache/huggingface
       - ${CHROMA_CACHE_HOST:-/home/wenext/.cache/chroma}:/root/.cache/chroma
-      # 前端构建产物（任务3）：FastAPI 同源托管，重建前端后无需重 build 镜像
-      - ./web/dist:/app/web/dist
 
 volumes:
   flex-fab-agent-runtime:
