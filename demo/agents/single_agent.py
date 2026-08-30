@@ -16,6 +16,7 @@ from ..graph.checkpointer import build_checkpointer
 from ..graph.single_agent_graph import (
     _GRACEFUL_FALLBACK,
     LOOP_GUARD_FALLBACK_PREFIX,
+    SUMMARY_FALLBACK_PREFIX,
     _looks_like_tool_markup,
     build_single_agent_graph,
 )
@@ -41,6 +42,16 @@ _STATE_SENSITIVE_KEYWORDS = (
 
 def _is_state_sensitive(query: str) -> bool:
     return any(k in query for k in _STATE_SENSITIVE_KEYWORDS)
+
+
+# 拒绝/故障话术特征（2026-08-30 缓存投毒变体修复）：LLM 输出的拒绝话术（「无法完成/
+# 工具已不可用」等）会被当正常答案缓存，重问一直命中垃圾（trace 73d6c8e）。窄特征集，
+# 只收实证 + 高频拒绝词，宁可漏不可误伤（合法回答含「无法完成」时不入缓存只是少一档加速）。
+_REJECTION_MARKERS = ("无法完成", "工具已不可用", "请重新发送", "系统提示表明")
+
+
+def _looks_like_rejection(text: str) -> bool:
+    return any(m in text for m in _REJECTION_MARKERS)
 
 
 # 模块级缓存编译好的图：多轮复用同一图 + checkpointer（checkpointer 是单例）
@@ -127,8 +138,10 @@ def run_single_agent(query: str, registry=None, thread_id: str | None = None) ->
         # 状态类查询（订单/状态/进度等）标记 sensitive：走短 TTL + 数据变更主动清除，避免返回过期数据。
         fa = result["final_answer"]
         if (not _looks_like_tool_markup(fa)
+                and not _looks_like_rejection(fa)
                 and fa != _GRACEFUL_FALLBACK
-                and not fa.startswith(LOOP_GUARD_FALLBACK_PREFIX)):
+                and not fa.startswith(LOOP_GUARD_FALLBACK_PREFIX)
+                and not fa.startswith(SUMMARY_FALLBACK_PREFIX)):
             cache_manager.store_semantic(query, fa, sensitive=_is_state_sensitive(query))
 
     return result

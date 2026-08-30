@@ -869,3 +869,65 @@ def test_summary_nudge_includes_tool_results(monkeypatch):
     assert "未找到匹配的订单" in nudge, \
         f"重试消息应附工具结果摘要（含 query_orders 空结果），实际: {nudge}"
     assert result["final_answer"] == "没有待排产订单"
+
+
+# ---- 2026-08-30 修复：审核意图识别（app_intent 漏「审核」）+ 汇总兜底不道歉 ----
+
+def test_approve_intent_recognizes_shenhe(monkeypatch):
+    """坑（2026-08-30 复现，trace 0e5cddd0）：用户「审核通过」是审批意图，但 app_intent
+    关键词只收「审批/驳回」漏「审核」→ evaluate 不强制 approve_schedule → 直接汇总，
+    LLM 汇总步仍想调写工具 → 连续标记文本 → 兜底道歉。
+    修复：app_intent 补「审核」→ 决策轮只查版本未审批时继续工具轮调 approve_schedule。"""
+    from demo.graph import single_agent_graph as sag
+    _disable_compression(monkeypatch)
+    responses = [
+        FakeResponse(tool_calls=_make_tool_call("query_schedule")),      # 决策轮查版本
+        FakeResponse(tool_calls=_make_tool_call("approve_schedule")),    # 继续工具轮审批
+        FakeResponse(content="排产版本 53 已审核通过"),                    # 汇总
+    ]
+
+    def fake_call_llm(messages, tools=None, **kwargs):
+        return responses.pop(0) if responses else FakeResponse(content="兜底答案")
+
+    monkeypatch.setattr(sag, "call_llm", fake_call_llm)
+    app = build_single_agent_graph(FakeRegistry(), checkpointer=None)
+    result = app.invoke({
+        "messages": [{"role": "user", "content": "帮我把待审核的排产版本审核通过"}],
+        "tool_results": [],
+        "iteration": 0,
+        "final_answer": "",
+    })
+    tools_used = {t["tool"] for t in result["tool_results"]}
+    assert "approve_schedule" in tools_used, \
+        f"审核意图应触发审批工具，实际工具: {tools_used}"
+    assert result["final_answer"] != sag._GRACEFUL_FALLBACK, "不得兜底道歉"
+
+
+def test_summary_fallback_uses_tool_results(monkeypatch):
+    """B：汇总步标记文本重试耗尽（MAX_RETRIES=2）时，兜底应基于已收集工具结果拼接
+    （_SUMMARY_FALLBACK_PREFIX），而非降级 _GRACEFUL_FALLBACK 道歉。"""
+    from demo.graph import single_agent_graph as sag
+    _disable_compression(monkeypatch)
+    responses = [
+        FakeResponse(tool_calls=_make_tool_call("query_schedule")),  # 决策轮
+        FakeResponse(content=_MARKUP),   # 汇总第1次标记
+        FakeResponse(content=_MARKUP),   # 汇总第2次标记
+        FakeResponse(content=_MARKUP),   # 汇总第3次标记（重试耗尽）
+    ]
+
+    def fake_call_llm(messages, tools=None, **kwargs):
+        return responses.pop(0) if responses else FakeResponse(content="兜底答案")
+
+    monkeypatch.setattr(sag, "call_llm", fake_call_llm)
+    app = build_single_agent_graph(FakeRegistry(), checkpointer=None)
+    result = app.invoke({
+        "messages": [{"role": "user", "content": "帮我查一下排产情况"}],
+        "tool_results": [],
+        "iteration": 0,
+        "final_answer": "",
+    })
+
+    assert result["final_answer"] != sag._GRACEFUL_FALLBACK, \
+        f"标记耗尽不得降级为道歉兜底，实际: {result['final_answer']!r}"
+    assert result["final_answer"].startswith(sag.SUMMARY_FALLBACK_PREFIX), \
+        f"兜底应带 SUMMARY_FALLBACK_PREFIX 且含工具结果，实际: {result['final_answer']!r}"

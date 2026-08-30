@@ -90,6 +90,9 @@ _GRACEFUL_FALLBACK = "（抱歉，本次回答生成异常，请重试或换个�
 # 循环守卫兜底前缀（2026-08-27 修复）：不再泄漏「检测到重复检索」内部诊断，改为
 # 面向用户的简洁兜底。该前缀答案一律不得写入语义缓存（缓存投毒纵深防御，见 agents/single_agent.py）。
 LOOP_GUARD_FALLBACK_PREFIX = "已多次检索未获得新的有效结果，基于已收集数据作答：\n"
+# 汇总步标记耗尽兜底前缀（2026-08-30）：generate_answer 重试耗尽不再降级道歉，
+# 基于已收集工具结果拼接；该前缀答案一律不得写入语义缓存（缓存投毒纵深防御）。
+SUMMARY_FALLBACK_PREFIX = "基于已收集的工具结果作答：\n"
 
 
 def call_llm_agentic(messages, tools=None, **kwargs):
@@ -155,6 +158,19 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
 
         # ---- 原有逻辑 ----
         tool_names = {t.get("function", {}).get("name", "") for t in tools_schema}
+
+        # 待办写操作提示（2026-08-30）：evaluate 识别到排产/审批意图但写工具未执行时，
+        # 注入明确指令让 LLM 聚焦执行写操作（真实 LLM 常被查询数据带偏，只查不审批）。
+        if state.get("pending_write"):
+            _pw = state["pending_write"]
+            state["messages"].append({
+                "role": "system",
+                "content": (f"用户明确要求执行 {_pw}（{'审批排产版本' if _pw == 'approve_schedule' else '触发排产求解'}）。"
+                            f"当前尚未调用 {_pw} 工具，请立即调用该工具完成操作，"
+                            "不要只做查询或输出建议。"),
+            })
+            state["pending_write"] = ""  # 只注入一次
+
         task_type = "complex" if _COMPLEX_TOOLS.intersection(tool_names) else "simple"
         try:
             response = call_llm_agentic(state["messages"], tools_schema, task_type=task_type)
@@ -245,6 +261,35 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
             state["evaluation_notes"] = "首轮或纯文本作答，等待/直接输出"
             return state
 
+        # 写操作意图强制检查（2026-08-30 提前）：必须优先于空结果拦截/循环检测。
+        # 用户要求「跑排产/审批」但写工具未执行时，即使 LLM 查到订单空结果
+        # （query_orders 空结果拦截）或被其它数据吸引，也不得提前收尾——否则审批/
+        # 排产被空结果拦截绕过（trace 5b3c9836：LLM 查 query_orders 空结果后被收尾，
+        # approve_schedule 从未执行，pending_write 也从未注入）。
+        tool_names = {tr.get("tool", "") for tr in results}
+        # 写工具已执行 -> 清除待办写操作提示（2026-08-30，审批/排产落地后不再催）
+        if state.get("pending_write") and state["pending_write"] in tool_names:
+            state["pending_write"] = ""
+        user_text = " ".join(str(m.get("content", "")) for m in state.get("messages", [])
+                             if m.get("role") == "user")
+        run_intent = any(k in user_text for k in
+                         ("跑排产", "重新排产", "排一次产", "跑一轮", "执行排产", "做一轮排产", "排产工具"))
+        app_intent = any(k in user_text for k in ("审批", "驳回", "审核"))
+        if run_intent and "run_scheduling" not in tool_names:
+            state["evaluation_notes"] = "用户要求跑排产，但 run_scheduling 尚未执行，继续工具轮"
+            state["needs_more"] = True
+            state["needs_retry"] = False
+            state["ready_for_answer"] = False
+            state["pending_write"] = "run_scheduling"
+            return state
+        if app_intent and "approve_schedule" not in tool_names:
+            state["evaluation_notes"] = "用户要求审批，但 approve_schedule 尚未执行，继续工具轮"
+            state["needs_more"] = True
+            state["needs_retry"] = False
+            state["ready_for_answer"] = False
+            state["pending_write"] = "approve_schedule"
+            return state
+
         # ③ 筛选空结果即答案（2026-08-27 修复）：query_orders 带筛选条件且干净返回
         # 「未找到匹配的订单。」= 该筛选无匹配订单，直接据此作答。否则 evaluate 会以
         # 「数据不足」怂恿 LLM 继续补数据，不同参数的探索最终被循环守卫误判成循环
@@ -296,29 +341,6 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
         if bad_results:
             state["evaluation_notes"] = f"以下工具返回空或错误: {', '.join(bad_results)}"
             state["needs_retry"] = True
-            return state
-
-        # 写操作意图未执行（2026-08-29 修复）：用户要求「跑排产/审批」但写工具
-        # （run_scheduling/approve_schedule）尚未执行时，不能因已查排产上下文就提前汇总
-        # （下方 has_schedule_context 会把「先查询版本再审批/再排产」的两步式截断成最终汇总，
-        # LLM 第二轮报「最终汇总轮工具不可用」）。检测到执行意图且写工具缺失 → 继续工具轮。
-        tool_names = {tr.get("tool", "") for tr in results}
-        user_text = " ".join(str(m.get("content", "")) for m in state.get("messages", [])
-                             if m.get("role") == "user")
-        run_intent = any(k in user_text for k in
-                         ("跑排产", "重新排产", "排一次产", "跑一轮", "执行排产", "做一轮排产", "排产工具"))
-        app_intent = any(k in user_text for k in ("审批", "驳回"))
-        if run_intent and "run_scheduling" not in tool_names:
-            state["evaluation_notes"] = "用户要求跑排产，但 run_scheduling 尚未执行，继续工具轮"
-            state["needs_more"] = True
-            state["needs_retry"] = False
-            state["ready_for_answer"] = False
-            return state
-        if app_intent and "approve_schedule" not in tool_names:
-            state["evaluation_notes"] = "用户要求审批，但 approve_schedule 尚未执行，继续工具轮"
-            state["needs_more"] = True
-            state["needs_retry"] = False
-            state["ready_for_answer"] = False
             return state
 
         # 2026-08-30 修复：LLM 已答干净文本 + 已收集工具数据 -> 直接收尾（trace 372ae82d 根因）。
@@ -468,8 +490,11 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
                     state["messages"].append({"role": "user", "content": nudge})
                     print(f"  ⚠️  [汇总步标记文本] 第 {retry + 1} 次重试...")
                     continue
-                # 重试耗尽仍产出标记文本 -> 优雅提示，不进入答案/缓存
-                answer = _GRACEFUL_FALLBACK
+                # 重试耗尽仍产出标记文本 -> 基于已收集工具结果兜底（不道歉），
+                # SUMMARY_FALLBACK_PREFIX 前缀由缓存门禁拦截，不入缓存
+                answer = SUMMARY_FALLBACK_PREFIX + "\n".join(
+                    f"- {tr.get('tool', '?')}: {(tr.get('result') or '')[:300]}"
+                    for tr in state.get("tool_results", []))
                 break
             except Exception as e:
                 # 兜底：LLM 失败时返回原始工具数据

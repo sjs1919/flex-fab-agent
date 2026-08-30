@@ -68,6 +68,26 @@ def test_state_query_still_sensitive():
     """强状态词命中仍判 sensitive：短 TTL + 数据变更清除。"""
     assert sa._is_state_sensitive("订单001当前状态如何？") is True
     assert sa._is_state_sensitive("有哪些订单在排队？") is True
+
+
+# ---- 2026-08-30 修复：拒绝话术 / 汇总兜底不入语义缓存（投毒变体） ----
+
+def test_rejection_answer_not_cached(monkeypatch):
+    """坑（缓存投毒变体，2026-08-30 实测 trace 73d6c8e cache hit 返回拒绝话术）：
+    LLM 输出的拒绝/故障话术（「无法完成/工具已不可用」）不得写入语义缓存，
+    否则重问一直命中垃圾。"""
+    rejection = ("抱歉，我无法完成这个查询。系统提示表明上一轮的工具调用未能正确解析，"
+                 "且当前轮次工具已不可用。请您重新发送一次问题。")
+    calls = _run(monkeypatch, rejection)
+    assert calls == [], f"拒绝话术不得入缓存，实际写入 {calls}"
+
+
+def test_summary_fallback_prefix_not_cached(monkeypatch):
+    """B：汇总步标记耗尽兜底（_SUMMARY_FALLBACK_PREFIX 前缀）不得入缓存（投毒纵深防御）。"""
+    from demo.graph.single_agent_graph import SUMMARY_FALLBACK_PREFIX
+    fa = SUMMARY_FALLBACK_PREFIX + "- query_schedule: 排产版本 53 待审核"
+    calls = _run(monkeypatch, fa)
+    assert calls == [], f"汇总兜底不得入缓存，实际写入 {calls}"
     assert sa._is_state_sensitive("设备E01进度到哪了？") is True
     assert sa._is_state_sensitive("3号机还有没有在打印？") is True
     assert sa._is_state_sensitive("查一下目前待排产的订单有哪些") is True  # 2026-08-29 补「目前」
