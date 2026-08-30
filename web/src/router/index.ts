@@ -7,7 +7,8 @@ import ScheduleView from '../views/ScheduleView.vue'
 import DemoCasesView from '../views/DemoCasesView.vue'
 
 export default createRouter({
-  history: createWebHistory(),
+  // BASE_URL：dev 为 /，生产构建为 /flex-fab-agent/（nginx 去前缀反代到应用根）
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     // 单页聚合入口：看板/调试/审批/案例/配置 tab 切换
     { path: '/', name: 'portal', component: PortalView },

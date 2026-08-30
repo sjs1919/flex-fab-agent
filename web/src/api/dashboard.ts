@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 // 看板只读 API 客户端（M5b T5b.7 端点；开发走 vite proxy，生产同源/反代）
-const http = axios.create({ baseURL: '/', timeout: 10_000 })
+const http = axios.create({ baseURL: import.meta.env.BASE_URL, timeout: 10_000 })
 
 export interface KpiSnapshot {
   id: number

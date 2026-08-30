@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 // 配置 API 客户端（M6 T6.8 F-2；GET 匿名，PUT 需 admin token）
-const http = axios.create({ baseURL: '/', timeout: 10_000 })
+const http = axios.create({ baseURL: import.meta.env.BASE_URL, timeout: 10_000 })
 
 export interface ConfigView {
   data_source: string

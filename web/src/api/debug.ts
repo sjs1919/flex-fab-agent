@@ -3,7 +3,7 @@ import axios from 'axios'
 // 调试台 API 客户端（M6 T6.7 G5；开发走 vite proxy，生产同源/反代）
 // judge/rerun/label 写端点为 admin（R-7），token 从 localStorage 传入 X-Admin-Token 头
 // 120s：语义缓存首启冷加载 embedding（~40s）+ 主备回落串行耗时，30s 会误报超时
-const http = axios.create({ baseURL: '/', timeout: 120_000 })
+const http = axios.create({ baseURL: import.meta.env.BASE_URL, timeout: 120_000 })
 
 export interface SpanItem {
   name: string

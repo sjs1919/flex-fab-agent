@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const http = axios.create({ baseURL: '/', timeout: 15_000 })
+const http = axios.create({ baseURL: import.meta.env.BASE_URL, timeout: 15_000 })
 
 export type ResourceCategory = 'machines' | 'customers' | 'orders' | 'inventory' | 'batches' | 'preprocess' | 'personnel'
 
