@@ -96,6 +96,7 @@ class AutoScheduler:
 
     def _run_locked(self, trigger: str) -> bool:
         if not self._lock.acquire(blocking=False):
+            logger.info("自动排产取消(%s)：上一轮排产未完成，跳过本轮", trigger)
             return False  # 已有排产在跑，跳过本轮
         try:
             self._auto_schedule(trigger)

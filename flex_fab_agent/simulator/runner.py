@@ -41,34 +41,42 @@ class SimulatorRunner:
         self._tracer = Tracer()  # D2：线程私有，不碰全局 tracer
         self.tick_count = 0
         self.consecutive_failures = 0
+        self._tick_lock = threading.Lock()  # 2026-08-30 防重入：上一拍未完成则取消本次
 
-    def run_tick(self) -> dict:
+    def run_tick(self) -> dict | None:
         """单 tick：一个事务内时钟 +1h + A/B 层推进；事务外 bump 版本 + 记 span。
 
         事务内任一步失败 -> 整体回滚（时钟/批次/日志无半写）后向上抛。
+        防重入（2026-08-30）：上一拍推进未完成时取消本次，返回 None 不推进。
         """
-        t0 = time.perf_counter()
-        with transaction() as conn:
-            with conn.cursor() as cur:
-                clock.advance_sim_time(cur, 1)
-            sim_time = clock.get_sim_time(conn)
-            stats = engine.advance_tick(conn, sim_time)
-            # 事件兜底重排（2026-08-27）：本 tick 发生设备故障/新插单/延期告警 → 即时重排信号
-            if self._need_reschedule(conn, sim_time):
-                from ..scheduler.auto_scheduler import get_scheduler  # 函数内导入避免加载期循环
-                get_scheduler().request_rerun()
-        self.tick_count += 1
-        self.consecutive_failures = 0
-        cache_manager.bump_scene_version()  # R-3：状态相关缓存失效
-        cache_manager.clear_state_entries()  # tick 后订单/设备状态变化，状态类语义缓存主动失效
-        self._record_kpi_snapshot(sim_time)
-        duration_ms = round((time.perf_counter() - t0) * 1000, 1)
-        self._tracer.record(
-            "simulator:tick", duration_ms,
-            sim_time=sim_time.strftime("%Y-%m-%d %H:%M:%S"),
-            event_count=stats.get("events_fired", 0),
-        )
-        return stats
+        if not self._tick_lock.acquire(blocking=False):
+            logger.warning("模拟器 tick 取消：上一拍推进未完成，跳过本次")
+            return None
+        try:
+            t0 = time.perf_counter()
+            with transaction() as conn:
+                with conn.cursor() as cur:
+                    clock.advance_sim_time(cur, 1)
+                sim_time = clock.get_sim_time(conn)
+                stats = engine.advance_tick(conn, sim_time)
+                # 事件兜底重排（2026-08-27）：本 tick 发生设备故障/新插单/延期告警 → 即时重排信号
+                if self._need_reschedule(conn, sim_time):
+                    from ..scheduler.auto_scheduler import get_scheduler  # 函数内导入避免加载期循环
+                    get_scheduler().request_rerun()
+            self.tick_count += 1
+            self.consecutive_failures = 0
+            cache_manager.bump_scene_version()  # R-3：状态相关缓存失效
+            cache_manager.clear_state_entries()  # tick 后订单/设备状态变化，状态类语义缓存主动失效
+            self._record_kpi_snapshot(sim_time)
+            duration_ms = round((time.perf_counter() - t0) * 1000, 1)
+            self._tracer.record(
+                "simulator:tick", duration_ms,
+                sim_time=sim_time.strftime("%Y-%m-%d %H:%M:%S"),
+                event_count=stats.get("events_fired", 0),
+            )
+            return stats
+        finally:
+            self._tick_lock.release()
 
     def _need_reschedule(self, conn, sim_time) -> bool:
         """本 tick 是否发生需重排的事件：设备故障 fired / 新插单。

@@ -266,3 +266,13 @@ def test_fifo_approve_runs_when_approved_sufficient():
     finally:
         _cleanup_versions(ids)
         _reset_all_pending()
+
+
+def test_run_once_skipped_when_scheduling_in_progress():
+    """防重入（2026-08-30）：上一轮排产未完成时，再次触发被取消（返回 False）。"""
+    s = AutoScheduler(enabled=True, reserve_top_n=0)
+    s._lock.acquire()  # 模拟上一轮排产正在跑
+    try:
+        assert s.run_once("tick") is False
+    finally:
+        s._lock.release()

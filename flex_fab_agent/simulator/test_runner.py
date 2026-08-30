@@ -161,3 +161,14 @@ def test_runner_circuit_breaker(monkeypatch):
     assert r.consecutive_failures >= runner_mod.MAX_CONSECUTIVE_FAILURES
     with get_connection() as conn:
         assert clock.get_sim_time(conn) == T0, "全部失败 tick 不得推进时钟"
+
+
+def test_run_tick_skipped_when_previous_tick_in_progress():
+    """防重入（2026-08-30）：上一拍推进未完成时，再次 run_tick 取消（None + tick_count 不变）。"""
+    r = runner_mod.SimulatorRunner(tick_seconds=0.01)
+    r._tick_lock.acquire()  # 模拟上一拍在跑
+    try:
+        assert r.run_tick() is None
+        assert r.tick_count == 0
+    finally:
+        r._tick_lock.release()

@@ -114,8 +114,16 @@ def _get_sim_runner():
 
 @app.on_event("startup")
 def _start_auto_scheduler():
-    """自动排产调度随应用启动（enabled=off 时 no-op）。"""
+    """自动排产调度 + 模拟器随应用启动。
+
+    调度器 enabled=off 时 no-op；模拟器启动失败不阻塞应用（可手动 POST /sim/start）。
+    """
     get_scheduler().start()
+    try:
+        sim_start()
+        logger.info("模拟器随后端启动自动运行")
+    except Exception as e:
+        logger.warning("模拟器自动启动失败（可手动 /sim/start）：%s", e)
 
 
 class AskRequest(BaseModel):
