@@ -34,7 +34,7 @@ cache_db/
 /data/
 
 # 评估 HTML 报告（运行时生成，勿提交）
-demo/eval/reports/
+flex_fab_agent/eval/reports/
 
 # 临时文件
 tmp/
@@ -64,6 +64,6 @@ dist/
 coverage*
 
 # 审计运行时 JSONL（测试/服务运行产生，勿提交）
-demo/data/audit.jsonl
+flex_fab_agent/data/audit.jsonl
 # 调试台 case 落盘（含用户 query，运行时生成，勿提交）
-demo/data/cases.jsonl
+flex_fab_agent/data/cases.jsonl
