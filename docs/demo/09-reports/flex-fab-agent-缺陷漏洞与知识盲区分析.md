@@ -1,15 +1,15 @@
-# demo 项目缺陷、漏洞与知识盲区分析
+# flex-fab-agent 项目缺陷、漏洞与知识盲区分析
 
-> 基于课程《从能回答到能办事：构建可控的企业级 AI 助手》三梯队框架，对照 demo 代码逐项排查。
+> 基于课程《从能回答到能办事：构建可控的企业级 AI 助手》三梯队框架，对照 flex-fab-agent 代码逐项排查。
 > 分析时间：2026-08-06
 
 ---
 
-## 一、核心增量盲区（课程第一梯队 → demo 差距）
+## 一、核心增量盲区（课程第一梯队 → flex-fab-agent 差距）
 
 ### ① Harness 工程（主题 6/7）—— 有零件，缺装配
 
-| 课程要求 | demo 现状 | 差距 | 严重程度 |
+| 课程要求 | flex-fab-agent 现状 | 差距 | 严重程度 |
 |---------|----------|------|---------|
 | **编排/状态机** | LangGraph 4 节点循环 + 5 轮上限 | 有基础，但缺状态机自检（如"当前在哪一步"的显式状态机查询接口） | 🟡 |
 | **工具执行沙箱与重试** | `registry.execute` 直接调 handler，无重试逻辑 | 工具调用失败（如 API 超时、DB 锁）直接抛异常，无指数退避/重试 | 🔴 |
@@ -22,11 +22,11 @@
 
 **关键发现：**
 - Harness 的"编排层"有（LangGraph），但"沙箱层""护栏层"完全缺失。
-- `supervisor.py` 的 `orchestrate()` 是硬编码流程（if review → dispatch_review → if production → dispatch_production → LLM 综合），不是**声明式编排**（如 YAML/DSL 定义工作流）。课程强调的 Harness 是"可配置、可插拔的装配框架"，demo 还是手写 if/else。
+- `supervisor.py` 的 `orchestrate()` 是硬编码流程（if review → dispatch_review → if production → dispatch_production → LLM 综合），不是**声明式编排**（如 YAML/DSL 定义工作流）。课程强调的 Harness 是"可配置、可插拔的装配框架"，flex-fab-agent 还是手写 if/else。
 
 ### ② 业务数据包设计（主题 3）—— 有数据，缺"包"
 
-| 课程要求 | demo 现状 | 差距 |
+| 课程要求 | flex-fab-agent 现状 | 差距 |
 |---------|----------|------|
 | **按场景组织数据包** | CSV 分散在 `data/` 目录，工具函数直接读 | 未按"问答/筛选比较/推荐/流程"四类场景组织；无"数据包"概念 |
 | **结构化筛选** | `query_orders(status="紧急")` 等工具 | 能回答"紧急订单有哪些"（问答），但**无法回答**"交期 7/30 前、A 级客户、3D打印工艺、按设备空闲排序的前 3 单"（多条件结构化筛选） |
@@ -34,11 +34,11 @@
 | **流程型** | LangGraph 状态机 | 有，但状态机未和数据包绑定（如"排产流程"=数据包+状态机+工具链的完整封装） |
 
 **关键发现：**
-- 课程强调的"数据包决定 Agent 能办什么事"，demo 还停留在"工具函数查表"阶段。没有"排产业务数据包"的显式定义（如一个 `SchedulingDataPackage` 类，封装 orders + inventory + machines + customers + contracts 的联合查询能力）。
+- 课程强调的"数据包决定 Agent 能办什么事"，flex-fab-agent 还停留在"工具函数查表"阶段。没有"排产业务数据包"的显式定义（如一个 `SchedulingDataPackage` 类，封装 orders + inventory + machines + customers + contracts 的联合查询能力）。
 
 ### ③ 长任务步骤合并/跳过（主题 5）—— 有上限，缺校验
 
-| 课程要求 | demo 现状 | 差距 |
+| 课程要求 | flex-fab-agent 现状 | 差距 |
 |---------|----------|------|
 | **强制结构化 todo** | 无 | `select_and_execute` 节点无 todo 列表，模型可能跳步（如跳过查设备直接给排产结论） |
 | **检查点（持久化中间状态）** | SqliteSaver 存 AgentState | 有，但检查点只存 LangGraph 状态，不存"当前 todo 完成到哪一步" |
@@ -52,7 +52,7 @@
 
 ### ④ Vibe Coding 回炉（主题 4）—— 有代码，缺迭代方法论
 
-| 课程要求 | demo 现状 | 差距 |
+| 课程要求 | flex-fab-agent 现状 | 差距 |
 |---------|----------|------|
 | **快速搭建→迭代式对话开发** | 代码已工程化，但开发过程未记录 | 缺"Vibe Coding"的开发日志（如 prompt 迭代版本、bad case 驱动的优化记录） |
 | **Prompt 版本管理** | `system_prompts.py` 硬编码 | 无版本管理（如 `prompts/v1/`、`prompts/v2/`），A/B 测试无基础 |
@@ -60,10 +60,10 @@
 
 ### ⑤ MVP→PMF + 制造业岗位结合（主题 7/9）
 
-| 课程要求 | demo 现状 | 差距 |
+| 课程要求 | flex-fab-agent 现状 | 差距 |
 |---------|----------|------|
-| **MVP→PMF 演进路线** | 纯技术 demo | 缺产品化视角：从"能跑"到"有人用"到"规模化"的演进路线图 |
-| **岗位拆解** | review/production 两个子 Agent | 未和真实制造业岗位（排产计划员、车间调度、质检员）对齐。如"排产计划员"的工作 = 查订单 + 查设备 + 查材料 + 排优先级 + 下发工单，demo 只覆盖了前半段 |
+| **MVP→PMF 演进路线** | 纯技术 flex-fab-agent | 缺产品化视角：从"能跑"到"有人用"到"规模化"的演进路线图 |
+| **岗位拆解** | review/production 两个子 Agent | 未和真实制造业岗位（排产计划员、车间调度、质检员）对齐。如"排产计划员"的工作 = 查订单 + 查设备 + 查材料 + 排优先级 + 下发工单，flex-fab-agent 只覆盖了前半段 |
 | **SLA 定义** | 无 | 没有定义"排产建议生成时间 < 3s""准确率 > 95%"等 SLA |
 
 ---
@@ -72,10 +72,10 @@
 
 ### ⑥ 回答≠业务结果（主题 1）+ 检索痛点（主题 2）
 
-| 课程要求 | demo 现状 | 差距 |
+| 课程要求 | flex-fab-agent 现状 | 差距 |
 |---------|----------|------|
-| **回答≠业务结果** | 单 Agent 返回文本建议 | 有"调度建议"文本，但**没有"建议被采纳后实际效果如何"的闭环**。课程强调的"能办事"=输出要驱动业务动作（如自动下发工单到 MES），demo 只到"给建议"为止 |
-| **RAG 召回痛点** | 混合检索（向量+BM25+RRF+重排） | 有，但**未解决"多条件结构化筛选"**（如"交期 7/30 前 AND 客户等级=A AND 工艺=3D打印"）。RAG 擅长语义匹配，不擅长结构化过滤——这是课程主题 2 的核心痛点，demo 用工具函数绕过了，未正面解决 |
+| **回答≠业务结果** | 单 Agent 返回文本建议 | 有"调度建议"文本，但**没有"建议被采纳后实际效果如何"的闭环**。课程强调的"能办事"=输出要驱动业务动作（如自动下发工单到 MES），flex-fab-agent 只到"给建议"为止 |
+| **RAG 召回痛点** | 混合检索（向量+BM25+RRF+重排） | 有，但**未解决"多条件结构化筛选"**（如"交期 7/30 前 AND 客户等级=A AND 工艺=3D打印"）。RAG 擅长语义匹配，不擅长结构化过滤——这是课程主题 2 的核心痛点，flex-fab-agent 用工具函数绕过了，未正面解决 |
 
 ---
 
@@ -113,7 +113,7 @@
 
 ## 五、知识盲区总结（按课程主题映射）
 
-| 课程主题 | demo 盲区 | 优先级 |
+| 课程主题 | flex-fab-agent 盲区 | 优先级 |
 |---------|----------|--------|
 | **主题 1：能回答≠能办事** | 输出只到"给建议"，未驱动业务动作 | 高 |
 | **主题 2：检索痛点** | RAG 无法处理多条件结构化筛选（用工具函数绕过了） | 高 |
@@ -161,8 +161,8 @@
 | 多 Agent 协作 | week4 多 Agent + 鉴权 | [`week4/day1_2_guide.md`](../week4/day1_2_guide.md) · [`week4/day3_5_guide.md`](../week4/day3_5_guide.md) | 有基础，缺动态分解 |
 | RAG 混合检索 | week2 RAG + BM25 + 重排 | [`week2/week2_代码深度解读.md`](../week2/week2_代码深度解读.md) | 有实现，缺结构化筛选 |
 | 可观测体系 | week5 tracer + exporter + cost | [`代码阅读指南`](../11-manuals/代码阅读指南.md) 第 12 层 | 有零件，缺告警/采样 |
-| Agent 评测 | 美团图灵 Agent 评测文章 | [`courses/Agent评测漫谈-由浅入深讲解Agent评测.md`](Agent评测漫谈-由浅入深讲解Agent评测.md) | 刚整理，未接入 demo |
-| 企业级 Agent 入门 | 培训分享稿 | [`train/企业Agent开发入门-20260722.md`](../train/企业Agent开发入门-20260722.md) | 已学，需回炉到 demo |
+| Agent 评测 | 美团图灵 Agent 评测文章 | [`courses/Agent评测漫谈-由浅入深讲解Agent评测.md`](Agent评测漫谈-由浅入深讲解Agent评测.md) | 刚整理，未接入 flex-fab-agent |
+| 企业级 Agent 入门 | 培训分享稿 | [`train/企业Agent开发入门-20260722.md`](../train/企业Agent开发入门-20260722.md) | 已学，需回炉到 flex-fab-agent |
 | 行业对标 | 12 家 Agent 公司深度分析 | [`hangye/README.md`](../hangye/README.md) | 已读，需提取 Harness 实践 |
 | Claude Code Harness 解剖 | learn-claude-code s01-s20 | [`learn-claude-code/README-zh.md`](../../learn-claude-code/README-zh.md) | 待深入（s05/s08/s11/s12 最相关） |
 
@@ -201,6 +201,6 @@
 
 ---
 
-> **文档维护**：本报告随 demo 代码迭代更新。每次修复一个缺陷后，在此标注 ✅ 并记录 commit。
+> **文档维护**：本报告随 flex-fab-agent 代码迭代更新。每次修复一个缺陷后，在此标注 ✅ 并记录 commit。
 > 
 > 最后更新：2026-08-06

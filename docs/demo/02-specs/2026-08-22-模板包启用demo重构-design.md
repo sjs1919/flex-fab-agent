@@ -1,10 +1,10 @@
-# 设计：project-standards 模板包 v1.2 启用到 agent-training（demo 第二阶段重构）
+# 设计：project-standards 模板包 v1.2 启用到 agent-training（flex-fab-agent 第二阶段重构）
 
 | 项 | 值 |
 |----|----|
 | 日期 | 2026-08-22 |
 | 状态 | 已批准（用户确认方案 2 + 6 节设计） |
-| 背景 | demo 第二阶段重构（MySQL + 环境模拟器 + OR-Tools CP-SAT + LLM 在环）为多 Phase 大工程，需要 spec -> plan -> todo -> 四门禁全流程；`project-standards/` v1.2 模板包正是该流程的载体 |
+| 背景 | flex-fab-agent 第二阶段重构（MySQL + 环境模拟器 + OR-Tools CP-SAT + LLM 在环）为多 Phase 大工程，需要 spec -> plan -> todo -> 四门禁全流程；`project-standards/` v1.2 模板包正是该流程的载体 |
 | 关联 | [重构方案 v1](../../demo/04-plans/重构方案-v1-2026-08-21.md) · [需求规格 v1](../../demo/02-specs/需求规格-v1-2026-08-21.md) · [模板包 README](../../../project-standards/README.md) |
 
 ---
@@ -48,14 +48,14 @@ agent-training/
 
 ### 附加红线（写入 CLAUDE.md，模板占位符之外新增）
 
-1. **豁免区**：`job-portfolio/`、`docs/`（demo 子目录除外）为轻量文档区，不走四门禁流程；仅守 commit 格式与敏感信息两条红线。
+1. **豁免区**：`job-portfolio/`、`docs/`（flex-fab-agent 子目录除外）为轻量文档区，不走四门禁流程；仅守 commit 格式与敏感信息两条红线。
 2. **冲突消歧**：与 workspace 根 CLAUDE.md 冲突时（如并行 Agent 上限 2 vs 3、命令速查），以本仓 `rules/rules-index.md` 及其加载文件为准。
 
 ---
 
 ## 2. stack-python 规则包（6 文件）
 
-按模板 README「三步追加协议」新建；不硬凑 stack-go 九文件骨架，按 demo 实际裁剪。内容提炼自 demo README 红线、重构方案 v1 约束、token-hub 历史教训。
+按模板 README「三步追加协议」新建；不硬凑 stack-go 九文件骨架，按 flex-fab-agent 实际裁剪。内容提炼自 flex-fab-agent README 红线、重构方案 v1 约束、token-hub 历史教训。
 
 | 文件 | 核心红线 |
 |------|---------|
@@ -70,7 +70,7 @@ agent-training/
 
 | 触发场景 | 加载文件 |
 |---------|---------|
-| demo 分层 / 工具注册 / 数据源抽象 | -> `stack-python/arch.md` |
+| flex-fab-agent 分层 / 工具注册 / 数据源抽象 | -> `stack-python/arch.md` |
 | 异常处理 / 工具返回值 | -> `stack-python/error.md` |
 | 观测 / 审计 / span | -> `stack-python/logging.md` |
 | MySQL / 迁移 / 种子数据 / tenant_id | -> `stack-python/database.md` |
@@ -88,14 +88,14 @@ agent-training/
 | `docs/demo/01-requirements/` | rq-排程排产需求.md |
 | `docs/demo/02-specs/` | 需求规格-v1-2026-08-21.md · 排程排产需求规格-v1-2026-08-21.md |
 | `docs/demo/04-plans/` | 重构方案-v1-2026-08-21.md |
-| `docs/demo/09-reports/` | 盲区报告-JD对标与demo追赶路线-v1-2026-08-21.md · 评测报告-RAG质量-ragas-v1-2026-08-21.md |
+| `docs/demo/09-reports/` | 盲区报告-JD对标与flex-fab-agent追赶路线-v1-2026-08-21.md · 评测报告-RAG质量-ragas-v1-2026-08-21.md |
 | `docs/demo/05-tasklist/` | 新建：todo.md（总索引）+ 活跃任务文件 |
 
 另：`credentials.local.md.example` 复制到 `docs/demo/` 下（真实值文件 gitignore）。
 
 **common 文件路径适配**：`common/` 10 文件内容照搬、条款不改，但其中引用文档仓目录名（如 00-taskregister、05-tasklist）处，落地时统一映射为 `docs/demo/` 下的对应编号目录（待办登记 -> `docs/demo/05-tasklist/`）。映射关系在 `common/docs-flow.md` 头部加一行路径说明，不改条款本身。
 
-迁移后更新引用链接：agent-training `README.md`、`docs/00_文档地图.md`、demo `README.md` 中指向旧路径的链接。
+迁移后更新引用链接：agent-training `README.md`、`docs/00_文档地图.md`、flex-fab-agent `README.md` 中指向旧路径的链接。
 
 ---
 
@@ -108,9 +108,9 @@ agent-training/
 | `{{DOCS_REPO}}` | `docs/demo/` | 单仓相对路径 |
 | `{{MAIN_BRANCH}}` | main | |
 | `{{GIT_PLATFORM}}` | GitHub | remote 为 git@github.com:sjs1919/agent-training.git |
-| `{{TEST_CMD}}` | `python run_all_tests.py` | demo 现有 CI 入口 |
+| `{{TEST_CMD}}` | `python run_all_tests.py` | flex-fab-agent 现有 CI 入口 |
 | `{{BUILD_CMD}}` | `docker compose build` | 在 WSL 下执行 |
-| `{{LINT_CMD}}` | `python -m compileall demo` | 暂无 ruff，语法级兜底 |
+| `{{LINT_CMD}}` | `python -m compileall flex-fab-agent` | 暂无 ruff，语法级兜底 |
 | `{{MAX_PARALLEL_AGENTS}}` | 2 | 与 workspace 红线一致 |
 | `{{SERVER_ALIAS_1/2/3}}` | token_hub_120 / token_hub_47 / token_hub_172 | 照 workspace 现状 |
 | `{{GO_VERSION}}` 等栈类占位符 | 替换为 Python 3.11 语义（ops-build.md） | stack-go 相关占位符随目录删除 |
@@ -147,4 +147,4 @@ agent-training/
 - 不拆独立仓库（git 历史与训练文档引用保持完整）
 - 不给 job-portfolio / 训练文档套四门禁
 - 不引入 ruff 等新 lint 工具（`{{LINT_CMD}}` 用 compileall 兜底，后续需要再议）
-- demo 代码重构本身（MySQL/模拟器/OR-Tools）不在本设计范围，另走 04-plans 流程
+- flex-fab-agent 代码重构本身（MySQL/模拟器/OR-Tools）不在本设计范围，另走 04-plans 流程

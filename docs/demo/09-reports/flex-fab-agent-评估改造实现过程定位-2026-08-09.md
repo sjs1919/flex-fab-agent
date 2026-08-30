@@ -1,7 +1,7 @@
-# demo 评估体系改造 — 实现过程定位（完成度 / 问题 / 指标构建）
+# flex-fab-agent 评估体系改造 — 实现过程定位（完成度 / 问题 / 指标构建）
 
 > 日期：2026-08-09
-> 背景：把 demo 手写 eval 升级为三层评估体系（工具/轨迹/语义）+ 可视化报告 + 全 demo 测试 + 回测。本文件记录实现过程的完成度、发现的问题、评估指标构建的每一步。
+> 背景：把 flex-fab-agent 手写 eval 升级为三层评估体系（工具/轨迹/语义）+ 可视化报告 + 全 flex-fab-agent 测试 + 回测。本文件记录实现过程的完成度、发现的问题、评估指标构建的每一步。
 > 关联计划：`../04-plans/2026-08-08-ragas升级-三层评估体系.md`
 
 ---
@@ -12,7 +12,7 @@
 |------|------|------|
 | 三层评估（工具/轨迹/语义） | ✅ 完成 | judge.py + trajectory.py + metrics.py 增强 |
 | 可视化 HTML 报告 | ✅ 完成 | report.py，单页三层指标 |
-| 全 demo 单元测试 | ✅ 完成 | 128 个测试全绿 |
+| 全 flex-fab-agent 单元测试 | ✅ 完成 | 128 个测试全绿 |
 | 一键自动化脚本 | ✅ 完成 | run_all_tests.py + test_demo.sh |
 | 回测模块 | ✅ 完成 | backtest/，5 个历史复盘场景 |
 | 真实 LLM 评估 | 🔶 部分 | 主 provider 配额超限，DeepSeek 兜底成功，回归基线待账户恢复后重跑 |
@@ -69,7 +69,7 @@
 
 ---
 
-## 四、demo 完成程度自评
+## 四、flex-fab-agent 完成程度自评
 
 对照 week6 README 待办：
 
@@ -83,7 +83,7 @@
 **本次新增亮点**：
 - 三层评估替代单一工具分，覆盖行业 2026 强调的 trajectory evaluation + LLM-as-Judge
 - 回测概念从无到有：用真实历史延期记录做 Agent 复盘验证
-- 128 个测试锁定 demo 行为，为后续 week6 微调/推理优化守住回归底线
+- 128 个测试锁定 flex-fab-agent 行为，为后续 week6 微调/推理优化守住回归底线
 
 ---
 
@@ -110,7 +110,7 @@
 | `demo/backtest/` | 新增：回测模块 |
 | `demo/run_all_tests.py` / `test_demo.sh` | 新增：一键自动化脚本 |
 | `demo/pytest.ini` / `demo/conftest.py` | 新增：测试基础设施 |
-| `demo/*/test_*.py`（17 个） | 新增：全 demo 测试 |
+| `demo/*/test_*.py`（17 个） | 新增：全 flex-fab-agent 测试 |
 
 ---
 
@@ -135,14 +135,14 @@
 | 坑 | 定位 | 解决 |
 |----|------|------|
 | ragas 无法 import（`No module named 'langchain_community.chat_models.vertexai'`） | 读已装包 metadata Requires-Dist，确认 ragas 依赖宽松但代码写死旧模块 | 确认"ragas 过时"根因，放弃引 ragas，改自研 |
-| 计划里 conftest 最初写"加 demo 根到 sys.path" | `python -c "from demo.eval.runner import run_eval"` 在 agent-training 根成功、demo 根失败（GBK 打 ✅ 报错掩盖了真因） | 验证后改为 **加 agent-training 根**（eval 内部用相对导入 `from ..core.llm_client`，必须 `demo` 作父包） |
+| 计划里 conftest 最初写"加 flex-fab-agent 根到 sys.path" | `python -c "from demo.eval.runner import run_eval"` 在 agent-training 根成功、flex-fab-agent 根失败（GBK 打 ✅ 报错掩盖了真因） | 验证后改为 **加 agent-training 根**（eval 内部用相对导入 `from ..core.llm_client`，必须 `flex-fab-agent` 作父包） |
 
 ---
 
 ### 阶段 1：pytest 测试基础设施（任务 1）
 
 **做了什么**：
-1. 发现 demo **零测试、无 pytest 配置**（全库只有 `scripts/week3/test_mcp_client.py` 一个）
+1. 发现 flex-fab-agent **零测试、无 pytest 配置**（全库只有 `scripts/week3/test_mcp_client.py` 一个）
 2. 建 `demo/pytest.ini`（testpaths 覆盖 eval/tests/backtest）
 3. 建 `demo/conftest.py`（加 agent-training 根到 sys.path）
 4. 建 `demo/eval/test_smoke.py` 冒烟测试（含 `test_demo_package_importable` 验证 conftest 路径）
@@ -152,7 +152,7 @@
 | 坑 | 定位 | 解决 |
 |----|------|------|
 | pytest 未安装 | `import pytest` ModuleNotFoundError | `pip install pytest`（pytest 9.1.1，不写入 requirements-demo.txt） |
-| `from demo.eval.metrics` 在 demo 目录下失败 | `demo` 作为包需要父目录在 sys.path | conftest 加 agent-training 根，测试统一 `from demo.*` 导入 |
+| `from demo.eval.metrics` 在 flex-fab-agent 目录下失败 | `flex-fab-agent` 作为包需要父目录在 sys.path | conftest 加 agent-training 根，测试统一 `from demo.*` 导入 |
 
 **验证**：`python -m pytest eval/test_smoke.py` → 2 passed ✅
 **提交**：`test(eval): 建立 pytest 测试基础设施`
@@ -281,7 +281,7 @@
 ### 阶段 8：工具层测试（任务 16 开始，codegraph 驱动）
 
 **做了什么**：
-1. `codegraph init`（demo，47 文件 466 节点 954 边）
+1. `codegraph init`（flex-fab-agent，47 文件 466 节点 954 边）
 2. 并行 3 个 Explore agent：工具层 / 图执行层 / RAG+缓存+鉴权+观测层，拿到精确签名 + mock 清单 + 边界条件
 3. 写 `tools/test_data.py`（CSV 加载/空文件/tenant 过滤/Markdown 表格/AND 过滤/空值跳过）
 4. 写 `tools/test_order_tools.py`（按状态/客户/等级/工艺/交期/排序/limit/详情/生产状态）
@@ -374,7 +374,7 @@
 | 坑 | 定位 | 解决 |
 |----|------|------|
 | pytest `--timeout` 参数报错 | pytest-timeout 未装 | 不装，改用外层 `timeout 60` |
-| cwd 反复漂移（demo 根 vs agent-training 根）导致 `file not found` | 每次 `cd` 后忘记路径 | 统一 `cd demo && python -m pytest`，git 命令在 agent-training 根 |
+| cwd 反复漂移（flex-fab-agent 根 vs agent-training 根）导致 `file not found` | 每次 `cd` 后忘记路径 | 统一 `cd flex-fab-agent && python -m pytest`，git 命令在 agent-training 根 |
 
 3. 修复后 → observability 11 passed + auth 11 passed ✅
 
@@ -425,11 +425,11 @@
 
 | 坑 | 定位 | 解决 |
 |----|------|------|
-| 脚本 print emoji（✅）在 GBK 控制台报 `UnicodeEncodeError` | 独立脚本不触发 `demo/__init__.py` 的 reconfigure（那只对 demo 包内生效） | 脚本开头自己重配 stdin/stdout/stderr 为 UTF-8 |
+| 脚本 print emoji（✅）在 GBK 控制台报 `UnicodeEncodeError` | 独立脚本不触发 `demo/__init__.py` 的 reconfigure（那只对 flex-fab-agent 包内生效） | 脚本开头自己重配 stdin/stdout/stderr 为 UTF-8 |
 
 3. 跑 `python run_all_tests.py` → 全量通过 + 汇总 ✅
 
-**提交**：`feat(demo): 一键自动化测试脚本（run_all_tests.py + test_demo.sh）`
+**提交**：`feat(flex-fab-agent): 一键自动化测试脚本（run_all_tests.py + test_demo.sh）`
 
 ---
 
@@ -445,7 +445,7 @@
 
 | 坑 | 定位 | 解决 |
 |----|------|------|
-| 回测缺"时间演化"概念 | demo 数据是静态单点快照，无法做"过去决策验证" | 换思路：用**真实历史案例**做"复盘验证"——让 Agent 对历史延期事件给对策，对照人工复盘结论 |
+| 回测缺"时间演化"概念 | flex-fab-agent 数据是静态单点快照，无法做"过去决策验证" | 换思路：用**真实历史案例**做"复盘验证"——让 Agent 对历史延期事件给对策，对照人工复盘结论 |
 
 **提交**：`feat(backtest): 历史场景回测模块（Agent 复盘验证）`
 
@@ -527,7 +527,7 @@ ccb5a4b feat(eval): 自研 LLM-as-Judge 语义指标
 ### 坑 1：ragas 无法 import（阶段 0）
 
 **如何发现**：
-最初想推进真 ragas 进 demo。装了 ragas 0.4.3 后 `import ragas` 直接报 `ModuleNotFoundError: No module named 'langchain_community.chat_models.vertexai'`。
+最初想推进真 ragas 进 flex-fab-agent。装了 ragas 0.4.3 后 `import ragas` 直接报 `ModuleNotFoundError: No module named 'langchain_community.chat_models.vertexai'`。
 
 **定位过程**：
 1. 先怀疑 langchain 版本问题，但用户直觉"肯定不可能 langchain 不兼容 ragas"
@@ -544,14 +544,14 @@ ccb5a4b feat(eval): 自研 LLM-as-Judge 语义指标
 ### 坑 2：conftest 加错 sys.path（阶段 0/1）
 
 **如何发现**：
-写计划时 conftest 最初设计成"把 demo 根加进 sys.path"。写后验证时 `python -c "from demo.eval.runner import run_eval"` 在 agent-training 根成功，但从 demo 根跑报错。
+写计划时 conftest 最初设计成"把 flex-fab-agent 根加进 sys.path"。写后验证时 `python -c "from demo.eval.runner import run_eval"` 在 agent-training 根成功，但从 flex-fab-agent 根跑报错。
 
 **定位过程**：
-1. 第一次在 demo 根测 `import demo.eval.metrics` 报 `ModuleNotFoundError`，误以为是路径问题
+1. 第一次在 flex-fab-agent 根测 `import demo.eval.metrics` 报 `ModuleNotFoundError`，误以为是路径问题
 2. 用 `tail` 看真实报错 → 是 **Windows GBK 打 emoji ✅ 的 UnicodeEncodeError 掩盖了真因**（import 实际成功）
-3. 彻底验证：从 agent-training 根 `from demo.eval.runner import run_eval` 成功、demo 根 `from eval.runner import ...` 失败 → 确认 eval 内部用相对导入 `from ..core.llm_client`，**必须 `demo` 作为父包**，conftest 该加的是 **agent-training 根**，不是 demo 根
+3. 彻底验证：从 agent-training 根 `from demo.eval.runner import run_eval` 成功、flex-fab-agent 根 `from eval.runner import ...` 失败 → 确认 eval 内部用相对导入 `from ..core.llm_client`，**必须 `flex-fab-agent` 作为父包**，conftest 该加的是 **agent-training 根**，不是 flex-fab-agent 根
 
-**根因归属**：**【理解 Agent 过程】**（这里是 Python 包机制）——demo 是包（有 `__init__.py`），eval 子包内部用相对导入，顶层测试必须从 demo 的父目录导入。这暴露了对 demo 包结构理解不深。
+**根因归属**：**【理解 Agent 过程】**（这里是 Python 包机制）——flex-fab-agent 是包（有 `__init__.py`），eval 子包内部用相对导入，顶层测试必须从 flex-fab-agent 的父目录导入。这暴露了对 flex-fab-agent 包结构理解不深。
 
 **思考解决**：conftest 加 `AGENT_TRAINING_ROOT = Path(__file__).parent.parent`，测试统一 `from demo.*` 导入。并给计划文档标注这个"导入路径关键决策"。
 
@@ -560,7 +560,7 @@ ccb5a4b feat(eval): 自研 LLM-as-Judge 语义指标
 ### 坑 3：pytest / jieba / sentence-transformers / langgraph-checkpoint-sqlite 四个依赖缺失（阶段 1/10/16）
 
 **如何发现**：
-- 阶段 1：`import pytest` → ModuleNotFoundError（demo 零测试，pytest 从未装过）
+- 阶段 1：`import pytest` → ModuleNotFoundError（flex-fab-agent 零测试，pytest 从未装过）
 - 阶段 10：`from demo.rag.retriever import ...` → `No module named 'jieba'`，接着 `sentence_transformers` 也缺
 - 阶段 16：`python -m demo.eval.runner` → `No module named 'langgraph.checkpoint.sqlite'`
 
@@ -571,7 +571,7 @@ ccb5a4b feat(eval): 自研 LLM-as-Judge 语义指标
 
 **根因归属**：**【自身】**——环境初始化不足，与代码无关。
 
-**思考解决**：逐个 `pip install`。**关键决策**：pytest 是开发依赖，**不写入 requirements-demo.txt**（容器运行依赖），保持运行镜像干净。其他三个（jieba/sentence-transformers/langgraph-checkpoint-sqlite）本就是 demo 运行依赖，是环境该有但没装。
+**思考解决**：逐个 `pip install`。**关键决策**：pytest 是开发依赖，**不写入 requirements-demo.txt**（容器运行依赖），保持运行镜像干净。其他三个（jieba/sentence-transformers/langgraph-checkpoint-sqlite）本就是 flex-fab-agent 运行依赖，是环境该有但没装。
 
 ---
 
@@ -743,7 +743,7 @@ TDD 写了 `test_retry_quality_with_retries`：1 次调用 + 2 次重试，断�
 跑 `observability/test_observability.py`，**pytest 卡死**（`collected 1 item` 后 20+ 秒无输出）。之前所有测试（eval/tools/graph/rag）都秒过，这是首次卡死。
 
 **定位过程**：
-1. 先怀疑 pytest 捕获 stdout 与 demo 包 reconfigure 冲突，`-p no:langsmith` 试了没用
+1. 先怀疑 pytest 捕获 stdout 与 flex-fab-agent 包 reconfigure 冲突，`-p no:langsmith` 试了没用
 2. 用独立脚本 + `flush=True` 逐步打点：
    ```
    start → imported → created → [卡在 c.record()]
@@ -778,13 +778,13 @@ TDD 写了 `test_retry_quality_with_retries`：1 次调用 + 2 次重试，断�
 ### 坑 15：回测缺"时间演化"概念（阶段 15）
 
 **如何发现**：
-用户问"demo 好像没有回测的概念"。检查后发现：demo 数据是静态 CSV 单点快照（订单/库存/设备都是"当前"状态），没有"随时间演进、用过去数据验证决策"的回测能力。
+用户问"flex-fab-agent 好像没有回测的概念"。检查后发现：flex-fab-agent 数据是静态 CSV 单点快照（订单/库存/设备都是"当前"状态），没有"随时间演进、用过去数据验证决策"的回测能力。
 
 **定位过程**：
 1. 读数据目录：orders.csv/inventory.csv/machines.csv/customers.csv 全是单时间点快照
 2. 发现 `data/历史延期记录.txt` 是 **2025 Q3-Q4 的真实延期复盘**（5 个案例 + 延期原因统计 + 调度建议）——这其实是历史数据，但散落在 RAG 知识库，没有结构化回测
 
-**根因归属**：**【理解 Agent 过程】**（业务语义）——回测本质是"用历史数据验证决策质量"，demo 的数据模型设计成单点快照，天然缺这个维度。这不是代码 bug，是**评估理念的空白**。
+**根因归属**：**【理解 Agent 过程】**（业务语义）——回测本质是"用历史数据验证决策质量"，flex-fab-agent 的数据模型设计成单点快照，天然缺这个维度。这不是代码 bug，是**评估理念的空白**。
 
 **思考解决**：换思路——不做"时间回放"，做"**历史复盘验证**"：把 5 个真实延期案例做成回测场景，让 Agent 对历史事件给对策，用 `score_backtest` 按命中人工复盘要点数评分。用真实历史案例补上"过去决策验证"的空缺，且数据源现成。
 
@@ -818,7 +818,7 @@ TDD 写了 `test_retry_quality_with_retries`：1 次调用 + 2 次重试，断�
 | # | 坑 | 根因归属 | 一句话 |
 |---|----|---------|--------|
 | 1 | ragas 无法 import | **理解 Agent 过程** | ragas 停在 langchain 拆分前，是它过时不是 langchain 的锅 |
-| 2 | conftest sys.path | **理解 Agent 过程** | demo 是包，eval 用相对导入，须加父目录 |
+| 2 | conftest sys.path | **理解 Agent 过程** | flex-fab-agent 是包，eval 用相对导入，须加父目录 |
 | 3 | 4 个依赖缺失 | 自身 | 环境初始化不足 |
 | 4 | min_tools_called 硬伤 | 自身 | R6 漏了读取逻辑 |
 | 5 | judge 无 context / 多余文字 | **理解 Agent 过程** | LLM 概率输出不可控，Agent 不一定用 RAG |
@@ -851,7 +851,7 @@ TDD 写了 `test_retry_quality_with_retries`：1 次调用 + 2 次重试，断�
 |---|----|------------|-------------|---------|
 | 1 | ragas 无法 import | **修技术选型**（方案级） | ragas 已停滞，是它过时——**不修也不迁就**，换自研方案 | 无（改计划） |
 | 2 | conftest sys.path | **修测试基础设施** | conftest 本身就是测试文件，加错路径是测试配置错 | `demo/conftest.py` |
-| 3 | 依赖缺失 | **修环境** | pytest 是开发依赖不写容器；其余是 demo 本就该有的运行依赖，只是没装 | 无（pip install） |
+| 3 | 依赖缺失 | **修环境** | pytest 是开发依赖不写容器；其余是 flex-fab-agent 本就该有的运行依赖，只是没装 | 无（pip install） |
 | 4 | min_tools_called 硬伤 | **修代码**（+评估标准生效） | 约束已定义却从不生效，是代码漏读——实现行为错误，修代码 | `eval/metrics.py` |
 | 5 | judge 无 context / 多余文字 | **修代码** + **修评估标准** | 无 context 给 0 分、relevancy 兜底是**评估标准设计**；正则抓 JSON + 降级是**代码防御** | `eval/judge.py` + `judge_prompt.py` |
 | 6 | retry_quality 公式 | **修评估标准** | 指标公式本身在边界不合理——实现没 bug，是**评分标准设计缺陷**，重设计公式 | `eval/trajectory.py` |

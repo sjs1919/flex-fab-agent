@@ -37,7 +37,7 @@ RuntimeError: 缺少 MySQL 口令：请填写 docs/demo/credentials.local.md 的
 
 ```bash
 docker exec demo-api python -c "
-from demo.config import _cred, _env_or_cred, get_mysql_dsn, _CREDENTIALS
+from flex_fab_agent.config import _cred, _env_or_cred, get_mysql_dsn, _CREDENTIALS
 print(len(_CREDENTIALS))                    # 0（无凭据文件）
 print(repr(_cred('MYSQL_PASSWORD','')))     # ''（读不到）
 print(repr(_env_or_cred('MYSQL_PASSWORD','MYSQL_PASSWORD','')))  # 'w9Ab***'（env 生效）

@@ -1,4 +1,4 @@
-# demo 评估改造方案 — 全量执行分阶段路线图
+# flex-fab-agent 评估改造方案 — 全量执行分阶段路线图
 
 > **日期：2026-08-09**
 > **综合依据：**
@@ -12,7 +12,7 @@
 
 ## 〇、总体思路
 
-demo 评估体系已成型（⭐⭐⭐⭐⭐），但相对制造业智能体行业基线仍有 13 项缺口。本方案按**「重问题优先 → 分阶段推进」**落地：
+flex-fab-agent 评估体系已成型（⭐⭐⭐⭐⭐），但相对制造业智能体行业基线仍有 13 项缺口。本方案按**「重问题优先 → 分阶段推进」**落地：
 
 ```
 Phase A  重度问题修补（阻碍评估真实性的基础问题，最优先）
@@ -113,7 +113,7 @@ Phase D  深化评估体系本身（CI 持续化 + 逐工具规则 + 检索阈�
 | **对应角色** | AI 专家/架构 |
 | **依赖** | B1（结构化排产结果是人工确认的对象） |
 
-**Phase B 完成标志：** demo 从「能排产」升级为「约束正确 + 实时响应 + 人机协同」的制造业排产 Agent。
+**Phase B 完成标志：** flex-fab-agent 从「能排产」升级为「约束正确 + 实时响应 + 人机协同」的制造业排产 Agent。
 
 ---
 
@@ -164,7 +164,7 @@ Phase D  深化评估体系本身（CI 持续化 + 逐工具规则 + 检索阈�
 | **验收** | 模拟 provider 连续失败触发告警；采样率可配置 |
 | **对应角色** | 运维/DBA |
 
-**Phase C 完成标志：** demo 具备生产级限流/鉴权/CI/告警四件套。
+**Phase C 完成标志：** flex-fab-agent 具备生产级限流/鉴权/CI/告警四件套。
 
 ---
 
@@ -331,7 +331,7 @@ TDD：`test_compress_messages_idempotent`（断言压缩后字数 ≤ MAX_CHARS�
 
 **如何发现**：跑真实三层评估时 eval_006（RAG case）卡住，日志持续 `search_knowledge_base 失败: KeyError: 'C:\\workspace\\...\\chroma_db'` + 重试；回测 bt_001 也出现 RAG 工具超时（4 次尝试均失败）。
 
-**根因**：demo 自带 `chroma_db/` 是**旧版 chromadb 创建的持久化目录**（sqlite3 + UUID 子目录格式），当前环境是 chromadb 1.5.9。新版 `PersistentClient` 的 `_identifier_to_system` 解析旧路径抛 KeyError——**旧数据格式与新库版本不兼容**（与坑 1 ragas 过时方向相反：这次是库太新，读不了旧数据）。
+**根因**：flex-fab-agent 自带 `chroma_db/` 是**旧版 chromadb 创建的持久化目录**（sqlite3 + UUID 子目录格式），当前环境是 chromadb 1.5.9。新版 `PersistentClient` 的 `_identifier_to_system` 解析旧路径抛 KeyError——**旧数据格式与新库版本不兼容**（与坑 1 ragas 过时方向相反：这次是库太新，读不了旧数据）。
 
 **根因归属**：【自身】（环境依赖升级）——不是代码 bug，是运行时数据（chroma_db 为 git 忽略）由旧版本创建，新版本读不了。
 
@@ -410,7 +410,7 @@ TDD：`test_compress_messages_idempotent`（断言压缩后字数 ≤ MAX_CHARS�
 
 ### 9.5 行业如何逐一解决这些指标问题
 
-| 指标问题 | demo 现状 | 行业解法（2026） | 说明 |
+| 指标问题 | flex-fab-agent 现状 | 行业解法（2026） | 说明 |
 |---------|----------|----------------|------|
 | answer_relevancy 依赖 context | 无 context 时关键词启发式 | **独立评估**：DeepEval/LangSmith 的 answer_relevancy 都是独立的，与 RAG context 无关，单独用 LLM 打「答案是否覆盖问题意图」分 | 行业不把 relevancy 和 faithfulness 绑一起 |
 | faithfulness 无 context 给 0 | 保守给 0 | **按数据可用性自适应**：有 context 才评 faithfulness；无 context 时该项不计入总分（或权重归 0），而非给 0 拖累整体 | 「无法评估」≠「得 0 分」，行业区分「未评估」和「评估为差」 |

@@ -1,13 +1,13 @@
-# Agent 评估行业实践与 demo 现状分析
+# Agent 评估行业实践与 flex-fab-agent 现状分析
 
 > 日期：2026-08-08
-> 背景：推进 demo 评估体系改造前，先厘清行业当前评估 Agent 的最佳实践，以及 ragas 到底该用什么替代。
-> 触发：会话中对「demo 用真 ragas 还是手写 eval」的讨论。
-> 结论：**demo 继续用自研 eval，不引入 ragas**（ragas 已停滞 + 依赖问题）。若要升级，优先补 LLM-as-Judge 语义指标，而非换库。
+> 背景：推进 flex-fab-agent 评估体系改造前，先厘清行业当前评估 Agent 的最佳实践，以及 ragas 到底该用什么替代。
+> 触发：会话中对「flex-fab-agent 用真 ragas 还是手写 eval」的讨论。
+> 结论：**flex-fab-agent 继续用自研 eval，不引入 ragas**（ragas 已停滞 + 依赖问题）。若要升级，优先补 LLM-as-Judge 语义指标，而非换库。
 
 ---
 
-## 一、当前 demo 评估体系（现状速览）
+## 一、当前 flex-fab-agent 评估体系（现状速览）
 
 | 文件 | 作用 |
 |------|------|
@@ -37,7 +37,7 @@
 - **路径效率**（是否过度调用工具、是否卡在死循环）
 - **任务完成率**（task completion rate）
 
-> 你的 demo 现有 eval 是「看最终答案 + 工具名集合」，属于轨迹评估的**很浅的一层**。
+> 你的 flex-fab-agent 现有 eval 是「看最终答案 + 工具名集合」，属于轨迹评估的**很浅的一层**。
 
 ### 2. LLM-as-Judge（LLM 当裁判）
 
@@ -74,7 +74,7 @@
 | **DeepEval** | OSS 库，最接近 ragas 的直接替代 | pytest 原生、metric 库最全、**trajectory eval 支持好**、LLM-as-judge |
 | **LangSmith / Langfuse / Arize Phoenix** | 平台（本地自部署） | 观测 + 评估一体，自带 evals 面板，**trajectory 可视化** |
 | **Braintrust / Promptfoo** | 平台 | 强在 prompt 对比、回归测试、CI 集成 |
-| **自研轻量 eval 模块** | 你 demo 现在这样 | 最轻、可控，但语义深度有限 |
+| **自研轻量 eval 模块** | 你 flex-fab-agent 现在这样 | 最轻、可控，但语义深度有限 |
 
 **关键点**：现在没有一个统一的「下一个 ragas」，而是**按需组合**。绝大多数生产团队不再只用 ragas 这种单库，而是用「观测平台（Langfuse/Phoenix）+ 评估库（DeepEval）+ 自研轨迹规则」的组合。
 
@@ -83,7 +83,7 @@
 ## 四、结论与建议
 
 - **不引入 ragas**：已停滞 + 依赖问题，接入成本高、收益低。
-- **demo 继续用自研 eval**，但**补齐缺失的层**：
+- **flex-fab-agent 继续用自研 eval**，但**补齐缺失的层**：
   1. **LLM-as-Judge 语义指标**（忠实度/相关性）— 现在全是指纹/子串匹配
   2. **Trajectory 评估**（参数正确性 / 顺序 / 重试 / min_tools_called）— 现在只看工具名集合
 - 若要上平台，优先考虑 **Langfuse**（观测 + 评估一体，week6 已有 Langfuse 待办 #12）。

@@ -4,7 +4,7 @@
 >
 > **项目名：flex-fab-agent** ｜ 开源地址：`https://github.com/sjs1919/flex-fab-agent.git`
 >
-> 需求：将 demo 独立成单独项目 **flex-fab-agent**（代码 + docs），发布到开源库，作为简历上的作品；**迁移时保留 git 历史记录**（用户 2026-08-30 明确要求）。
+> 需求：将 flex-fab-agent 独立成单独项目 **flex-fab-agent**（代码 + docs），发布到开源库，作为简历上的作品；**迁移时保留 git 历史记录**（用户 2026-08-30 明确要求）。
 >
 > 关联：[todo-flex-fab-agent独立开源评估与计划-20260830.md](../05-tasklist/todo-flex-fab-agent独立开源评估与计划-20260830.md) · 先例：retrosys 独立拆分（`chore(workspace): 将 retrosys 拆分为独立仓库，从父仓库追踪中移除`）
 
@@ -12,7 +12,7 @@
 
 ## 1. 目标
 
-- demo（制造业排产智能体）从 agent-training 训练仓库**独立为开源项目 flex-fab-agent**：代码 + 文档 + 完整 git 历史。
+- flex-fab-agent（制造业排产智能体）从 agent-training 训练仓库**独立为开源项目 flex-fab-agent**：代码 + 文档 + 完整 git 历史。
 - 发布到开源平台（GitHub 等），作为简历上的作品。
 - 训练上下文（周训文档、简历素材、课程资料）保留在 agent-training，不进入开源库。
 
@@ -43,15 +43,15 @@
 
 > **范围确认（2026-08-30 用户拍板）**：docs 只带 `docs/demo/`；项目规范带 `rules/`（不含 project-standards 模板库）。
 >
-> **demo 专属文档归档（2026-08-30）**：agent-training 中散落的 **19 个 demo 专属文档**已归入 `docs/demo/`，随库一起迁移：
+> **flex-fab-agent 专属文档归档（2026-08-30）**：agent-training 中散落的 **19 个 flex-fab-agent 专属文档**已归入 `docs/demo/`，随库一起迁移：
 
 | 来源 | 数量 | 归入 docs/demo |
 |------|------|---------------|
-| `docs/pitfalls/`（demo 踩坑记录） | 9 | `09-reports/` |
-| `docs/superpowers/`（demo 评估/重构 spec·plan） | 4 | `02-specs/` 1 + `04-plans/` 3 |
-| `docs/week6/`（demo 评估报告） | 3 | `09-reports/` |
+| `docs/pitfalls/`（flex-fab-agent 踩坑记录） | 9 | `09-reports/` |
+| `docs/superpowers/`（flex-fab-agent 评估/重构 spec·plan） | 4 | `02-specs/` 1 + `04-plans/` 3 |
+| `docs/week6/`（flex-fab-agent 评估报告） | 3 | `09-reports/` |
 | `docs/week5/`（8大缺陷改造方案） | 1 | `04-plans/` |
-| `docs/courses/`（demo 缺陷分析 + 评估行业实践） | 2 | `09-reports/` |
+| `docs/courses/`（flex-fab-agent 缺陷分析 + 评估行业实践） | 2 | `09-reports/` |
 
 > 未归（训练/通用内容，留在 agent-training）：`week5/7周路线-vs-demo-差距全景图`、week 周报/指引、面试策略、通用课程、`job-portfolio/` 等。
 
@@ -87,7 +87,7 @@ git filter-repo \
   --path Dockerfile \
   --path docker-compose.yml \
   --path requirements.txt \
-  --path requirements-demo.txt \
+  --path requirements-flex_fab_agent.txt \
   --path .dockerignore \
   --path .gitignore \
   --path .githooks/ \
@@ -147,19 +147,19 @@ flex-fab-agent/
 - **历史归档文档**（旧 todo、旧报告、旧 plan）：可接受保留失效链接（GitHub 上仍可读，链接失效但内容完整），或用脚本批量标注「原链接指向训练仓库，已失效」。
 - 建议清理优先级：README > 功能介绍 > 代码阅读指南 v3.0 > 02-specs 当前版 > 其余归档。
 
-### 4.4 命名统一（demo → flex-fab-agent）
+### 4.4 命名统一（flex-fab-agent → flex-fab-agent）
 
-**用户要求（2026-08-30）**：迁移后把**内容与文件名的「demo」统一替换为项目名 flex-fab-agent**。影响面：
+**用户要求（2026-08-30）**：迁移后把**内容与文件名的「flex-fab-agent」统一替换为项目名 flex-fab-agent**。影响面：
 
 | 对象 | 现在 | 迁移后 |
 |------|------|--------|
 | Python 包目录 | `demo/` | `flex_fab_agent/`（包名用下划线） |
 | 模块引用 | `from demo.xxx` / `python -m demo.xxx` / pytest 收集 | `from flex_fab_agent.xxx` / `python -m flex_fab_agent.xxx` |
-| 文件名含 demo | `demo-*.md`（如 09-reports 评估报告、todo 文件） | `flex-fab-agent-*.md` |
-| 文档正文 | 提到 demo | flex-fab-agent（或项目名） |
+| 文件名含 flex-fab-agent | `demo-*.md`（如 09-reports 评估报告、todo 文件） | `flex-fab-agent-*.md` |
+| 文档正文 | 提到 flex-fab-agent | flex-fab-agent（或项目名） |
 | 镜像/容器名 | agent-training-demo-api | flex-fab-agent-api |
 
-> **决策（2026-08-30 用户拍板）**：**包名全量改** —— `demo/` → `flex_fab_agent/`，全部 `import` / CLI 命令 / pytest 收集 / Dockerfile / config / 文档正文同步改，文件名含 demo 的同步改名。**Python 包名定为 `flex_fab_agent`**（PEP 8 小写下划线；已否决 `com.flex.fab.agent` Java 逆向域名风格——Python 中 `.` 为包层级分隔，会变 4 层嵌套包、import 冗长、社区不标准）。P4 阶段用 `python run_all_tests.py` + `npm run build` + Docker 构建**全量回归**，回归通过才算完成；回归失败则回退到「包名保留 demo」方案（已备）。
+> **决策（2026-08-30 用户拍板）**：**包名全量改** —— `demo/` → `flex_fab_agent/`，全部 `import` / CLI 命令 / pytest 收集 / Dockerfile / config / 文档正文同步改，文件名含 flex-fab-agent 的同步改名。**Python 包名定为 `flex_fab_agent`**（PEP 8 小写下划线；已否决 `com.flex.fab.agent` Java 逆向域名风格——Python 中 `.` 为包层级分隔，会变 4 层嵌套包、import 冗长、社区不标准）。P4 阶段用 `python run_all_tests.py` + `npm run build` + Docker 构建**全量回归**，回归通过才算完成；回归失败则回退到「包名保留 flex-fab-agent」方案（已备）。
 
 ### 4.5 开源必需文件
 
@@ -172,7 +172,7 @@ flex-fab-agent/
 
 ## 5. 验证标准（独立仓自包含）
 
-1. `git log` 可见 demo 全部历史（预计 111+ 涉及 demo/ 的提交 + web/docs 相关）。
+1. `git log` 可见 flex-fab-agent 全部历史（预计 111+ 涉及 demo/ 的提交 + web/docs 相关）。
 2. 敏感信息扫描（§3.3 命令）零命中。
 3. WSL 下 `npm run build` 通过；`.venv/bin/python run_all_tests.py` 全绿。
 4. `docker compose build && docker compose up -d` 可启动；浏览器访问控制台正常。
@@ -197,7 +197,7 @@ flex-fab-agent/
 | 训练上下文清理不干净 | 简历素材/内部信息外泄 | P1 强制敏感信息扫描；job-portfolio 绝不开源 |
 | 文档失效链接 | 阅读体验下降 | 活跃文档清理，归档文档可接受 |
 | 独立仓运行依赖外部服务 | 开源后需用户自配 key | README 写明依赖（DeepSeek/MySQL/Docker）与种子数据 |
-| agent-training 内 demo 去留 | 双份代码维护 | 建议独立后 agent-training 的 demo 保留不动（工作区继续用），开源仓只读演进或后续同步 |
+| agent-training 内 flex-fab-agent 去留 | 双份代码维护 | 建议独立后 agent-training 的 flex-fab-agent 保留不动（工作区继续用），开源仓只读演进或后续同步 |
 
 ## 8. 简历适配（触发简历流程）
 
@@ -215,6 +215,6 @@ flex-fab-agent/
 |------|------|
 | 2026-08-30 | v1 初稿：范围界定 + filter-repo 历史迁移方案 + 文档清理 + 开源准备 + 分阶段执行 |
 | 2026-08-30 | v1.1 项目名定为 **flex-fab-agent**，开源地址 `https://github.com/sjs1919/flex-fab-agent.git`，替换全部占位名（demo-independent / <user>） |
-| 2026-08-30 | v1.2 范围补充：demo 专属文档 19 个归入 `docs/demo/`（pitfalls 9 / superpowers 4 / week6 3 / 8大缺陷 1 / courses 2），随库迁移；`7周路线-vs-demo` 等训练内容不归 |
-| 2026-08-30 | v1.3 追加命名统一要求：内容与文件名的 demo 替换为 flex-fab-agent（包名/模块引用/文件名/文档正文/镜像名），P4 全量回归验证 |
+| 2026-08-30 | v1.2 范围补充：flex-fab-agent 专属文档 19 个归入 `docs/demo/`（pitfalls 9 / superpowers 4 / week6 3 / 8大缺陷 1 / courses 2），随库迁移；`7周路线-vs-demo` 等训练内容不归 |
+| 2026-08-30 | v1.3 追加命名统一要求：内容与文件名的 flex-fab-agent 替换为 flex-fab-agent（包名/模块引用/文件名/文档正文/镜像名），P4 全量回归验证 |
 | 2026-08-30 | v1.4 Python 包名定为 `flex_fab_agent`（否决 com.flex.fab.agent）；P2 历史迁移完成：filter-repo 抽取 177 commits 建库成功，remote 指向 GitHub |
