@@ -475,7 +475,7 @@
 ## 八、本次实现的 12 个 git 提交（按顺序）
 
 ```
-363b6c4 docs(demo): 评估改造实现过程定位 + session 落盘
+363b6c4 docs(flex_fab_agent): 评估改造实现过程定位 + session 落盘
 e6138f1 feat(backtest): 历史场景回测模块（Agent 复盘验证）
 fbc0ca9 test(cache): LLM 精确缓存 + 语义缓存接口测试
 acde467 test(rag): 分块/RRF融合/重排/BM25 单元测试
