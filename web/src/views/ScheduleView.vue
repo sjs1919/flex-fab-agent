@@ -41,7 +41,7 @@ async function act(v: ScheduleVersion, action: '通过' | '驳回') {
 }
 
 onMounted(async () => {
-  // 本地 demo 便利：自动签发 admin token（R-7 写端点需要；token 1h 过期，覆盖旧缓存），对齐调试台
+  // 本地 flex-fab-agent 便利：自动签发 admin token（R-7 写端点需要；token 1h 过期，覆盖旧缓存），对齐调试台
   try {
     const { token } = await fetchAdminToken()
     adminToken.value = token

@@ -26,7 +26,7 @@
 | [todo-app_intent审核关键词误伤读操作修复-20260830.md](todo-app_intent审核关键词误伤读操作修复-20260830.md) | ✅ 已完成（app_intent 排除查询动词 + pending_write schema + 编排层代执行审批，121 测试 + 真实回归全过） |
 | [todo-文档目录整理test部署-20260830.md](todo-文档目录整理test部署-20260830.md) | ✅ 已完成（方案 B：补 08-test / 10-deployment，5 文档归位 + 引用修正） |
 | [todo-系统介绍页首页tab-20260830.md](todo-系统介绍页首页tab-20260830.md) | 📋 进行中（新增首页 tab，纯静态零 API，规格 + 计划已出） |
-| [todo-demo独立开源评估与计划-20260830.md](todo-demo独立开源评估与计划-20260830.md) | 📋 待评估（demo 独立成开源库作简历作品，评估与计划阶段） |
+| [todo-flex-fab-agent独立开源评估与计划-20260830.md](todo-flex-fab-agent独立开源评估与计划-20260830.md) | 📋 待评估（demo 独立成开源库作简历作品，评估与计划阶段） |
 
 ## 已归档
 

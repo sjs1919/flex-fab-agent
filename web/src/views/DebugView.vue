@@ -188,7 +188,7 @@ async function copyToken() {
 }
 
 onMounted(async () => {
-  // 本地 demo 便利：每次进页面签发新 admin token（R-7 写端点需要；token 1h 过期，
+  // 本地 flex-fab-agent 便利：每次进页面签发新 admin token（R-7 写端点需要；token 1h 过期，
   // 旧缓存直接覆盖，避免 localStorage 里存过期 token 导致 judge 持续 401）
   try {
     const { token } = await fetchAdminToken()

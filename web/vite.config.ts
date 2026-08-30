@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
-// 开发代理到本地 demo API（FastAPI :8000）；构建产物零后端依赖（纯静态）
+// 开发代理到本地 flex-fab-agent API（FastAPI :8000）；构建产物零后端依赖（纯静态）
 // 默认 127.0.0.1:8000（前后端同机 Windows）；vite 跑在 WSL 而 API 在 Windows 时
 // 用 API_PROXY=http://<windows-host-ip>:8000 覆盖（联调用，不提交固定 IP）
 const apiTarget = process.env.API_PROXY || 'http://127.0.0.1:8000'

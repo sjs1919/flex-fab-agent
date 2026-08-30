@@ -1,7 +1,7 @@
 services:
-  demo-api:
+  flex-fab-agent-api:
     build: .
-    container_name: demo-api
+    container_name: flex-fab-agent-api
     # host 网络：容器直接用 WSL 网络栈。本机 MySQL 只监听 127.0.0.1:3306，
     # bridge 模式下容器经 host.docker.internal(172.17.0.1) 连不上（Connection refused）。
     # host 模式 127.0.0.1 即宿主 MySQL；ports 映射随之失效，8000 直接暴露。
@@ -15,7 +15,7 @@ services:
       # host 模式下容器即宿主网络，MYSQL_HOST 沿用 .env 的 127.0.0.1 即可
     volumes:
       # 运行时产物（checkpoints.db / cache_db / chroma_db）持久化，跨容器重建保留
-      - demo-runtime:/data/runtime
+      - flex-fab-agent-runtime:/data/runtime
       # 凭据文件（gitignored）只读挂载：容器无凭据文件时 _env_or_cred 回落读取
       - ./docs/demo/credentials.local.md:/app/docs/demo/credentials.local.md:ro
       # 宿主模型缓存 -> 容器：reranker(~1.1GB) + onnx embedding，免容器内联网下载
@@ -27,4 +27,4 @@ services:
       - ./web/dist:/app/web/dist
 
 volumes:
-  demo-runtime:
+  flex-fab-agent-runtime:
