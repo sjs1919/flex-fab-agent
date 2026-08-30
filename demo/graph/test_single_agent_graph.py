@@ -903,6 +903,78 @@ def test_approve_intent_recognizes_shenhe(monkeypatch):
     assert result["final_answer"] != sag._GRACEFUL_FALLBACK, "不得兜底道歉"
 
 
+def test_query_approved_batches_is_read_not_approve(monkeypatch):
+    """坑（2026-08-30 回归，trace e3956b5f）：「帮我查询审核通过的批次」是读操作
+    （「审核通过」为定语，查已审核数据），但 app_intent 关键词「审核」误判为审批写
+    操作 → 强制工具轮 + 注入审批指令，LLM 被矛盾指令带偏生成综合分析垃圾。
+    修复：app_intent 排除查询动词（查/查询/查看/有哪些…），查询场景不得强制审批。"""
+    from demo.graph import single_agent_graph as sag
+    _disable_compression(monkeypatch)
+    responses = [
+        FakeResponse(tool_calls=_make_tool_call("query_schedule")),  # 决策轮查排产表
+        FakeResponse(content="当前没有审核通过的批次，最新版本 53（87 批）全部待审核"),
+    ]
+
+    def fake_call_llm(messages, tools=None, **kwargs):
+        return responses.pop(0) if responses else FakeResponse(content="兜底答案")
+
+    monkeypatch.setattr(sag, "call_llm", fake_call_llm)
+    app = build_single_agent_graph(FakeRegistry(), checkpointer=None)
+    result = app.invoke({
+        "messages": [{"role": "user", "content": "帮我查询审核通过的批次"}],
+        "tool_results": [],
+        "iteration": 0,
+        "final_answer": "",
+    })
+    tools_used = {t["tool"] for t in result["tool_results"]}
+    assert "approve_schedule" not in tools_used, \
+        f"查询已审核批次是读操作，不得强制审批，实际工具: {tools_used}"
+    all_text = " ".join(str(m.get("content", "")) for m in result["messages"])
+    assert "用户明确要求执行 approve_schedule" not in all_text, \
+        "查询场景不得注入审批指令"
+    assert result["final_answer"] == "当前没有审核通过的批次，最新版本 53（87 批）全部待审核", \
+        f"查询应正常汇总收尾，实际: {result['final_answer']!r}"
+
+
+def test_approve_intent_forced_by_orchestrator(monkeypatch):
+    """坑（2026-08-30 trace 9fb9384a）：LLM 连续多轮不执行审批（DeepSeek 幻觉调用
+    历史工具，即使 tools 过滤只留 approve_schedule 仍返回 query_schedule）→
+    编排层在 iteration>=2 时代执行 approve_schedule，确定性完成审批，不依赖 LLM 自觉。"""
+    from demo.graph import single_agent_graph as sag
+    _disable_compression(monkeypatch)
+
+    class FakeVersionRegistry(FakeScheduleRegistry):
+        """query_schedule 返回含版本号，供编排层代执行提取 version_id。"""
+
+        def execute(self, name, arguments, token=None):
+            if name == "query_schedule":
+                return "排产版本 66 | 审批状态 待审核 | 批次 87"
+            return super().execute(name, arguments, token=token)
+
+    responses = [
+        FakeResponse(tool_calls=_make_tool_call("query_schedule")),  # 轮1 查版本
+        FakeResponse(tool_calls=_make_tool_call("query_schedule")),  # 轮2 仍不执行（幻觉）
+        FakeResponse(content="排产版本 66 已审批通过并生效"),          # 汇总
+    ]
+
+    def fake_call_llm(messages, tools=None, **kwargs):
+        return responses.pop(0) if responses else FakeResponse(content="兜底答案")
+
+    monkeypatch.setattr(sag, "call_llm", fake_call_llm)
+    app = build_single_agent_graph(FakeVersionRegistry(), checkpointer=None)
+    result = app.invoke({
+        "messages": [{"role": "user", "content": "帮我把待审核的排产版本审核通过"}],
+        "tool_results": [],
+        "iteration": 0,
+        "final_answer": "",
+    })
+    tools_used = {t["tool"] for t in result["tool_results"]}
+    assert "approve_schedule" in tools_used, \
+        f"编排层应代执行审批，实际工具: {tools_used}"
+    assert result["final_answer"] == "排产版本 66 已审批通过并生效", \
+        f"代执行后应正常汇总，实际: {result['final_answer']!r}"
+
+
 def test_summary_fallback_uses_tool_results(monkeypatch):
     """B：汇总步标记文本重试耗尽（MAX_RETRIES=2）时，兜底应基于已收集工具结果拼接
     （_SUMMARY_FALLBACK_PREFIX），而非降级 _GRACEFUL_FALLBACK 道歉。"""

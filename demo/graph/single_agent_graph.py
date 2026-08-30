@@ -40,12 +40,29 @@ _SCHEDULE_CONTEXT_TOOLS = frozenset({
     "query_order_tracking", "query_preprocess_load", "query_kpi",
 })
 
+# 读操作查询信号（2026-08-30，trace e3956b5f）：文本含查询动词时，「审核/审批」多为
+# 定语（查已审核数据）而非审批谓语（把 XX 审核通过）。命中即不得判为审批写操作，
+# 否则 pending_write 注入的审批指令与真实查询意图冲突，把 LLM 带偏成答非所问。
+_QUERY_VERBS = ("查", "查询", "查看", "找", "有哪些", "哪些", "列出", "看看")
+
 # T5a.11：延期解释增强 — 从这些工具结果抽取延期清单注入综合指令
 _DELAY_TOOLS = frozenset({
     "query_schedule", "query_load_assessment", "query_order_tracking", "query_kpi",
 })
 _DELAY_MARKERS = ("延期", "逾期", "超期", "延后", "预警", "⚠️", "红", "无法满足")
 _DELAY_VERSION_RE = re.compile(r"排产版本\s*(\d+)")
+
+
+def _extract_schedule_version(results: list) -> int | None:
+    """从已收集工具结果提取排产版本号（编排层代执行审批需要 version_id）。
+
+    query_schedule 结果含「排产版本 N」，审批代执行直接取该值执行
+    approve_schedule(version_id=N)，不依赖 LLM 传递参数。"""
+    for tr in results:
+        m = _DELAY_VERSION_RE.search(str(tr.get("result", "")))
+        if m:
+            return int(m.group(1))
+    return None
 
 # 缓存投毒根因修复（2026-08-24）：模型偶发把工具调用意图写成 DSML 标记文本
 # （如 <|tool_calls|> / 尖括号调用名），同时 tool_calls 字段为空。若被当作
@@ -161,19 +178,36 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
 
         # 待办写操作提示（2026-08-30）：evaluate 识别到排产/审批意图但写工具未执行时，
         # 注入明确指令让 LLM 聚焦执行写操作（真实 LLM 常被查询数据带偏，只查不审批）。
+        # 2026-08-30 三次修复（trace 83e162c3/22af96b9/d25b1e42）：
+        #   ① AgentState 补声明 pending_write（LangGraph 丢弃 schema 外 key，注入此前从未生效）
+        #   ② 指令 insert 到 messages 最前 + 措辞加强
+        #   ③ tools_schema 过滤为只含写工具——LLM 无查询工具可选，只能调写工具完成操作
+        #      （DeepSeek 即使收到指令仍倾向查询数据，不调审批；过滤工具集是确定性兜底）
+        # 由 evaluate 在写工具执行后清空，未执行前每轮重注入，确保 LLM 始终被约束。
+        call_tools = tools_schema
         if state.get("pending_write"):
             _pw = state["pending_write"]
-            state["messages"].append({
+            # 审批需要 version_id 参数：从已收集的 query_schedule 结果提取版本号
+            version_hint = ""
+            if _pw == "approve_schedule":
+                for _tr in state.get("tool_results", []):
+                    _m = _DELAY_VERSION_RE.search(str(_tr.get("result", "")))
+                    if _m:
+                        version_hint = f"（version_id={_m.group(1)}, action='通过'）"
+                        break
+            # 只留写工具：LLM 本轮无法查询其它数据，只能调写工具或直接作答
+            call_tools = [t for t in tools_schema
+                          if t.get("function", {}).get("name") == _pw]
+            state["messages"].insert(0, {
                 "role": "system",
                 "content": (f"用户明确要求执行 {_pw}（{'审批排产版本' if _pw == 'approve_schedule' else '触发排产求解'}）。"
-                            f"当前尚未调用 {_pw} 工具，请立即调用该工具完成操作，"
-                            "不要只做查询或输出建议。"),
+                            f"请立即调用 {_pw} 工具完成该操作{version_hint}，本轮只允许执行该写操作，"
+                            "不要输出分析建议。若只查询而不执行，将无法满足用户要求。"),
             })
-            state["pending_write"] = ""  # 只注入一次
 
         task_type = "complex" if _COMPLEX_TOOLS.intersection(tool_names) else "simple"
         try:
-            response = call_llm_agentic(state["messages"], tools_schema, task_type=task_type)
+            response = call_llm_agentic(state["messages"], call_tools, task_type=task_type)
         except ToolMarkupOutput:
             # 缓存投毒根因修复：识别到工具调用标记文本（tool_calls 为空）时不当作答案，
             # 注入纠错提示并 needs_retry 重试，避免标记进入 final_answer / 语义缓存。
@@ -267,14 +301,23 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
         # 排产被空结果拦截绕过（trace 5b3c9836：LLM 查 query_orders 空结果后被收尾，
         # approve_schedule 从未执行，pending_write 也从未注入）。
         tool_names = {tr.get("tool", "") for tr in results}
-        # 写工具已执行 -> 清除待办写操作提示（2026-08-30，审批/排产落地后不再催）
+        # 写工具已执行 -> 清除待办写操作提示（2026-08-30，审批/排产落地后不再催），
+        # 并移除 messages 里注入的写操作指令——否则残留的 system 指令在汇总轮
+        # 仍催促「立即调用 approve_schedule」，可能干扰最终答案（CR 走读 2026-08-30）。
         if state.get("pending_write") and state["pending_write"] in tool_names:
             state["pending_write"] = ""
+            state["messages"] = [m for m in state["messages"]
+                                 if not (m.get("role") == "system"
+                                         and str(m.get("content", "")).startswith("用户明确要求执行 "))]
         user_text = " ".join(str(m.get("content", "")) for m in state.get("messages", [])
                              if m.get("role") == "user")
         run_intent = any(k in user_text for k in
                          ("跑排产", "重新排产", "排一次产", "跑一轮", "执行排产", "做一轮排产", "排产工具"))
-        app_intent = any(k in user_text for k in ("审批", "驳回", "审核"))
+        # 读查询信号优先（2026-08-30，trace e3956b5f）：「查询审核通过的批次」是读操作，
+        # 含查询动词时「审核」为定语而非审批谓语，不得判为审批写操作（否则 pending_write
+        # 注入审批指令与真实意图冲突，LLM 被带偏成答非所问）。
+        is_query_request = any(v in user_text for v in _QUERY_VERBS)
+        app_intent = (not is_query_request) and any(k in user_text for k in ("审批", "驳回", "审核"))
         if run_intent and "run_scheduling" not in tool_names:
             state["evaluation_notes"] = "用户要求跑排产，但 run_scheduling 尚未执行，继续工具轮"
             state["needs_more"] = True
@@ -283,6 +326,36 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
             state["pending_write"] = "run_scheduling"
             return state
         if app_intent and "approve_schedule" not in tool_names:
+            # 编排层确定性兜底（2026-08-30，trace 9fb9384a）：LLM 连续多轮未执行审批
+            # （DeepSeek 幻觉调用历史工具，tools 过滤只留 approve_schedule 仍返回
+            # query_schedule）→ iteration>=2（已有多轮机会）时代执行写操作。
+            if iteration >= 2:
+                _v = _extract_schedule_version(state.get("tool_results", []))
+                if _v:
+                    try:
+                        from ..auth.token_exchange import STS
+                        _sts = STS()
+                        _tok = _sts.get_token(_sts.issue_user_token("agent-graph", "admin"))
+                        _res = registry.execute(
+                            "approve_schedule",
+                            {"version_id": _v, "action": "通过"},
+                            token=_tok)
+                        state["tool_results"].append({
+                            "tool": "approve_schedule",
+                            "arguments": {"version_id": _v, "action": "通过"},
+                            "result": _res,
+                        })
+                        state["pending_write"] = ""
+                        state["messages"] = [m for m in state["messages"]
+                                             if not (m.get("role") == "system"
+                                                     and str(m.get("content", "")).startswith("用户明确要求执行 "))]
+                        state["evaluation_notes"] = "LLM 多轮未执行审批，编排层代执行 approve_schedule"
+                        state["ready_for_answer"] = True
+                        state["needs_more"] = False
+                        state["needs_retry"] = False
+                        return state
+                    except Exception:
+                        pass  # 代执行失败（token/工具异常）回落到 pending_write 继续强制
             state["evaluation_notes"] = "用户要求审批，但 approve_schedule 尚未执行，继续工具轮"
             state["needs_more"] = True
             state["needs_retry"] = False

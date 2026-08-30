@@ -22,3 +22,8 @@ class AgentState(TypedDict):
     # R4 新增：上下文压缩字段
     compression_count: int               # 已压缩次数
     compressed_summary: str              # 最新摘要文本
+    # R9 新增（2026-08-30）：待办写操作（approve_schedule / run_scheduling）。
+    # evaluate 识别到排产/审批意图但写工具未执行时设置，select_and_execute 每轮注入
+    # 执行指令，写工具执行后由 evaluate 清空。必须在 schema 声明——LangGraph 会丢弃
+    # 未声明 key，导致 pending_write 从未真正传递（trace 83e162c3 根因）。
+    pending_write: str                   # 待执行的写工具名，空串 = 无待办
