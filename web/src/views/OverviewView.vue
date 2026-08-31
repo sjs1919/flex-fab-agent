@@ -1,11 +1,13 @@
 <script setup lang="ts">
 // 系统介绍页（首页 tab）——纯静态展示，零 API 依赖
 // 数字来源：docs/demo/02-specs/2026-08-30-系统介绍页-design.md §7（已核对源码）
+// 首页 Hero 统计：原 4 项 + 前道/上机人员
 const heroStats = [
   { label: '种子订单', value: 20, note: '模拟真实排产压力' },
   { label: '打印设备', value: 7, note: '排产就是排这些机器的活' },
-  { label: '操作页', value: 6, note: '除本介绍页外的功能页' },
   { label: '智能工具', value: 18, note: '系统自己会用的能力' },
+  { label: '前道人员', value: '6人', note: '三班倒 · 打印前准备工序' },
+  { label: '上机人员', value: '6人', note: '三班倒 · 上机打印操作' },
 ]
 
 const pains = [
@@ -223,6 +225,7 @@ section h2 {
 
 .hero-stats {
   display: flex;
+  flex-wrap: wrap;
   gap: 16px;
 }
 
