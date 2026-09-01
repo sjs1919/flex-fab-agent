@@ -22,6 +22,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 
 from .agents.single_agent import _get_app, run_single_agent
 from .cache.manager import cache_manager
@@ -29,6 +30,7 @@ from .config import available_providers, CHECKPOINTER, SIM_TICK_SECONDS
 from .core.utils import cap_limit
 from .core.logging_setup import setup_logging
 from .observability import tracer, cost_tracker
+from .observability.operation_log import classify_request, record_operation
 from .observability.request_context import get_trace_id, new_trace_id
 from .scheduler.auto_scheduler import get_scheduler
 from .tools.registry import build_default_registry
@@ -49,11 +51,11 @@ setup_logging()
 
 @app.middleware("http")
 async def trace_id_middleware(request: Request, call_next):
-    """全链路 trace_id 中间件：请求入口生成，响应头回传 X-Trace-Id。
+    """全链路 trace_id 中间件 + 操作日志落库钩子。
 
-    - 优先从 X-Trace-Id 请求头取（前端/上游透传），没有则新生成
-    - 存入 contextvars，tracer / audit_logger 全链路共享
-    - 响应头带 X-Trace-Id，便于前端排查
+    - 请求入口生成 trace_id，响应头回传 X-Trace-Id
+    - 操作日志：响应完成后 BackgroundTask 落库（不阻塞响应）。
+      必须在此中间件内执行（最内层），此时 trace_id 已由本函数设置，落库 trace_id 与响应头一致。
     """
     incoming = request.headers.get("X-Trace-Id", "").strip()
     if incoming:
@@ -62,7 +64,17 @@ async def trace_id_middleware(request: Request, call_next):
     else:
         new_trace_id()
     response: Response = await call_next(request)
-    response.headers["X-Trace-Id"] = get_trace_id()
+    tid = get_trace_id()
+    response.headers["X-Trace-Id"] = tid
+    classified = classify_request(request.method, request.url.path)
+    if classified:
+        category, action = classified
+        status = "ok" if response.status_code < 400 else "fail"
+        response.background = BackgroundTask(
+            record_operation,
+            category=category, action=action, status=status,
+            summary=f"{action} HTTP {response.status_code}",
+            trace_id=tid)
     return response
 
 
@@ -218,6 +230,17 @@ def sim_status() -> dict:
         "tick_seconds": runner.tick_seconds,
         "sim_time": sim_time,
     }
+
+
+@app.get("/logs")
+def logs(category: str | None = None, start: str | None = None,
+         end: str | None = None, keyword: str | None = None,
+         page: int = 1, page_size: int = 20) -> dict:
+    """操作日志分页查询（四类来源统一；middleware 已排除本端点自记）。"""
+    from .observability.operation_log import query_operations
+    return query_operations(
+        category=category, start=start, end=end, keyword=keyword,
+        page=max(page, 1), page_size=min(page_size, 100))
 
 
 # ---- 排产查询/触发（M4a） ----

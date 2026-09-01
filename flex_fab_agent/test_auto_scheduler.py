@@ -1,5 +1,6 @@
 """AutoScheduler 单测：FIFO 审批 / tick 节流 / 并发锁 / 事件重排信号。"""
 import threading
+from datetime import datetime
 from flex_fab_agent.scheduler.auto_scheduler import AutoScheduler
 from flex_fab_agent.tools.data import get_connection
 
@@ -276,3 +277,41 @@ def test_run_once_skipped_when_scheduling_in_progress():
         assert s.run_once("tick") is False
     finally:
         s._lock.release()
+
+
+# ---- 统一操作日志（任务4）：auto 类落库 + sim_time 类型契约 ----
+
+def test_operation_log_auto_records_sim_time_type(monkeypatch):
+    """自动排产触发/自动排产生成版本/自动审批 落 auto 类操作日志，sim_time 为 datetime。
+
+    用 reserve_top_n=0 强制触发自动排产与自动审批（run_scheduling 打桩，不做真求解）。
+    """
+    _reset_all_pending()
+    _seed_clock("2026-09-05 08:00:00")
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT COALESCE(MAX(id), 0) FROM operation_log")
+        before_id = cur.fetchone()[0]
+    monkeypatch.setattr("flex_fab_agent.tools.scheduler_tools.run_scheduling",
+                        lambda triggered_by, exclude_order_ids=None: "✅ 版本 999")
+    s = AutoScheduler(interval_ticks=3, approve_top_n=5, reserve_top_n=0, enabled=True)
+    ids = _seed_versions(2)  # 无锚点版本：最早 v1 自动通过
+    try:
+        assert s.run_once("tick") is True
+        with get_connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT action, sim_time FROM operation_log "
+                "WHERE category='auto' AND id > %s ORDER BY id", (before_id,))
+            rows = cur.fetchall()
+        actions = [r[0] for r in rows]
+        assert "自动排产触发" in actions, f"应有自动排产触发日志，实际 {actions}"
+        assert "自动排产生成版本" in actions, f"应有自动排产生成版本日志，实际 {actions}"
+        assert "自动审批" in actions, f"应有自动审批日志，实际 {actions}"
+        # 类型契约：sim_time 必须是 datetime（固化 _read_sim_time / now 返回类型）
+        for action, sim_time in rows:
+            assert isinstance(sim_time, datetime), \
+                f"{action} 的 sim_time 应为 datetime，实际 {type(sim_time)}"
+    finally:
+        _exec("DELETE FROM operation_log WHERE id > %s", (before_id,))
+        _cleanup_versions(ids)
+        _clear_clock()
+        _reset_all_pending()

@@ -68,6 +68,16 @@ class SimulatorRunner:
             cache_manager.bump_scene_version()  # R-3：状态相关缓存失效
             cache_manager.clear_state_entries()  # tick 后订单/设备状态变化，状态类语义缓存主动失效
             self._record_kpi_snapshot(sim_time)
+            # 操作日志（旁路）：事务已提交，本 tick 有事件 fired 才落，避免心跳噪音；
+            # 与 _record_kpi_snapshot 同层——若前置 _need_reschedule 抛错已回滚，
+            # 不会出现「未提交却落 ok」的矛盾记录
+            events_fired = stats.get("events_fired", 0)
+            if events_fired > 0:
+                from ..observability.operation_log import record_operation
+                record_operation(
+                    "simulator", "模拟器tick", "ok",
+                    summary=f"推进1h 事件{events_fired}条",
+                    sim_time=sim_time)
             duration_ms = round((time.perf_counter() - t0) * 1000, 1)
             self._tracer.record(
                 "simulator:tick", duration_ms,
@@ -126,7 +136,14 @@ class SimulatorRunner:
                 self.consecutive_failures += 1
                 logger.exception("simulator tick 失败（已回滚），连续 %d 次",
                                  self.consecutive_failures)
+                from ..observability.operation_log import record_operation
+                record_operation(
+                    "simulator", "模拟器tick", "fail",
+                    summary=f"tick 异常（连续 {self.consecutive_failures} 次）")
                 if self.consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    record_operation(
+                        "simulator", "模拟器熔断", "fail",
+                        summary=f"连续 {MAX_CONSECUTIVE_FAILURES} 拍失败，心跳停止")
                     logger.error("连续 %d 拍失败，模拟器心跳熔断停止",
                                  self.consecutive_failures)
                     return

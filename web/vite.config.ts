@@ -20,6 +20,7 @@ export default defineConfig(({ command }) => ({
       '/config': apiTarget,
       '/ask': apiTarget,
       '/schedule': apiTarget,
+      '/logs': apiTarget,
     },
   },
 }))

@@ -19,7 +19,7 @@ import pymysql
 from flex_fab_agent.tools.data import create_raw_connection
 
 SCHEMA_SQL = Path(__file__).resolve().parent / "schema.sql"
-CURRENT_VERSION = 4
+CURRENT_VERSION = 5
 
 # bad_parts 建表 DDL（v2 增量复用；与 schema.sql 保持一致）
 _BAD_PARTS_DDL = """
@@ -94,6 +94,26 @@ CREATE TABLE IF NOT EXISTS personnel (
   COMMENT='人员（所有权：seed + 模拟器 B 层 leave + 前端）'
 """
 
+# operation_log 建表 DDL（v5 增量复用；与 schema.sql 保持一致）
+_OPERATION_LOG_DDL = """
+CREATE TABLE IF NOT EXISTS operation_log (
+    id          BIGINT AUTO_INCREMENT COMMENT '日志 id',
+    category    ENUM('auto','simulator','manual','debug') NOT NULL COMMENT '来源类别',
+    action      VARCHAR(64)  NOT NULL COMMENT '语义动作名（如 自动排产触发/模拟器tick/手动排产/调试重跑）',
+    status      ENUM('ok','fail') NOT NULL DEFAULT 'ok' COMMENT '结果（跳过型不落库，故无 skip）',
+    summary     VARCHAR(255) NOT NULL COMMENT '一句话摘要',
+    detail_json TEXT         NULL COMMENT '扩展明细 JSON',
+    sim_time    DATETIME     NULL COMMENT 'sim 时间（线程类有，HTTP 类可空）',
+    real_time   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '现实时间',
+    trace_id    VARCHAR(32)  NULL COMMENT '关联 trace（HTTP 操作）',
+    relate_id   VARCHAR(64)  NULL COMMENT '关联对象 id（版本/事件/订单）',
+    PRIMARY KEY (id),
+    KEY idx_oplog_realtime (real_time),
+    KEY idx_oplog_category (category, real_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='统一操作日志（四类来源）'
+"""
+
 
 def _column_exists(cur, table: str, column: str) -> bool:
     """列存在检查（MySQL 8 无 ADD/DROP COLUMN IF EXISTS，用 information_schema 判断）。"""
@@ -141,7 +161,17 @@ def _down_v4(cur) -> None:
     cur.execute("DROP TABLE IF EXISTS personnel")
 
 
-_MIGRATIONS = {2: (_up_v2, _down_v2), 3: (_up_v3, _down_v3), 4: (_up_v4, _down_v4)}
+def _up_v5(cur) -> None:
+    """v5 增量：operation_log 统一操作日志表。"""
+    cur.execute(_OPERATION_LOG_DDL)
+
+
+def _down_v5(cur) -> None:
+    """v5 回滚：DROP operation_log 表。"""
+    cur.execute("DROP TABLE IF EXISTS operation_log")
+
+
+_MIGRATIONS = {2: (_up_v2, _down_v2), 3: (_up_v3, _down_v3), 4: (_up_v4, _down_v4), 5: (_up_v5, _down_v5)}
 
 
 def _connect() -> pymysql.connections.Connection:

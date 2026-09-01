@@ -8,8 +8,9 @@ import ResourcesView from './ResourcesView.vue'
 import ConfigView from './ConfigView.vue'
 import OverviewView from './OverviewView.vue'
 import DemoCasesView from './DemoCasesView.vue'
+import LogView from './LogView.vue'
 
-// 单页聚合：首页/看板/调试/审批/案例/资源/配置 全部 tab 化，lazy 首激活渲染避免并发请求
+// 单页聚合：首页/看板/调试/审批/案例/资源/配置/演示/操作日志 全部 tab 化，lazy 首激活渲染避免并发请求
 const activeTab = ref('overview')
 const dashboardRef = ref<InstanceType<typeof DashboardView> | null>(null)
 
@@ -51,6 +52,9 @@ function onSwitchTab(name: string) {
     </el-tab-pane>
     <el-tab-pane label="演示" name="manual">
       <DemoCasesView @switch-tab="onSwitchTab" />
+    </el-tab-pane>
+    <el-tab-pane label="操作日志" name="logs">
+      <LogView />
     </el-tab-pane>
   </el-tabs>
 </template>

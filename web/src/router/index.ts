@@ -5,6 +5,7 @@ import CasesView from '../views/CasesView.vue'
 import ConfigView from '../views/ConfigView.vue'
 import ScheduleView from '../views/ScheduleView.vue'
 import DemoCasesView from '../views/DemoCasesView.vue'
+import LogView from '../views/LogView.vue'
 
 export default createRouter({
   // BASE_URL：dev 为 /，生产构建为 /flex-fab-agent/（nginx 去前缀反代到应用根）
@@ -18,5 +19,6 @@ export default createRouter({
     { path: '/portal/config', name: 'config', component: ConfigView },
     { path: '/portal/schedule', name: 'schedule', component: ScheduleView },
     { path: '/portal/manual', name: 'manual', component: DemoCasesView },
+    { path: '/portal/logs', name: 'logs', component: LogView },
   ],
 })

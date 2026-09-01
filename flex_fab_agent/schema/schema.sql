@@ -308,3 +308,21 @@ CREATE TABLE IF NOT EXISTS trace_record (
     KEY idx_trace_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='trace 记录（所有权：api /ask，M5b）';
+
+-- 统一操作日志（四类来源：auto/simulator/manual/debug）
+CREATE TABLE IF NOT EXISTS operation_log (
+    id          BIGINT AUTO_INCREMENT COMMENT '日志 id',
+    category    ENUM('auto','simulator','manual','debug') NOT NULL COMMENT '来源类别',
+    action      VARCHAR(64)  NOT NULL COMMENT '语义动作名（如 自动排产触发/模拟器tick/手动排产/调试重跑）',
+    status      ENUM('ok','fail') NOT NULL DEFAULT 'ok' COMMENT '结果（跳过型不落库，故无 skip）',
+    summary     VARCHAR(255) NOT NULL COMMENT '一句话摘要',
+    detail_json TEXT         NULL COMMENT '扩展明细 JSON',
+    sim_time    DATETIME     NULL COMMENT 'sim 时间（线程类有，HTTP 类可空）',
+    real_time   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '现实时间',
+    trace_id    VARCHAR(32)  NULL COMMENT '关联 trace（HTTP 操作）',
+    relate_id   VARCHAR(64)  NULL COMMENT '关联对象 id（版本/事件/订单）',
+    PRIMARY KEY (id),
+    KEY idx_oplog_realtime (real_time),
+    KEY idx_oplog_category (category, real_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='统一操作日志（四类来源）';

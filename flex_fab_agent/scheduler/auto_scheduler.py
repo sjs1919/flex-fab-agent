@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from datetime import datetime
 
 from ..config import (
     AUTO_APPROVE_TOP_N, AUTO_SCHEDULE_ENABLED, AUTO_SCHEDULE_TICK_INTERVAL,
@@ -33,7 +34,7 @@ class AutoScheduler:
         self._signal = threading.Event()       # 事件即时重排信号
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self._last_sim_time: str | None = None  # 上次观测的 sim 时间（变化 = 1 tick）
+        self._last_sim_time: datetime | None = None  # 上次观测的 sim 时间（变化 = 1 tick）
         self._tick_count = 0                     # 距上次排产累计 tick 数
         self._runs = 0
         self._last_version: int | None = None
@@ -75,13 +76,13 @@ class AutoScheduler:
                         self._run_locked("tick")
             self._stop.wait(SIM_TICK_SECONDS / 4 or 1)
 
-    def _read_sim_time(self) -> str | None:
+    def _read_sim_time(self) -> datetime | None:
         try:
             from flex_fab_agent.tools.data import get_connection
             with get_connection() as conn, conn.cursor() as cur:
                 cur.execute("SELECT current_sim_time FROM sim_clock WHERE id=1")
                 row = cur.fetchone()
-                return str(row[0]) if row and row[0] is not None else None
+                return row[0] if row and row[0] is not None else None
         except Exception as e:
             logger.warning("读 sim_clock 失败: %s", e)
             return None
@@ -117,7 +118,9 @@ class AutoScheduler:
         """
         from flex_fab_agent.tools.data import get_connection
         from flex_fab_agent.tools.scheduler_tools import run_scheduling
+        from ..observability.operation_log import record_operation
         try:
+            sim_time = self._read_sim_time()
             with get_connection() as conn, conn.cursor() as cur:
                 cur.execute(
                     "SELECT id FROM orders WHERE status='待排队' ORDER BY id DESC")
@@ -130,12 +133,22 @@ class AutoScheduler:
             exclude = pending_ids[:self.reserve_top_n]  # 最新 top_n（id 降序头部）
             result = run_scheduling(triggered_by=f"auto:{trigger}",
                                     exclude_order_ids=exclude)
+            # 操作日志（旁路）：自动排产触发（无条件，§5.3）
+            record_operation("auto", "自动排产触发", "ok",
+                             summary=f"trigger={trigger}", sim_time=sim_time)
             import re
             m = re.search(r"版本 (\d+)", result)
             if m:
                 self._last_version = int(m.group(1))
+                # 操作日志（旁路）：自动排产生成版本（正则命中）
+                record_operation("auto", "自动排产生成版本", "ok",
+                                 summary=f"生成版本 v{self._last_version}",
+                                 relate_id=str(self._last_version),
+                                 sim_time=sim_time)
         except Exception as e:
             logger.error("自动排产失败(%s): %s", trigger, e)
+            record_operation("auto", "自动排产", "fail",
+                             summary=f"trigger={trigger} 异常: {e}")
 
     def _fifo_approve(self) -> None:
         """版本级 FIFO + 超龄兜底（定稿 §3.D）：approver=system。
@@ -147,6 +160,7 @@ class AutoScheduler:
         """
         from flex_fab_agent.tools.data import get_connection
         from flex_fab_agent.tools.scheduler_tools import approve_schedule
+        from ..observability.operation_log import record_operation
         try:
             with get_connection() as conn, conn.cursor() as cur:
                 # 2026-08-29 已审核留底（规格 §设计）：已审核订单 ≤ top_n → 跳过本轮审批，
@@ -190,8 +204,13 @@ class AutoScheduler:
                     to_approve.add(first)
             for vid in sorted(to_approve):
                 approve_schedule(vid, "通过", note="自动审批(FIFO)", approver="system")
+                record_operation("auto", "自动审批", "ok",
+                                 summary=f"版本 v{vid} FIFO 自动通过",
+                                 relate_id=str(vid), sim_time=now)
         except Exception as e:
             logger.error("FIFO 自动审批失败: %s", e)
+            record_operation("auto", "自动审批", "fail",
+                             summary=f"FIFO 自动审批异常: {e}")
 
     # ---- 事件即时重排（兜底） ----
 
