@@ -1,0 +1,6 @@
+# 图谱入库策略：
+#   入库 = 轻量说明/索引 md + claude 知识图谱 + codegraph 摘要(csv/md) + 离线演示单文件 html（viewers/*.html，已内联 echarts，无需外部依赖）
+#   剔除 = 三套图谱工具生成的一次性/大体积数据（可一键再生成，不入库）：
+codegraph/graph_export.json
+vibegraph/graph_data.json
+understand-anything/knowledge-graph.json

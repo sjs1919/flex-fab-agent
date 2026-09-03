@@ -27,6 +27,9 @@ checkpoints.db-shm
 # CodeGraph 索引（运行时生成）
 .codegraph/
 
+# Understand-Anything 本地知识图谱（多 agent 流水线生成，勿提交；可 /understand 重生成）
+.understand-anything/
+
 # 语义缓存向量库（运行时生成，勿提交）
 cache_db/
 
