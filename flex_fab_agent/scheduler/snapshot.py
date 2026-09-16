@@ -146,7 +146,7 @@ def get_solver_params() -> dict:
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
-    p = argparse.ArgumentParser(description="demo 求解器快照（M2 T2.1）")
+    p = argparse.ArgumentParser(description="flex_fab_agent 求解器快照（M2 T2.1）")
     p.add_argument("--check", action="store_true", help="打印快照统计")
     args = p.parse_args(argv)
     if not args.check:

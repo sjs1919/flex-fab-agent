@@ -269,7 +269,7 @@ def reset(conn: pymysql.connections.Connection | None = None) -> dict:
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
-    p = argparse.ArgumentParser(description="demo 业务库种子生成器（M1 T1.3）")
+    p = argparse.ArgumentParser(description="flex_fab_agent 业务库种子生成器（M1 T1.3）")
     g = p.add_mutually_exclusive_group(required=True)
     g.add_argument("--reset", action="store_true", help="幂等重建（先清后插）")
     g.add_argument("--seed", action="store_true", help="插入种子（不清理，需先 --reset 或已空表）")

@@ -256,7 +256,7 @@ def solve(snapshot: dict, params: dict | None = None,
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
-    p = argparse.ArgumentParser(description="demo 排产求解入口（M2 T2.5/T2.6）")
+    p = argparse.ArgumentParser(description="flex_fab_agent 排产求解入口（M2 T2.5/T2.6）")
     p.add_argument("--solve", action="store_true", help="读快照求解，打印排产表 + 指标 + 耗时")
     p.add_argument("--snapshot", metavar="snapshot.json", help="快照 JSON（缺省从库读）")
     p.add_argument("--out", metavar="result.json", help="排产表输出 JSON 路径")

@@ -163,7 +163,7 @@ def oversize_warnings(snapshot: dict, schedule: dict, threshold: int = OVERSIZE_
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
-    p = argparse.ArgumentParser(description="demo 排产表校验器（M2 T2.2）")
+    p = argparse.ArgumentParser(description="flex_fab_agent 排产表校验器（M2 T2.2）")
     p.add_argument("--verify", metavar="result.json", help="校验排产表 JSON，打印 C1-C9 违规")
     p.add_argument("--snapshot", metavar="snapshot.json", help="快照 JSON（缺省从库读）")
     args = p.parse_args(argv)
