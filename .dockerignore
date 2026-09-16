@@ -1,10 +1,10 @@
 .git
 **/__pycache__
 **/*.pyc
-demo/data/chroma_db/
-demo/data/checkpoints.db
-demo/data/checkpoints.db-journal
-demo/data/cache_db/
+flex_fab_agent/data/chroma_db/
+flex_fab_agent/data/checkpoints.db
+flex_fab_agent/data/checkpoints.db-journal
+flex_fab_agent/data/cache_db/
 .env
 .env.*
 tmp/

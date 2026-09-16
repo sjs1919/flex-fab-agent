@@ -1,4 +1,4 @@
-# demo 容器专用精简依赖（不含 agent-training 其它脚本的 akshare/pandas/google-adk/litellm）
+# flex_fab_agent 容器专用精简依赖（不含训练仓其它脚本的 akshare/pandas/google-adk/litellm）
 # PyTorch 走 CPU 版（在 Dockerfile 里单独装 --index-url cpu），这里不列 torch 避免拉 CUDA 版
 openai>=1.0.0
 httpx>=0.27.0
