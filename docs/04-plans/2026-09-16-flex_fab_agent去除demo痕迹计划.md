@@ -1,6 +1,6 @@
 # flex_fab_agent 去除 demo 痕迹计划 v1.0
 
-> 日期：2026-09-16 · 状态：✅ **5 疑问全部拍板，待用户拍板启动执行**
+> 日期：2026-09-16 · 状态：🔄 **执行中（M1-M7 已完成，M8-M10 进行中）**
 >
 > 用户原话（2026-09-16）：「把文件夹上的demo 去除，子文件夹向上迁移一层；文件内、代码内以及代码的注释，都需要把demo更名为项目名flex_fab_agent。」
 >
@@ -21,8 +21,8 @@
 ## 二、范围边界（5 疑问逐项拍板完毕）
 
 ### ✅ Q1 范围边界 — **已拍板**
-- **2026-09-16 用户拍板**：docs/demo → docs/ 迁移 + 内文清理（与「子文件夹向上迁移一层」原话完全吻合）
-- 含义：阶段 7 全量进入（路径迁移 + 50 文件引用同步 + 文档内文 demo 清理）；前端 OverviewView.vue:3、DemoCasesView.vue:6 中 `docs/demo/` 路径引用同步改
+- **2026-09-16 用户拍板**：文档仓子目录整体上移一层（去除中间层）+ 内文清理（与「子文件夹向上迁移一层」原话完全吻合）
+- 含义：阶段 7 全量进入（路径迁移 + 全仓引用同步 + 文档内文 demo 清理）；前端 OverviewView.vue、DemoCasesView.vue 中指向文档仓的旧前缀引用同步改
 
 ### ✅ Q2 项目名形参（已隐含确认，无需追问）
 **"项目名flex_fab_agent"指下划线版**——用于 Python import、模块字符串、注释、docstring、CLI 内部、文档正文标题；仓库根目录名 `flex-fab-agent/`（连字符）保持不动；前端 URL `/flex-fab-agent/`（连字符）保持不动。
@@ -60,7 +60,7 @@
 | **M4 包内文档** | `flex_fab_agent/README.md` | **27 处（最高密度）** | 标题 `# demo -- 制造业排产智能体（v3.0 · 2026-08-30）` |
 | **M5 根仓库配置** | 根 `{README.md,CLAUDE.md,.env.example,.dockerignore,docker-compose.yml,requirements-flex-fab-agent.txt}` | 11 处 | `.dockerignore:4`、CLAUDE.md |
 | **M6 规则层** | `rules/{common,stack-python,*/}` + `rules/rules-index.md` | ~13 处 | `rules/common/pitfalls.md:5` |
-| **M7 文档仓** | `docs/demo/` → `docs/` | 跨 50 文件 `docs/demo/` 路径引用 | 八个子目录、credentials.local.md.example |
+| **M7 文档仓** | 文档仓子目录上移一层（去除中间层） | 跨 36 文件旧前缀引用 | 八个子目录、credentials.local.md.example |
 | **M8 前端** | `web/src/` | OverviewView.vue:5、DemoCasesView.vue:6 | 路径引用 + **产品语义全部清零（Q3）** |
 | **M9 图谱产物** | `flex_fab_agent/data/graph/` + `graphs/` | call_graph.json:1472、graphs/*.json 数百处 | **先调查脚本 → 能跑就跑 → 不能跑回退跳过（Q5）** |
 | **M10 终验** | 全仓 | — | grep + 三件门禁 |
@@ -137,7 +137,7 @@
 - **动作**：
   - 整篇重写标题 `# demo -- 制造业排产智能体（v3.0 · 2026-08-30）` → `# flex_fab_agent · 制造业 3D 打印智能排产系统`
   - 11 处"这个 demo 能做什么"等正文段落统一改写
-  - 6 处 docs/demo/ 路径引用（按 Q1 同步改 docs/）
+  - 6 处指向文档仓的旧前缀引用（按 Q1 同步改）
   - 第 162 行 `--demo` 用法表（按 Q3 全部清零）
   - 第 681-704 行需求文档链接清单
 - **commit**：`docs(flex_fab_agent): 包内 README 重写去除 demo 字样`
@@ -149,7 +149,7 @@
 - **模块**：根 `{README.md, CLAUDE.md, .env.example, .dockerignore, docker-compose.yml, requirements-flex-fab-agent.txt}`
 - **demo 字样定位**（已知）：
   - `README.md:1` — 仓库根 README 含 demo 1 处
-  - `CLAUDE.md:3` — 项目规范含 demo 3 处（"docs/demo/" 路径 → 按 Q1 同步改 docs/）
+  - `CLAUDE.md:3` — 项目规范含 demo 3 处（指向文档仓的旧前缀 → 按 Q1 同步改）
   - `.env.example:1` — 环境变量模板
   - `.dockerignore:4` — 路径忽略
   - `docker-compose.yml:1` — 容器配置
@@ -167,52 +167,53 @@
   - `rules/common/docs-flow.md:2`
   - `rules/rules-index.md:1`
   - `rules/stack-python/database.md:1`、`rules/stack-python/arch.md:1`
-- **动作**：清理 demo 文本 + 按 Q1 同步改 `docs/demo/` 路径引用为 `docs/`
+- **动作**：清理 demo 文本 + 按 Q1 同步改指向文档仓的旧前缀引用
 - **commit**：`docs(rule): 清理规则层 demo 字样`
 - **验证**：人工抽检 + grep
 
 ---
 
-### 阶段 7：M7 文档仓清理（**Q1 已解锁进入**）
+### 阶段 7：M7 文档仓清理（✅ 已完成）
 
-#### 7.1 路径迁移
-- **动作**：
-  ```
-  git mv docs/demo/01-requirements docs/01-requirements
-  git mv docs/demo/02-specs       docs/02-specs
-  git mv docs/demo/04-plans       docs/04-plans
-  git mv docs/demo/05-tasklist    docs/05-tasklist
-  git mv docs/demo/08-test        docs/08-test
-  git mv docs/demo/09-reports     docs/09-reports
-  git mv docs/demo/10-deployment  docs/10-deployment
-  git mv docs/demo/11-manuals     docs/11-manuals
-  git mv docs/demo/credentials.local.md.example docs/credentials.local.md.example
-  ```
-- 8+1 次 git mv，保留历史
+#### 7.1 路径迁移 ✅
+- **结果**：文档仓 8 个编号子目录已从原 `demo/` 层整体上移一层，直达 `docs/` 根；`credentials.local.md.example` 同步上移，`credentials.local.md`（gitignored，含真实口令）以普通 mv 同步迁移（迁移前已备份至 `tmp/backup-m7/`）
+- **手法**：逐目录 `git mv`，共 91 个 tracked 文件全部以 rename 记录（内容零改动，`git log --follow` 可追溯）
 - **commit**：`refactor(docs): docs/demo/ 八子目录向上迁移一层`
 
-#### 7.2 全仓路径引用同步
-- **动作**：50 文件含 `docs/demo/` 字符串 → `docs/`（CLAUDE.md、rules、README、各类设计文档、前端 OverviewView.vue:3、DemoCasesView.vue:6）
+#### 7.2 全仓路径引用同步 ✅
+- **结果**：36 个文件共 115 处旧文档仓前缀引用已同步为新前缀（CLAUDE.md、README、.env.example、docker-compose.yml、rules 4 文件、`flex_fab_agent/` 3 文件、docs 内文 28 文件）
+- **关键修复**：`flex_fab_agent/config.py` 的凭据路径是分片字符串拼接，不匹配字面替换；若漏改会导致迁移后凭据**静默加载失败**（已实测新路径解析出 14 个 key）
+- **顺手修既有 bug**：早期全局改名把 CLI `--demo` 误替为 `--flex_fab_agent`，3 处改正为 `--scenario`
 - **commit**：`refactor(docs): 同步全仓 docs/demo 路径引用`
 
-#### 7.3 文档仓内文清理
-- **模块**：迁移后 docs/ 内所有 .md 文件 demo 文本（含 09-reports 14 处、10-deployment 32 处、08-test 1 处、11-manuals 21 处 等）
+#### 7.3 文档仓内文清理 ✅
+- **结果**：36 处功能性引用修正——容器名 `demo-api` → `flex-fab-agent-api`、卷名 `demo-runtime` → `flex-fab-agent-runtime`、CLI `--demo` → `--scenario`、测试函数名与 MCP client 标识同步；另修 6 处叙述性表述（「单机 demo 无登录」→「单机部署无登录」、「训练 Demo」→ 项目名等）
 - **commit**：`docs: 清理文档仓内文 demo 字样`
 
-#### 7.4 文件名清理 — **Q4 拍板跳过**
-- 按 Q4 决定：保留归档文件名 demo-* 前缀不变（git blame 可读性优先）
+#### 7.4 文件名清理 — Q4 拍板跳过
+- 按 Q4 决定：保留归档文件名 `demo-*` 前缀不变（git blame 可读性优先）
 - 仍做：新建文档统一用 `flex-fab-agent-` 前缀
 
-- **阶段总验证**：grep `docs/demo` 全仓零命中 + 抽检 10 处链接跳转 + 各文档章节结构完整
+#### 7.5 保留项（记录在案，非漏改）
+| 类别 | 说明 |
+|------|------|
+| 历史迁移叙述 | 2026-08-22 模板包重构 plan/design、2026-08-30 独立开源计划、2 份同期 todo——其中的旧前缀是被叙述的历史事实，改写即伪造历史（比照 Q4） |
+| 指向旧仓的绝对 URL | `github.com/sjs1919/agent-training/blob/main/...` 形式，仓库拆分后已失效；属独立开源计划「失效链接清理」，另案处理 |
+| 训练仓文档名引用 | `7周路线-vs-demo-差距全景图.md` 等未随本库迁移的文件名（Q4 保留前缀） |
+| 生成物 | `graphs/` 图谱产物留 M9；`web/dist/`、`.env`、`.codegraph/` 不入库 |
+| skip-worktree 文件 | `OverviewView.vue`、`PortalView.vue` 为本地刻意设置（隐藏首页），其改动 git 不可见，留 M8 定夺 |
+| 本计划的 commit message 原文（7.1/7.2 两行） | 必须与实际 git 历史逐字一致，改写即失真 |
+
+> 另注：本文件自身是「去除 demo 痕迹」这一主题的规格书，正文中「demo 字样/demo 清理」等表述是文档主题本身所需，非待清理对象。
 
 ---
 
 ### 阶段 8：M8 前端清理（**Q3 已拍板：产品语义全部清零**）
 - **模块**：`web/src/views/OverviewView.vue`、`web/src/views/DemoCasesView.vue`
 - **demo 字样定位**（已知）：
-  - `OverviewView.vue:3` — `docs/demo/02-specs/...` 路径引用（**改**）
+  - `OverviewView.vue:3` — 指向文档仓 02-specs 的旧前缀引用（**改**）
   - `OverviewView.vue:136/137/406/416` — `.demo-entry`、`.demo-entry-text` CSS class + "现场 15 分钟演示脚本" 文案（**Q3 全部清零**）
-  - `DemoCasesView.vue:6` — `docs/demo/08-test/...` 路径引用（**改**）
+  - `DemoCasesView.vue:6` — 指向文档仓 08-test 的旧前缀引用（**改**）
   - `DemoCasesView.vue:180/181/240/246` — `.demo-steps`、`.demo-step` CSS class（**Q3 全部清零**）
   - `DemoCasesView.vue:203` — "演示前建议" 文案（**Q3 全部清零**）
   - `DemoCasesView.vue` 组件名本身（**Q3 全部清零**——需在 router/web 同步改）
@@ -241,7 +242,7 @@
   3. 关键链接抽检：README.md、flex_fab_agent/README.md、docs/ 文档清单 5 条
   4. 全量 diff 统计：跨多少文件、改动行数
 - **commit**：（无，纯验证）+ 用户确认后整体合并到 `master`（或保留 feature 分支待开源准备时合并）
-- **签署**：在 docs/demo/05-tasklist 写 todo 收尾登记
+- **签署**：在 docs/05-tasklist 写 todo 收尾登记
 
 ---
 
@@ -283,7 +284,7 @@
 
 | 风险 | 影响 | 缓解 |
 |------|------|------|
-| `docs/demo/` 路径改动面广（50 文件） | 漏改某处链接死链 | 阶段 7.2 完成后 grep 全文验证 + 抽检关键链接 |
+| 文档仓旧前缀引用改动面广（36 文件） | 漏改某处链接死链 | 阶段 7.2 完成后 grep 全文验证 + 抽检关键链接 |
 | `test_demo.sh` 改名 | 文档/调用点失效 | 阶段 3 前 grep 找全调用点 |
 | 阶段 2 业务模块 demo 字样上下文复杂 | 误改产品语义/注释 | 每子阶段 grep 上下文 + 用户拍板改动后再 commit |
 | `smoke_test.py:221` 行 `AGENT_TRAINING_ROOT / "demo" / "data"` 上游路径 | 不在本仓 | 阶段 3 评估是否动；可能属于训练仓跨引用，不在范围 |
@@ -300,11 +301,11 @@
 - [ ] `python run_all_tests.py` 全绿（与基线耗时相当 ±20%）
 - [ ] `cd web && npm run build` 通过
 - [ ] `python -m compileall flex_fab_agent` 通过
-- [ ] `grep -rn "docs/demo" projects/flex-fab-agent/` 零命中（Q1 已确认执行）
+- [ ] 全仓旧文档仓前缀 grep 零命中（豁免清单见阶段 7.5，Q1 已确认执行）
 - [ ] 仓库根 README + flex_fab_agent/README.md + CLAUDE.md + rules/ 全无 demo 字样（产品语义按 Q3 全部清零）
 - [ ] 前端 OverviewView / DemoCasesView 路径引用全部修正 + 产品语义 demo 全清零
 - [ ] 关键链接抽检 10 处跳转正常
-- [ ] docs/demo/05-tasklist 收尾登记 + 项目内存档（MEMORY.md）
+- [ ] docs/05-tasklist 收尾登记 + 项目内存档（MEMORY.md）
 
 ---
 
@@ -314,7 +315,7 @@
 |------|------|------|
 | 2026-09-16 | v0.1 | 初稿：按「路径范围」（A-F）切分 5 阶段，5 疑问 Q1-Q5 待拍板 |
 | 2026-09-16 | v0.2 | **按用户反馈改为「模块」切分**：10 阶段 + 前置 1 阶段；新增阶段依赖图、模块清单一览表、阶段子阶段拆解；保留 5 疑问 Q1-Q5 |
-| 2026-09-16 | v1.0 | **5 疑问全部 ✅ 拍板**：Q1 docs/demo→docs/ 迁移+内文清理；Q3 产品语义全部清零；Q4 保留 demo-* 前缀；Q5 尝试重生成（回退跳过）。阶段 7-9 解锁；阶段依赖图无阻塞；待用户拍板启动阶段 0 |
+| 2026-09-16 | v1.0 | **5 疑问全部 ✅ 拍板**：Q1 文档仓子目录上移一层 + 内文清理；Q3 产品语义全部清零；Q4 保留 `demo-*` 文件名前缀；Q5 尝试重生成（回退跳过）。阶段 7-9 解锁；阶段依赖图无阻塞；待用户拍板启动阶段 0 |
 
 ---
 

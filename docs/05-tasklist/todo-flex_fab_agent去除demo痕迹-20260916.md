@@ -1,6 +1,6 @@
 # todo · flex_fab_agent 去除 demo 痕迹
 
-> 日期：2026-09-16 · 状态：🔄 执行中（M1-M6 完成）
+> 日期：2026-09-16 · 状态：🔄 执行中（M1-M7 完成，M8-M10 进行中）
 >
 > 关联计划：[2026-09-16-flex_fab_agent去除demo痕迹计划.md](../04-plans/2026-09-16-flex_fab_agent去除demo痕迹计划.md)
 
@@ -15,7 +15,7 @@
 | 4 M4 包内 README | `flex_fab_agent/README.md` | ✅ 已完成 | `5d50a4a` |
 | 5 M5 根仓库配置 | `.dockerignore`（失效路径修正）/ `requirements-*.txt` | ✅ 已完成 | `a954ff3` |
 | 6 M6 规则层 | `rules/rules-index.md` / `rules/stack-python/arch.md` | ✅ 已完成 | `9488fb3` |
-| 7 M7 文档仓 | `docs/demo/` → `docs/` 迁移 + 全仓路径同步 + 内文清理 | 🔄 进行中 | （分 3 笔） |
+| 7 M7 文档仓 | 文档仓子目录上移一层 + 全仓路径同步 + 内文清理 | ✅ 已完成 | `0d74fdd` `1be6017` + 内文清理笔 |
 | 8 M8 前端 | `OverviewView.vue` / `DemoCasesView.vue` 路径 + 产品语义清零 | ⏳ 待启动 | `refactor(web): ...` |
 | 9 M9 图谱 | 调查脚本 → 能跑就跑 → 跑不动回退跳过 | ⏳ 待启动 | `chore(graphs): ...`（或无） |
 | 10 M10 终验 | grep + 三件门禁 + 链接抽检 + 收尾登记 | ⏳ 待启动 | （无） |
@@ -33,12 +33,15 @@
 | 项 | 说明 | 归属 |
 |----|------|------|
 | `tools/test_data.py::test_load_orders_all` | 断言 15，实际 MySQL 返回 20（seed 后行数变化）；与 demo 改名无关的既有 fixture 漂移 | M10 终验复核 |
-| `graphs/viewers/*.html` 等图谱产物 | 583+ 处 `docs/demo` 引用，属生成物 | M9 重生成 |
+| `test_config.py::test_get_data_source_default_csv` | 断言 csv，但 `.env` 实为 mysql；单跑必失败，全量跑因 `scheduler/test_model_pack.py` 直接改 `os.environ`（非 monkeypatch）泄漏成 csv 才「通过」。**测试隔离漏洞**，基线 540 passed 属顺序依赖 | 专项修复（非本次范围） |
+| `graphs/viewers/*.html` 等图谱产物 | 583+ 处旧前缀引用，属生成物 | M9 重生成 |
+| 指向旧仓的绝对 URL | `github.com/sjs1919/agent-training/blob/main/...` 形式，仓库拆分后已失效 | 独立开源计划「失效链接清理」另案 |
 | 生成物目录 | `.understand-anything/`、`graphs/understand-anything/`、`web/dist/`、`.codegraph/` 均 untracked 或 gitignored | 不处理 |
+| skip-worktree 文件 | `OverviewView.vue`、`PortalView.vue`（本地隐藏首页的刻意设置），改动 git 不可见 | M8 定夺是否解除 |
 
 ## 拍板记录（5 疑问）
 
-- ✅ Q1 `docs/demo/` → `docs/` 迁移 + 内文清理
+- ✅ Q1 文档仓子目录上移一层（去除中间层）+ 内文清理
 - ✅ Q2 项目名形参（下划线版 `flex_fab_agent`）
 - ✅ Q3 产品语义全部清零
 - ✅ Q4 保留 `demo-*` 文件名前缀（git blame 可读性优先）
@@ -63,3 +66,4 @@
 | 2026-09-16 | 初稿：阶段 0 启动中 |
 | 2026-09-16 | 阶段 0 完成：基线 540 passed（起 MySQL 后）；M1-M6 完成，各阶段独立 commit |
 | 2026-09-16 | 追加拍板：CLI `--demo` → `--scenario`；自动 commit 授权；自指文档改写为已完成记述 |
+| 2026-09-16 | M7 完成：91 文件迁移 + 36 文件 115 处引用同步 + 36 处内文功能性修正；新建已知遗留登记（含测试隔离漏洞） |

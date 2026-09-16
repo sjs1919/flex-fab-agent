@@ -29,7 +29,7 @@
 - 新增单测锁定两种语义：
   - 「帮我查询审核通过的批次」→ `app_intent=False`（正常查询，不强制工具轮、不注入审批指令）
   - 「帮我把待审核的排产版本审核通过」→ `app_intent=True`（审批路径保留）
-- 修复后清语义缓存（`docker exec demo-api rm -rf /data/runtime/cache_db` + **重启容器**——只删磁盘文件不够，Chroma 进程内存 collection 仍在，必须重启才真正清空）
+- 修复后清语义缓存（`docker exec flex-fab-agent-api rm -rf /data/runtime/cache_db` + **重启容器**——只删磁盘文件不够，Chroma 进程内存 collection 仍在，必须重启才真正清空）
 
 ## 顺带发现（同修复链，trace 83e162c3 / 22af96b9 / d25b1e42）
 
@@ -43,7 +43,7 @@
 写工具执行后 evaluate 清 `pending_write` 时，同步移除 messages 里「用户明确要求执行」开头的 system 消息。
 
 **坑 4：清语义缓存必须重启容器。**
-`rm -rf cache_db` 只删磁盘，Chroma 进程内存 collection 仍在，后续查询仍命中旧答案。必须 `docker restart demo-api` 才真正清空（复现验证时多次因只删文件而 cache hit）。
+`rm -rf cache_db` 只删磁盘，Chroma 进程内存 collection 仍在，后续查询仍命中旧答案。必须 `docker restart flex-fab-agent-api` 才真正清空（复现验证时多次因只删文件而 cache hit）。
 
 ## 是否已升级为规则
 

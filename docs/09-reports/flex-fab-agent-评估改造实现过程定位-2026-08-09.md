@@ -145,7 +145,7 @@
 1. 发现 flex-fab-agent **零测试、无 pytest 配置**（全库只有 `scripts/week3/test_mcp_client.py` 一个）
 2. 建 `flex_fab_agent/pytest.ini`（testpaths 覆盖 eval/tests/backtest）
 3. 建 `flex_fab_agent/conftest.py`（加 agent-training 根到 sys.path）
-4. 建 `flex_fab_agent/eval/test_smoke.py` 冒烟测试（含 `test_demo_package_importable` 验证 conftest 路径）
+4. 建 `flex_fab_agent/eval/test_smoke.py` 冒烟测试（含 `test_flex_fab_agent_package_importable` 验证 conftest 路径）
 
 **坑与解决**：
 

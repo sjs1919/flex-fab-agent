@@ -1,7 +1,7 @@
 # Docker 容器部署读不到 credentials.local.md：`_cred` vs `_env_or_cred`
 
 > **日期**：2026-08-26
-> **环境**：WSL2 Docker 部署 demo-api，mysql 数据源
+> **环境**：WSL2 Docker 部署 flex-fab-agent-api，mysql 数据源
 > **结论**：MySQL/Redis 连接口令必须用 `_env_or_cred`（env 优先），不能用 `_cred`（只读凭据文件）——容器里没有 `docs/credentials.local.md`，`_cred` 必然读空。
 
 ---
@@ -36,7 +36,7 @@ RuntimeError: 缺少 MySQL 口令：请填写 docs/credentials.local.md 的 {{MY
 ## 复现验证（容器内）
 
 ```bash
-docker exec demo-api python -c "
+docker exec flex-fab-agent-api python -c "
 from flex_fab_agent.config import _cred, _env_or_cred, get_mysql_dsn, _CREDENTIALS
 print(len(_CREDENTIALS))                    # 0（无凭据文件）
 print(repr(_cred('MYSQL_PASSWORD','')))     # ''（读不到）
