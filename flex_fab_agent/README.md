@@ -1,4 +1,4 @@
-# demo -- 制造业排产智能体（v3.0 · 2026-08-30）
+# flex_fab_agent -- 制造业排产智能体（v3.0 · 2026-08-30）
 
 > [AI:Claude] 架构设计 + 实现。从 week1-week5 的对话式 Agent 助手，演进为完整的制造业排产智能体系统：**约束求解器 + 生产模拟器 + Agent 调度闭环 + 自动排产调度器 + 统计预测 + KPI 看板 + Web 控制台**。
 >
@@ -10,7 +10,7 @@
 > 功能介绍：[docs/demo/功能介绍-v1-2026-08-30.md](../docs/demo/11-manuals/功能介绍-v1-2026-08-30.md)
 > 代码阅读指南 v3.0：[代码阅读指南-v3.0-2026-08-30.md](../docs/demo/11-manuals/代码阅读指南-v3.0-2026-08-30.md)
 
-## 1. 这个 demo 能做什么
+## 1. flex_fab_agent 能做什么
 
 一个面向**制造业 3D 打印排程排产**的完整智能体系统。从对话式问答（v1）升级为**排产求解 → 模拟执行 → Agent 调度 → 自动排产 → 预测分析 → 看板观测**的闭环系统（v3）。
 
@@ -115,7 +115,7 @@ python -m flex_fab_agent.main --chat
 python -m flex_fab_agent.main "综合评估 ORD001" --mode multi
 
 # 5. 跑预设场景（交互式选编号）
-python -m flex_fab_agent.main --demo
+python -m flex_fab_agent.main --scenario
 
 # ── v2 制造业主线 ──
 
@@ -159,7 +159,7 @@ cd web && npm install && npm run build
 | **看自动排产运行** | 起 API → `GET /scheduler/status` | 自动调度器运行态（enabled/interval/topN/runs/上次触发） |
 | **交互式调试** | 浏览器访问 `/portal/debug` | 自然语言提问 + 两级链路树 + judge 打分 |
 | **正式演示** | 调试台提问 A1→...→L2（见功能介绍 §5） | 15 分钟脚本覆盖全部能力 |
-| 看完整效果 | `--demo` | 5 个预设场景覆盖订单/资源/客户/RAG 各类工具 |
+| 看完整效果 | `--scenario` | 5 个预设场景覆盖订单/资源/客户/RAG 各类工具 |
 
 **v3 推荐体验路径**：先 `--check` → 建表 → `docker compose up -d`（自动排产调度启动）→ 浏览器开 `/` 看板 → `/portal/debug` 提问 → 审批页审版本 → 资源页查数据。
 
