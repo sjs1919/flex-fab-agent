@@ -363,21 +363,23 @@
 
 ## 十一、执行收口（2026-09-16）
 
-**结论：M0-M10 全部完成，14 个 commit 落在 `feature/20260916_clean_demo-traces` 分支，待用户 push。**
+**结论：M0-M10 全部完成，本计划相关 commit 共 20 个（截至本笔，含计划落盘/收尾登记/本计数修正），落在 `feature/20260916_clean_demo-traces` 分支，待用户 push。**
+累计 diff：**146 files changed, +746 / -261**（相对 `main`）。
 
 | 阶段 | commit | 要旨 |
 |------|--------|------|
 | 0 | — | 基线 540 passed / 1 skipped（起 MySQL 后） |
+| 计划落盘 | `b37c967` | 计划 v1.0 + todo 跟踪表入库（M7 迁移前入库以便 git mv 追踪） |
 | M1 | `a556bfb` | 基础设施层；CLI `--demo` → `--scenario` |
-| M2 | `c6ef57c` `712e45a` `692f57a` `fee1aa0` | graph / tools / scheduler+simulator+backtest / api+auth+observability |
+| M2 | `c6ef57c` `712e45a` `692f57a` `feee1aa` | graph / tools / scheduler+simulator+backtest / api+auth+observability |
 | M3 | `8980be0` | 测试与评估层（含 `test_demo_package_importable` 改名） |
 | M4 | `5d50a4a` | 包内 README |
 | M5 | `a954ff3` | 根配置；修正 `.dockerignore` 4 条失效路径规则 |
 | M6 | `9488fb3` | 规则层 |
-| M7 | `0d74fdd` `1be6017` `6d345ae` `80222fa` | 文档仓 91 文件上移 + 36 文件 115 处引用同步 + 内文清理 + 链接修复 |
+| M7 | `0d74fdd` `1be6017` `80222fa` `6d345ae` | 文档仓 91 文件上移 + 36 文件 115 处引用同步 + 内文清理 + 链接修复 |
 | M8 | `24f4e02` | 前端 CSS/变量/文案清零（组件名按拍板保留） |
 | M9 | `8329a36` `c4247a2` | 图谱路径与节点名同步（重生成不可行） |
-| M10 | 补漏两笔 | `test_demo.sh` 改名 + 非 .py 文件补漏 + 收尾登记 |
+| M10 | `5245159` `873f2b7` | 补漏（`test_demo.sh` 改名 + 非 .py 文件）+ 收尾登记 |
 
 **过程中发现并处置的既有缺陷（非本次引入）**
 1. `.dockerignore` 4 条运行时数据排除规则指向包名重构前的失效路径 —— 会导致 chroma_db/checkpoints.db/cache_db 被打进镜像
