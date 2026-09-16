@@ -54,12 +54,13 @@
 
 | 项 | 说明 | 处置 |
 |----|------|------|
-| `flex_fab_agent/data/graph/{call_graph.json,module_graph.dot}` | **本次唯一未清理的 `demo` 集中地**：1473 + 66 处。二者是 2026-08-05 生成的旧图谱，节点名用的还是包名 `demo`；`codegraph analyze`（文档记载的生成命令）在当前 codegraph CLI v1.5.0 已不存在，**无法重生成**；计划 Q5 已预批 `--exclude-dir=data/graph` | 保留（Q5 回退）；如需清除建议整文件删除而非改字符串（内容描述的是旧结构，改名会误导） |
+| `flex_fab_agent/data/graph/{call_graph.json,module_graph.dot}` | 1473 + 66 处。2026-08-05 生成的旧图谱，节点名用的还是包名 `demo`；`codegraph analyze`（文档记载的生成命令）在当前 codegraph CLI v1.5.0 已不存在，**无法重生成** | ✅ **已整文件删除**（2026-09-16 用户指示）；用户将另行用对应图谱工具重新生成 |
+| 指向旧仓的绝对 URL | `github.com/sjs1919/agent-training/blob/main/...`，仓库拆分后失效 | ✅ **已由专项解决**：[todo-失效链接清理-20260916.md](todo-失效链接清理-20260916.md)（44 处全清） |
 | `graphs/viewers/*.html` 中 19 处裸 `demo` | 图谱生成时对源码/文档名的引用快照（如 `FastAPI(title="demo 排产助手 API")` 原文、历史文档名） | 保留（改写=伪造快照时点）；结构性路径引用已同步 |
 | `tools/test_data.py::test_load_orders_all` | 断言 15，实际 MySQL 返回 20（seed 后行数变化）；与 demo 改名无关的既有 fixture 漂移 | 待专项修复 |
 | `test_config.py::test_get_data_source_default_csv` | 断言 csv，但 `.env` 实为 mysql；单跑必失败，全量跑因 `scheduler/test_model_pack.py` 直接改 `os.environ`（非 monkeypatch）泄漏成 csv 才「通过」。**测试隔离漏洞**，基线 540 passed 属顺序依赖 | 待专项修复 |
-| 指向旧仓的绝对 URL（26 处） | `github.com/sjs1919/agent-training/blob/main/...` 形式，仓库拆分后已失效 | 独立开源计划「失效链接清理」另案 |
 | `graphs/README.md` 的重生成指引 | 指向 `tmp/flex-fab-agent-graphs/{codegraph_export,build_viewers}.py`，两脚本已随 tmp 清理丢失 | 待补脚本或更新文档 |
+| `docs/05-tasklist/todo.md` 索引漂移 | 索引本身漏登记多个既有 todo 文件（20260827-20260901 期间若干），非本次引入 | 本次已补自己 2 个；其余待专项 |
 | 生成物目录 | `.understand-anything/`、`graphs/understand-anything/knowledge-graph.json`、`web/dist/`、`.codegraph/` 均 untracked 或 gitignored | 不处理 |
 | skip-worktree 文件 | `OverviewView.vue` 已解除（本地差异仅为本次改动）；`PortalView.vue` **保持 skip-worktree**（本地隐藏首页的刻意设置，不入库） | PortalView 按 260831 决策维持原状 |
 | `DemoCasesView` 组件标识（7 处 / 3 文件） | 按 M8 拍板**不重命名组件文件**——PortalView.vue 本地隐藏首页且不入库，改名会使远端 PortalView 引用断链 | 保留（已拍板） |

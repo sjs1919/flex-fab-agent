@@ -254,7 +254,7 @@
 - 节点名同步至 M3/M8 改名后的新标识 19 处（测试函数名、脚本名、`goDemo`/`demoSteps`）
 - **保留**：19 处生成时对源码/文档名的引用快照，以及 `DemoCasesView` 相关节点
 
-**未清理项**：`flex_fab_agent/data/graph/{call_graph.json,module_graph.dot}`（1473 + 66 处）——2026-08-05 生成的旧图谱，节点名用的还是旧包名，无法重生成；按 Q5 预批的 `--exclude-dir=data/graph` 保留，建议后续整文件删除而非改字符串。
+**`flex_fab_agent/data/graph/` 处置**：`{call_graph.json,module_graph.dot}`（1473 + 66 处）——2026-08-05 生成的旧图谱，节点名用的还是旧包名，无法重生成。**2026-09-16 用户指示整文件删除**，已执行（用户将另行用对应图谱工具重新生成）。
 
 ---
 

@@ -8,7 +8,7 @@
 |---------|------|
 | [todo-M1-20260822.md](todo-M1-20260822.md) | ✅ 已完成（M1 数据层，167 tests 全绿，门禁2/门禁3 已过） |
 | [todo-M2-20260822.md](todo-M2-20260822.md) | ✅ 已完成（M2 求解器） |
-| [todo-M3-20260823.md](https://github.com/sjs1919/agent-training/blob/main/docs/demo/05-tasklist/todo-M3-20260823.md) | ✅ 已完成（M3 环境模拟器，commit `1f04948`） |
+| todo-M3-20260823.md | ✅ 已完成（M3 环境模拟器，commit `1f04948`） |
 | [todo-M4a-20260823.md](todo-M4a-20260823.md) | ✅ 已完成（M4a 集成骨架，280 tests，commit `ac563f8`） |
 | [todo-M4b-20260823.md](todo-M4b-20260823.md) | ✅ 已完成（M4b 业务工具+B3 路由+C2，323 tests，commit `cc0bcda`） |
 | [todo-M5a-20260823.md](todo-M5a-20260823.md) | ✅ 已完成（M5a 后端能力，387 tests，commit `14eca13`） |
@@ -27,6 +27,8 @@
 | [todo-文档目录整理test部署-20260830.md](todo-文档目录整理test部署-20260830.md) | ✅ 已完成（方案 B：补 08-test / 10-deployment，5 文档归位 + 引用修正） |
 | [todo-系统介绍页首页tab-20260830.md](todo-系统介绍页首页tab-20260830.md) | 📋 进行中（新增首页 tab，纯静态零 API，规格 + 计划已出） |
 | [todo-flex-fab-agent独立开源评估与计划-20260830.md](todo-flex-fab-agent独立开源评估与计划-20260830.md) | 📋 待评估（flex-fab-agent 独立成开源库作简历作品，评估与计划阶段） |
+| [todo-flex_fab_agent去除demo痕迹-20260916.md](todo-flex_fab_agent去除demo痕迹-20260916.md) | ✅ 已完成（M0-M10 全收口：文档仓上移一层 + 全仓 demo 清理 + 三件门禁全绿；遗留项见该文件表） |
+| [todo-失效链接清理-20260916.md](todo-失效链接清理-20260916.md) | ✅ 已完成（旧仓绝对 URL 44 处全清：7 改相对链接 / 37 去链接 / 3 处坏导出还原；相对链接 191 通 0 断） |
 
 ## 已归档
 
