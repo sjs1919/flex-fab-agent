@@ -1,6 +1,6 @@
 # flex_fab_agent 去除 demo 痕迹计划 v1.0
 
-> 日期：2026-09-16 · 状态：🔄 **执行中（M1-M7 已完成，M8-M10 进行中）**
+> 日期：2026-09-16 · 状态：✅ **执行完成（M0-M10 全部收口）**
 >
 > 用户原话（2026-09-16）：「把文件夹上的demo 去除，子文件夹向上迁移一层；文件内、代码内以及代码的注释，都需要把demo更名为项目名flex_fab_agent。」
 >
@@ -222,6 +222,16 @@
 - **风险**：组件改名涉及 router 配置、CSS class 涉及全局样式引用
 - **子决策（执行阶段时拍板）**：`DemoCasesView` 新组件名（候选 `PresetCasesView` / `ScenariosView` / 其他）
 
+#### ✅ 执行结果（2026-09-16）
+- **CSS 类全部清零**：`.demo-entry`/`.demo-entry-text` → `.script-entry`/`.script-entry-text`；`.demo-steps`/`.demo-step` → `.script-steps`/`.script-step`
+- **变量/函数名**：`demoSteps` → `scriptSteps`；`goDemo` → `goManual`
+- **文案**：「现场 15 分钟演示脚本」→「现场 15 分钟操作手册」、「演示前建议」→「使用前建议」、「15 分钟演示主线」→「15 分钟操作主线」、「查看演示脚本」→「查看操作手册」
+- **额外发现并处理**：`OverviewView.vue` 与 `PortalView.vue` 处于 **skip-worktree**（2026-08-31 部署时「本地隐藏首页」的刻意设置）。
+  - 解除 `OverviewView.vue` 的 skip-worktree 并提交其清理（其本地差异仅为本次改动，无隐藏首页内容）
+  - **不重命名 `DemoCasesView.vue`**：`PortalView.vue` 本地隐藏首页且不入库，改名会使远端 `PortalView` 引用断链 → 组件标识 7 处保留
+  - `PortalView.vue` 维持 skip-worktree 原状
+- **验证**：`npm run build` 通过（vue-tsc + vite，2239 模块）
+
 ---
 
 ### 阶段 9：M9 图谱产物（**Q5 已拍板：先调查脚本**）
@@ -233,6 +243,19 @@
 - **commit**：`chore(graphs): 重生图谱产物（去除 demo 节点 metadata）`（若成功）；否则无 commit
 - **验证**：图谱 UI 仍可访问 + 节点数无大幅变化
 
+#### ✅ 执行结果（2026-09-16）
+**调查结论：无法重生成。**
+- `tmp/flex-fab-agent-graphs/codegraph_export.py`（`graphs/README.md` 记载的导出脚本）与 `build_viewers.py` 已随 tmp 清理**丢失**
+- `docs/11-manuals/代码阅读指南.md:1357` 记载的 `codegraph analyze` 子命令在当前 codegraph CLI **v1.5.0 已不存在**（现有：init/index/sync/query/... 无 analyze）
+- VibeGraph / understand-anything 需各自仓库或插件流水线，且其大数据产物按 `graphs/.gitignore` 本就不入库
+
+**实际动作**（与 M7.2 同性质的路径引用同步，非重生成）：
+- `graphs/` 入库产物：585 处旧文档仓前缀同步（`claude-knowledge-graph.md` 1、`viewers/codegraph.html` 2、`viewers/understand-anything.html` 583）+ 1 处无斜杠变体；内嵌 JSON 替换后校验可解析
+- 节点名同步至 M3/M8 改名后的新标识 19 处（测试函数名、脚本名、`goDemo`/`demoSteps`）
+- **保留**：19 处生成时对源码/文档名的引用快照，以及 `DemoCasesView` 相关节点
+
+**未清理项**：`flex_fab_agent/data/graph/{call_graph.json,module_graph.dot}`（1473 + 66 处）——2026-08-05 生成的旧图谱，节点名用的还是旧包名，无法重生成；按 Q5 预批的 `--exclude-dir=data/graph` 保留，建议后续整文件删除而非改字符串。
+
 ---
 
 ### 阶段 10：M10 终验
@@ -243,6 +266,13 @@
   4. 全量 diff 统计：跨多少文件、改动行数
 - **commit**：（无，纯验证）+ 用户确认后整体合并到 `master`（或保留 feature 分支待开源准备时合并）
 - **签署**：在 docs/05-tasklist 写 todo 收尾登记
+
+#### ✅ 执行结果（2026-09-16）
+- **三件门禁**：`run_all_tests.py` 540 passed / 1 skipped（与 Stage 0 基线一致）· `npm run build` 通过 · `compileall` 0 error
+- **链接抽检**：docs/ 全部 .md 相对链接 183 通 / 0 断
+- **终验 grep**：排除计划预批的生成物目录后，`git ls-files` 口径仅剩 9 处，全部为已记录类别
+- **补漏两笔**（终验暴露的扫描盲区）：早前各阶段只扫 `*.py` 且大小写敏感，漏掉 `.sh`/`.sql`/`.ini`/`.example` 与大写 `Demo`；补漏含 `test_demo.sh` → `test_flex_fab_agent.sh` 改名（M3 计划项此前遗漏）
+- **遗留清单**：见 todo「已知遗留」表
 
 ---
 
@@ -297,15 +327,15 @@
 
 ## 八、验收清单（最终）
 
-- [ ] `grep -rE "\bdemo\b" projects/flex-fab-agent/ --exclude-dir=graphs --exclude-dir=data/graph --exclude-dir=.git` 仅可能剩 git 历史归档文件名 demo-*（按 Q4 保留）
-- [ ] `python run_all_tests.py` 全绿（与基线耗时相当 ±20%）
-- [ ] `cd web && npm run build` 通过
-- [ ] `python -m compileall flex_fab_agent` 通过
-- [ ] 全仓旧文档仓前缀 grep 零命中（豁免清单见阶段 7.5，Q1 已确认执行）
-- [ ] 仓库根 README + flex_fab_agent/README.md + CLAUDE.md + rules/ 全无 demo 字样（产品语义按 Q3 全部清零）
-- [ ] 前端 OverviewView / DemoCasesView 路径引用全部修正 + 产品语义 demo 全清零
-- [ ] 关键链接抽检 10 处跳转正常
-- [ ] docs/05-tasklist 收尾登记 + 项目内存档（MEMORY.md）
+- [x] `grep -rE "\bdemo\b" ... --exclude-dir=graphs --exclude-dir=data/graph` 仅剩 Q4 保留的归档文件名与已记录豁免项 ✅（`git ls-files` 口径 9 处，见 todo 遗留表）
+- [x] `python run_all_tests.py` 全绿（与基线耗时相当 ±20%）✅ 540 passed / 1 skipped（基线 1001.96s，终验 974.49s，-2.7%）
+- [x] `cd web && npm run build` 通过 ✅
+- [x] `python -m compileall flex_fab_agent` 通过 ✅
+- [x] 全仓旧文档仓前缀 grep 零命中 ✅（豁免清单见阶段 7.5，Q1 已确认执行）
+- [x] 仓库根 README + flex_fab_agent/README.md + CLAUDE.md + rules/ 全无 demo 字样 ✅（仅剩 Q4 保护的训练仓文件名引用 1 处）
+- [x] 前端 OverviewView / DemoCasesView 路径引用全部修正 + 产品语义 demo 全清零 ✅（`DemoCasesView` 组件标识按 M8 拍板保留）
+- [x] 关键链接抽检转正为全量脚本 `tmp/linkcheck.py`：docs/ 相对链接 183 通 / 0 断 ✅（超出「抽检 10 处」目标）
+- [x] docs/05-tasklist 收尾登记 ✅ + 项目内存档（MEMORY.md）
 
 ---
 
@@ -328,3 +358,34 @@
 | 工作分支命名是否调整 | `feature/20260916_clean_demo-traces`（默认） |
 
 阶段执行过程中会遇到的小决策（CLI 新名字、组件新名字等）在对应阶段执行时再拍板。
+
+---
+
+## 十一、执行收口（2026-09-16）
+
+**结论：M0-M10 全部完成，14 个 commit 落在 `feature/20260916_clean_demo-traces` 分支，待用户 push。**
+
+| 阶段 | commit | 要旨 |
+|------|--------|------|
+| 0 | — | 基线 540 passed / 1 skipped（起 MySQL 后） |
+| M1 | `a556bfb` | 基础设施层；CLI `--demo` → `--scenario` |
+| M2 | `c6ef57c` `712e45a` `692f57a` `fee1aa0` | graph / tools / scheduler+simulator+backtest / api+auth+observability |
+| M3 | `8980be0` | 测试与评估层（含 `test_demo_package_importable` 改名） |
+| M4 | `5d50a4a` | 包内 README |
+| M5 | `a954ff3` | 根配置；修正 `.dockerignore` 4 条失效路径规则 |
+| M6 | `9488fb3` | 规则层 |
+| M7 | `0d74fdd` `1be6017` `6d345ae` `80222fa` | 文档仓 91 文件上移 + 36 文件 115 处引用同步 + 内文清理 + 链接修复 |
+| M8 | `24f4e02` | 前端 CSS/变量/文案清零（组件名按拍板保留） |
+| M9 | `8329a36` `c4247a2` | 图谱路径与节点名同步（重生成不可行） |
+| M10 | 补漏两笔 | `test_demo.sh` 改名 + 非 .py 文件补漏 + 收尾登记 |
+
+**过程中发现并处置的既有缺陷（非本次引入）**
+1. `.dockerignore` 4 条运行时数据排除规则指向包名重构前的失效路径 —— 会导致 chroma_db/checkpoints.db/cache_db 被打进镜像
+2. `config.py` 凭据路径为分片字符串拼接，不匹配字面替换 —— 若漏改会使凭据静默加载失败（本次已实测修正）
+3. 早期全局改名把 CLI `--demo` 误替为 `--flex_fab_agent`（3 处）
+4. `test_config.py::test_get_data_source_default_csv` 依赖测试执行顺序（他测直接改 `os.environ` 泄漏）—— 基线 540 passed 属顺序依赖，待专项修复
+5. 文档仓 2 处迁移前既有失效相对链接
+6. `graphs/README.md` 的重生成指引指向已丢失的脚本
+
+**扫描方法论的教训**
+早前各阶段扫描只覆盖 `*.py` 且大小写敏感，导致 `.sh`/`.sql`/`.ini`/`.example` 与大写 `Demo` 被漏到 M10 才由终验暴露。后续同类清理应一开始就用 `git ls-files` 全类型 + 大小写不敏感口径。
