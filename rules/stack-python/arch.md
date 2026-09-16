@@ -1,4 +1,4 @@
-# 架构规则（stack-python / demo）
+# 架构规则（stack-python / flex_fab_agent）
 
 ## 分层不变式
 

@@ -17,7 +17,7 @@
 | 前后端接口对接 / API 文档同步 | -> `common/api-contract.md` |
 | 部署 / 发布 / 镜像构建 / 回滚 | -> `common/deployment.md` |
 | 服务器操作（读/写边界） | -> `common/server-approval.md` |
-| demo 分层 / 工具注册 / 数据源抽象 | -> `stack-python/arch.md` |
+| flex_fab_agent 分层 / 工具注册 / 数据源抽象 | -> `stack-python/arch.md` |
 | 异常处理 / 工具返回值 | -> `stack-python/error.md` |
 | 观测 / 审计 / span | -> `stack-python/logging.md` |
 | MySQL / 迁移 / 种子数据 / tenant_id / WSL 数据库 | -> `stack-python/database.md` |
