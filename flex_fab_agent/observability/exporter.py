@@ -91,10 +91,10 @@ class OTelSpanExporter:
 
         self._otel = trace
         self._provider = TracerProvider(
-            resource=Resource.create({"service.name": "demo-scheduling-agent"})
+            resource=Resource.create({"service.name": "flex-fab-agent"})
         )
         self._provider.add_span_processor(SimpleSpanProcessor(sink))
-        self._tracer = self._provider.get_tracer("demo")
+        self._tracer = self._provider.get_tracer("flex-fab-agent")
 
     def export(self, trace_id: str, spans: list[Span]) -> None:
         from opentelemetry.trace import (

@@ -9,7 +9,7 @@
   - 纯数据层：不 import api/agents；由 /ask 旁路调用（失败不改变主响应）
   - 开关走 system_config（类别「调试台」）：case_collection_enabled 默认 on、
     sample_rate 默认 1.0（生产 0.1）、judge_enabled 默认 off
-  - JSONL 追加写 + threading.Lock 防并发交错；回写用全量读改写（demo 规模）
+  - JSONL 追加写 + threading.Lock 防并发交错；回写用全量读改写（flex_fab_agent 规模）
 """
 import json
 import random
@@ -105,7 +105,7 @@ def load_cases(case_type: str | None = None, good=None,
 
 
 def _rewrite(update) -> bool:
-    """全量读改写（demo 规模可接受）。update(row) 返回 True 表示已修改。"""
+    """全量读改写（flex_fab_agent 规模可接受）。update(row) 返回 True 表示已修改。"""
     rows = load_cases()
     if not any(update(r) for r in rows):
         return False

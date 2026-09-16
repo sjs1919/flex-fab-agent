@@ -1,4 +1,4 @@
-"""FastAPI 网关 -- 把 demo 暴露为 HTTP 服务（#10 容器化）。
+"""FastAPI 网关 -- 把 flex_fab_agent 暴露为 HTTP 服务（#10 容器化）。
 
 把 run_single_agent 包成 REST API：
   POST /ask                  单次/多轮提问
@@ -37,7 +37,7 @@ from .tools.registry import build_default_registry
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="demo 排产助手 API", version="0.1.0")
+app = FastAPI(title="flex_fab_agent 排产助手 API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -607,7 +607,7 @@ def debug_label(trace_id: str, good: dict,
 
 @app.get("/debug/admin-token")
 def debug_admin_token() -> dict:
-    """签发 admin token（调试台前端复制用，本地 demo 便利）。
+    """签发 admin token（调试台前端复制用，本地便利）。
 
     R-7 写端点（judge/rerun/label/config）要求 admin token，而用户侧此前无
     签发入口（token 仅在测试/supervisor 内部自签，1h 过期后无法续），导致

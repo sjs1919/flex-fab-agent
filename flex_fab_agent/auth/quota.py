@@ -16,7 +16,7 @@ DEFAULT_WINDOW_SECONDS = WRITE_QUOTA_WINDOW
 
 
 class WriteQuota:
-    """内存滑窗计数器（subject, tool）-> 时间戳队列。demo 单进程足够。"""
+    """内存滑窗计数器（subject, tool）-> 时间戳队列。单进程足够。"""
 
     def __init__(self, limit: int | None = None, window: float | None = None):
         self.limit = limit if limit is not None else DEFAULT_LIMIT

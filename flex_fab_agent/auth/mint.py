@@ -1,4 +1,4 @@
-"""本地签发 Token CLI -- demo 调试台 judge/重跑/标注等写端点鉴权用（R-7）。
+"""本地签发 Token CLI -- flex_fab_agent 调试台 judge/重跑/标注等写端点鉴权用（R-7）。
 
 调试台前端（/portal/debug）的 admin token 输入框需要有效 token：
 token 由 STS 签发、存 tokens.db、1 小时有效。测试与 supervisor 内部可自签，
