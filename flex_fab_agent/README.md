@@ -2,13 +2,13 @@
 
 > [AI:Claude] 架构设计 + 实现。从 week1-week5 的对话式 Agent 助手，演进为完整的制造业排产智能体系统：**约束求解器 + 生产模拟器 + Agent 调度闭环 + 自动排产调度器 + 统计预测 + KPI 看板 + Web 控制台**。
 >
-> 需求规格 v1：[docs/demo/02-specs/需求规格-v1-2026-08-21.md](../docs/demo/02-specs/需求规格-v1-2026-08-21.md)
-> 排程排产全链路自动化：[docs/demo/02-specs/2026-08-28-排程排产全链路自动化-定稿-v1.md](../docs/demo/02-specs/2026-08-28-排程排产全链路自动化-定稿-v1.md)
-> 部署指南 v2：[docs/demo/10-deployment/部署指南-v2-2026-08-30.md](../docs/demo/10-deployment/部署指南-v2-2026-08-30.md)
-> 部署指南 v1：[docs/demo/10-deployment/部署指南-v1-2026-08-25.md](../docs/demo/10-deployment/部署指南-v1-2026-08-25.md)
-> 生产化蓝图：[docs/demo/10-deployment/生产化差距与部署蓝图-v1-2026-08-22.md](../docs/demo/10-deployment/生产化差距与部署蓝图-v1-2026-08-22.md)
-> 功能介绍：[docs/demo/功能介绍-v1-2026-08-30.md](../docs/demo/11-manuals/功能介绍-v1-2026-08-30.md)
-> 代码阅读指南 v3.0：[代码阅读指南-v3.0-2026-08-30.md](../docs/demo/11-manuals/代码阅读指南-v3.0-2026-08-30.md)
+> 需求规格 v1：[docs/02-specs/需求规格-v1-2026-08-21.md](../docs/02-specs/需求规格-v1-2026-08-21.md)
+> 排程排产全链路自动化：[docs/02-specs/2026-08-28-排程排产全链路自动化-定稿-v1.md](../docs/02-specs/2026-08-28-排程排产全链路自动化-定稿-v1.md)
+> 部署指南 v2：[docs/10-deployment/部署指南-v2-2026-08-30.md](../docs/10-deployment/部署指南-v2-2026-08-30.md)
+> 部署指南 v1：[docs/10-deployment/部署指南-v1-2026-08-25.md](../docs/10-deployment/部署指南-v1-2026-08-25.md)
+> 生产化蓝图：[docs/10-deployment/生产化差距与部署蓝图-v1-2026-08-22.md](../docs/10-deployment/生产化差距与部署蓝图-v1-2026-08-22.md)
+> 功能介绍：[docs/功能介绍-v1-2026-08-30.md](../docs/11-manuals/功能介绍-v1-2026-08-30.md)
+> 代码阅读指南 v3.0：[代码阅读指南-v3.0-2026-08-30.md](../docs/11-manuals/代码阅读指南-v3.0-2026-08-30.md)
 
 ## 1. flex_fab_agent 能做什么
 
@@ -88,7 +88,7 @@ FIFO_AGE_TIMEOUT=24             # 最早待审版本超龄兜底（模拟小时�
 STATUS_RESERVE_TOP_N=5          # 各订单状态保留最新 N 单不被推进（演示保底）
 ```
 
-> 敏感信息双源：优先环境变量，回落到 `docs/demo/credentials.local.md`（gitignored，占位符 `{{MYSQL_PASSWORD}}` 替换为真实值）。未配置时给中文报错提示。
+> 敏感信息双源：优先环境变量，回落到 `docs/credentials.local.md`（gitignored，占位符 `{{MYSQL_PASSWORD}}` 替换为真实值）。未配置时给中文报错提示。
 
 ### 本地模型缓存（RAG 真连必需）
 - 向量嵌入：Chroma 默认 ONNX MiniLM（`~/.cache/chroma/onnx_models/`）
@@ -168,7 +168,7 @@ cd web && npm install && npm run build
 ```
 flex_fab_agent/
 ├── __init__.py              # 包入口
-├── main.py                  # 统一入口：--check/--flex_fab_agent/--sim/--init-schedule/--rollback
+├── main.py                  # 统一入口：--check/--scenario/--sim/--init-schedule/--rollback
 ├── api.py                   # FastAPI 网关（28 端点 + 前端托管 + 自动调度启动）
 ├── config.py                # 统一 .env 加载 + PROVIDERS + credentials 双源 + 全部配置
 │
@@ -459,7 +459,7 @@ python -m flex_fab_agent.scheduler.solver --solve --out result.json
 
 ### 7.9 排程排产全链路自动化（v3）🆕 ★
 
-定稿：[2026-08-28-排程排产全链路自动化-定稿-v1.md](../docs/demo/02-specs/2026-08-28-排程排产全链路自动化-定稿-v1.md)
+定稿：[2026-08-28-排程排产全链路自动化-定稿-v1.md](../docs/02-specs/2026-08-28-排程排产全链路自动化-定稿-v1.md)
 
 **订单状态机**：
 ```
@@ -678,24 +678,24 @@ python -m pytest flex_fab_agent/simulator/ -v
 
 | 文档 | 说明 |
 |------|------|
-| [需求规格 v1](../docs/demo/02-specs/需求规格-v1-2026-08-21.md) | 范围/功能/非功能/验收标准 |
-| [排程排产需求规格 v1](../docs/demo/02-specs/排程排产需求规格-v1-2026-08-21.md) | 排产业务需求 + C1-C9 约束 |
-| [排程排产全链路自动化 定稿 v1](../docs/demo/02-specs/2026-08-28-排程排产全链路自动化-定稿-v1.md) | A-E 五缺口 + 订单状态机 + 幂等 + FIFO |
-| [自动推进器状态留底 design](../docs/demo/02-specs/2026-08-29-自动推进器状态留底-design.md) | 各状态 topN 保底 |
-| [资源聚合页 design](../docs/demo/02-specs/2026-08-26-资源聚合页-design.md) | 7 类资源 + 人员模块 |
-| [部署指南 v2](../docs/demo/10-deployment/部署指南-v2-2026-08-30.md) | 生产部署完整指南（最新） |
-| [部署指南 v1](../docs/demo/10-deployment/部署指南-v1-2026-08-25.md) | 生产部署指南 v1 |
-| [生产化蓝图](../docs/demo/10-deployment/生产化差距与部署蓝图-v1-2026-08-22.md) | 差距分析 + 部署方案 |
+| [需求规格 v1](../docs/02-specs/需求规格-v1-2026-08-21.md) | 范围/功能/非功能/验收标准 |
+| [排程排产需求规格 v1](../docs/02-specs/排程排产需求规格-v1-2026-08-21.md) | 排产业务需求 + C1-C9 约束 |
+| [排程排产全链路自动化 定稿 v1](../docs/02-specs/2026-08-28-排程排产全链路自动化-定稿-v1.md) | A-E 五缺口 + 订单状态机 + 幂等 + FIFO |
+| [自动推进器状态留底 design](../docs/02-specs/2026-08-29-自动推进器状态留底-design.md) | 各状态 topN 保底 |
+| [资源聚合页 design](../docs/02-specs/2026-08-26-资源聚合页-design.md) | 7 类资源 + 人员模块 |
+| [部署指南 v2](../docs/10-deployment/部署指南-v2-2026-08-30.md) | 生产部署完整指南（最新） |
+| [部署指南 v1](../docs/10-deployment/部署指南-v1-2026-08-25.md) | 生产部署指南 v1 |
+| [生产化蓝图](../docs/10-deployment/生产化差距与部署蓝图-v1-2026-08-22.md) | 差距分析 + 部署方案 |
 
 ### 功能介绍 / 代码阅读
 
 | 文档 | 说明 |
 |------|------|
-| [功能介绍 v1](../docs/demo/11-manuals/功能介绍-v1-2026-08-30.md) | 可用功能 / 工具集合 / 技术架构 / 测试用例 / 可用例子 |
-| [代码阅读指南 v3.0](../docs/demo/11-manuals/代码阅读指南-v3.0-2026-08-30.md) | 从底层到上层 28+ 层详细阅读路线（v3 全面升级） |
-| [代码阅读指南 v2.0](../docs/demo/11-manuals/代码阅读指南-v2.0-2026-08-25.md) | 22 层阅读路线 + 评估体系深度解析 |
-| [调试台测试用例提示词 v1](../docs/demo/08-test/调试台测试用例提示词-v1-2026-08-29.md) | A-L 12 组自然语言测试用例 + 正式执行清单 |
-| [验收清单](../docs/demo/08-test/验收清单.md) | 门禁2 验收核对源头 |
+| [功能介绍 v1](../docs/11-manuals/功能介绍-v1-2026-08-30.md) | 可用功能 / 工具集合 / 技术架构 / 测试用例 / 可用例子 |
+| [代码阅读指南 v3.0](../docs/11-manuals/代码阅读指南-v3.0-2026-08-30.md) | 从底层到上层 28+ 层详细阅读路线（v3 全面升级） |
+| [代码阅读指南 v2.0](../docs/11-manuals/代码阅读指南-v2.0-2026-08-25.md) | 22 层阅读路线 + 评估体系深度解析 |
+| [调试台测试用例提示词 v1](../docs/08-test/调试台测试用例提示词-v1-2026-08-29.md) | A-L 12 组自然语言测试用例 + 正式执行清单 |
+| [验收清单](../docs/08-test/验收清单.md) | 门禁2 验收核对源头 |
 
 ### 评估报告
 

@@ -24,7 +24,7 @@ DATA_DIR = Path(__file__).resolve().parent / "data"
 RUNTIME_DIR = Path(os.getenv("FLEX_FAB_AGENT_RUNTIME_DIR", str(DATA_DIR)))
 
 # 凭据文件：gitignored，真实口令只在此处。解析为 {占位符: 真实值}
-CREDENTIALS_FILE = PROJECT_ROOT / "docs" / "demo" / "credentials.local.md"
+CREDENTIALS_FILE = PROJECT_ROOT / "docs" / "credentials.local.md"
 
 
 def _parse_credentials_file(path: Path) -> dict[str, str]:
@@ -231,7 +231,7 @@ def get_mysql_dsn() -> str:
     password = _env_or_cred("MYSQL_PASSWORD", "MYSQL_PASSWORD", "")
     if not password:
         raise RuntimeError(
-            "缺少 MySQL 口令：请填写 docs/demo/credentials.local.md 的 {{MYSQL_PASSWORD}}（gitignored，不提交）或设置 MYSQL_PASSWORD 环境变量"
+            "缺少 MySQL 口令：请填写 docs/credentials.local.md 的 {{MYSQL_PASSWORD}}（gitignored，不提交）或设置 MYSQL_PASSWORD 环境变量"
         )
     host = _env_or_cred("MYSQL_HOST", "MYSQL_HOST", "127.0.0.1")
     port = _env_or_cred("MYSQL_PORT", "MYSQL_PORT", "3306")

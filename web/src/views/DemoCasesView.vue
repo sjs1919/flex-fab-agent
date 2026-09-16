@@ -3,7 +3,7 @@ import { getCurrentInstance } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 
-// 数据来源：docs/demo/08-test/调试台测试用例提示词-v1-2026-08-29.md 第五节（正式测试提示词，已核对 seed 数据）
+// 数据来源：docs/08-test/调试台测试用例提示词-v1-2026-08-29.md 第五节（正式测试提示词，已核对 seed 数据）
 
 // 15 分钟演示主线（推荐顺序，A→L）
 const demoSteps: { id: string; title: string; ask: string; action?: string; write?: boolean }[] = [
@@ -200,7 +200,7 @@ async function copyAsk(ask: string) {
             <el-button size="small" plain :disabled="!item.ask" @click="copyAsk(item.ask)">复制</el-button>
           </div>
         </div>
-        <p class="manual-note">来源：调试台测试用例提示词 v1（docs/demo/08-test/）。演示前建议：清缓存 → seed --reset → 起后端 → 冒烟通过。</p>
+        <p class="manual-note">来源：调试台测试用例提示词 v1（docs/08-test/）。演示前建议：清缓存 → seed --reset → 起后端 → 冒烟通过。</p>
       </el-collapse-item>
     </el-collapse>
   </div>

@@ -1,10 +1,10 @@
 # 文档流转规范
 
-> **本项目路径映射**（单仓变体）：模板文档仓目录映射到 `docs/demo/` 下——01-requirements -> `docs/demo/01-requirements/`、02-specs -> `docs/demo/02-specs/`、04-plans -> `docs/demo/04-plans/`、05-tasklist -> `docs/demo/05-tasklist/`、09-reports -> `docs/demo/09-reports/`；待办登记见 `05-tasklist/todo.md`。
+> **本项目路径映射**（单仓变体）：模板文档仓目录映射到 `docs/` 下——01-requirements -> `docs/01-requirements/`、02-specs -> `docs/02-specs/`、04-plans -> `docs/04-plans/`、05-tasklist -> `docs/05-tasklist/`、09-reports -> `docs/09-reports/`；待办登记见 `05-tasklist/todo.md`。
 
 ## 双仓分层
 
-- **文档仓（`docs/demo/`）**：所有 spec（`02-specs/`）、实现计划（`04-plans/`）、任务索引（`05-tasklist/`）**必须**写入文档仓
+- **文档仓（`docs/`）**：所有 spec（`02-specs/`）、实现计划（`04-plans/`）、任务索引（`05-tasklist/`）**必须**写入文档仓
 - **代码仓**：仅保留编码规范（`rules/`）、API 文档、部署指南等与代码同包提交的文档
 
 ## 流转规则

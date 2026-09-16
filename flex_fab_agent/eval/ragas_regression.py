@@ -1,6 +1,6 @@
 """RAG 四指标回归（M5a T5a.15⑦，验收条 75）。
 
-基线（docs/demo/09-reports/评测报告-RAG质量-ragas-v1-2026-08-21.md，Q1-Q5）：
+基线（docs/09-reports/评测报告-RAG质量-ragas-v1-2026-08-21.md，Q1-Q5）：
   context_precision 0.60 / faithfulness 0.80 / answer_relevancy 0.80 / context_recall 0.90
 
 评估对象为重构后 flex_fab_agent/rag 管线（E5 调参 + E6 权限过滤后的 retrieve_hybrid）。

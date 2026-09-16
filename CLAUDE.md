@@ -7,7 +7,7 @@
 ## 红线
 
 - 🚫 **禁止自动 git**：commit / push 必须用户发起
-- 🚫 **敏感信息不入库**：密码/密钥只留占位符，真实值在 `docs/demo/credentials.local.md`（gitignored）或环境变量
+- 🚫 **敏感信息不入库**：密码/密钥只留占位符，真实值在 `docs/credentials.local.md`（gitignored）或环境变量
 - 🚫 **未测试禁止部署**：`python run_all_tests.py` 全过 + 前端构建成功才可提请部署
 
 ## 命令
@@ -29,8 +29,8 @@
 
 ## 文档
 
-- 文档仓：`docs/demo/`（01-requirements / 02-specs / 04-plans / 05-tasklist / 08-test / 09-reports / 10-deployment / 11-manuals）
-- 任务登记：`docs/demo/05-tasklist/todo-<主题>-YYYYMMDD.md`（索引 `todo.md`）
+- 文档仓：`docs/`（01-requirements / 02-specs / 04-plans / 05-tasklist / 08-test / 09-reports / 10-deployment / 11-manuals）
+- 任务登记：`docs/05-tasklist/todo-<主题>-YYYYMMDD.md`（索引 `todo.md`）
 
 ## 环境
 

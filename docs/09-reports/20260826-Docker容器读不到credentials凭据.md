@@ -2,7 +2,7 @@
 
 > **日期**：2026-08-26
 > **环境**：WSL2 Docker 部署 demo-api，mysql 数据源
-> **结论**：MySQL/Redis 连接口令必须用 `_env_or_cred`（env 优先），不能用 `_cred`（只读凭据文件）——容器里没有 `docs/demo/credentials.local.md`，`_cred` 必然读空。
+> **结论**：MySQL/Redis 连接口令必须用 `_env_or_cred`（env 优先），不能用 `_cred`（只读凭据文件）——容器里没有 `docs/credentials.local.md`，`_cred` 必然读空。
 
 ---
 
@@ -14,7 +14,7 @@
 ```
 File "/app/flex_fab_agent/api.py", line 148, in sim_start
     with get_connection() as conn:
-RuntimeError: 缺少 MySQL 口令：请填写 docs/demo/credentials.local.md 的 {{MYSQL_PASSWORD}}（gitignored，不提交）
+RuntimeError: 缺少 MySQL 口令：请填写 docs/credentials.local.md 的 {{MYSQL_PASSWORD}}（gitignored，不提交）
 ```
 
 - 但容器内 `env` 明明有 `MYSQL_PASSWORD`（经 compose `env_file: .env` 注入）

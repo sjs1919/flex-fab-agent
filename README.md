@@ -78,7 +78,7 @@ flex-fab-agent/
 ## 配置与凭据
 
 - 环境变量模板见 `.env.example`（复制为 `.env` 填写，`.env` 已 gitignore）。
-- 敏感口令写入 `docs/demo/credentials.local.md`（gitignore，不入库），或通过环境变量注入。
+- 敏感口令写入 `docs/credentials.local.md`（gitignore，不入库），或通过环境变量注入。
 
 ## License
 
