@@ -1,7 +1,7 @@
 """MCP Server 封装 -- 展示 MCP 架构（可独立 stdio 运行）。
 
 为什么保留 MCP 封装：
-  Demo 里 Agent 直接 import 工具函数调用（稳定性优先，绕开进程通信），
+  本项目里 Agent 直接 import 工具函数调用（稳定性优先，绕开进程通信），
   但 MCP 是 week3 的核心教学点：工具按 server 分组、通过 JSON-RPC over stdio 暴露。
   本文件把同一批工具函数用 FastMCP @mcp.tool 装饰器再封装一次，独立可运行，
   体现"同一工具实现，两种暴露方式（直接调用 / MCP 协议）"。

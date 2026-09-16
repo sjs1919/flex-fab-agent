@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# demo 部署冒烟测试（Shell 入口）
+# flex_fab_agent 部署冒烟测试（Shell 入口）
 #
 # 用法：
 #   bash smoke_test.sh                  # 全量冒烟（含 S10 调真实 LLM）

@@ -1,6 +1,6 @@
 """订单工具 -- 查订单列表 / 详情 / 生产状态。
 
-纯函数版本，供 Agent 直接 import 调用（Demo 稳定性优先，绕开 MCP stdio 进程通信）。
+纯函数版本，供 Agent 直接 import 调用（稳定性优先，绕开 MCP stdio 进程通信）。
 MCP 协议封装见 mcp_servers.py（展示 MCP 架构，可独立 stdio 运行）。
 
 三个工具对应原 week3 order_server，业务域：3D 打印调度。
