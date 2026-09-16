@@ -137,4 +137,4 @@ flowchart TB
 - RAG 知识库来源=合同特殊条款 txt；历史延期记录 txt 参与交期评估(forecast)
 
 ---
-*证据来源：README.md、CLAUDE.md、docs/demo/02-specs、源码 main/supervisor/router/graph/scheduler/simulator/tools/observability/api、codegraph 索引(nodes 2657/edges 7349) 交叉验证。*
+*证据来源：README.md、CLAUDE.md、docs/02-specs、源码 main/supervisor/router/graph/scheduler/simulator/tools/observability/api、codegraph 索引(nodes 2657/edges 7349) 交叉验证。*
