@@ -363,8 +363,8 @@
 
 ## 十一、执行收口（2026-09-16）
 
-**结论：M0-M10 全部完成，本计划相关 commit 共 20 个（截至本笔，含计划落盘/收尾登记/本计数修正），落在 `feature/20260916_clean_demo-traces` 分支，待用户 push。**
-累计 diff：**146 files changed, +746 / -261**（相对 `main`）。
+**结论：M0-M10 全部完成，全部 commit 落在 `feature/20260916_clean_demo-traces` 分支（commit 清单见下表）。**
+累计 diff 以 `git diff main..HEAD --shortstat` 为准（含本次收尾笔）。
 
 | 阶段 | commit | 要旨 |
 |------|--------|------|
@@ -379,7 +379,9 @@
 | M7 | `0d74fdd` `1be6017` `80222fa` `6d345ae` | 文档仓 91 文件上移 + 36 文件 115 处引用同步 + 内文清理 + 链接修复 |
 | M8 | `24f4e02` | 前端 CSS/变量/文案清零（组件名按拍板保留） |
 | M9 | `8329a36` `c4247a2` | 图谱路径与节点名同步（重生成不可行） |
-| M10 | `5245159` `873f2b7` | 补漏（`test_demo.sh` 改名 + 非 .py 文件）+ 收尾登记 |
+| M10 | `5245159` `873f2b7` `6ffa599` | 补漏（`test_demo.sh` 改名 + 非 .py 文件 + 设计稿陈旧变量名）+ 收尾登记 |
+
+> **验证脚本自查记录**：M10 首轮 grep 用 `git ls-files` 直接喂路径给 Python，因默认 `core.quotePath` 转义，**所有中文名文件被静默跳过**（`except: continue` 吞掉了异常），导致漏报 2 处残留。改用 `git -c core.quotePath=false ls-files -z` 后修正。同类全仓扫描务必用此口径。
 
 **过程中发现并处置的既有缺陷（非本次引入）**
 1. `.dockerignore` 4 条运行时数据排除规则指向包名重构前的失效路径 —— 会导致 chroma_db/checkpoints.db/cache_db 被打进镜像
