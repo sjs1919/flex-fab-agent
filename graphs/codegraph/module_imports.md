@@ -366,12 +366,12 @@
   - constant:loading@63 ｜ constant:error@64 ｜ constant:kpiData@65 ｜ constant:costModels@66 ｜ constant:traceData@67 ｜ constant:kpiChartEl@69
   - constant:costChartEl@70 ｜ variable:kpiChart@71 ｜ variable:costChart@72 ｜ function:renderKpiChart@74 ｜ function:renderCostChart@98 ｜ function:resizeCharts@110
 - **web/src/views/DebugView.vue** — 24 符号
-  - constant:emit@113 ｜ constant:instance@114 ｜ constant:router@115 ｜ function:goDemo@118 ｜ constant:query@123 ｜ constant:loading@124
+  - constant:emit@113 ｜ constant:instance@114 ｜ constant:router@115 ｜ function:goManual@118 ｜ constant:query@123 ｜ constant:loading@124
   - constant:error@125 ｜ constant:result@126 ｜ constant:adminToken@127 ｜ constant:judging@128 ｜ constant:judgeError@129 ｜ constant:judge@130
   - constant:detail@132 ｜ constant:detailVisible@133 ｜ constant:detailJson@134 ｜ function:pretty@136 ｜ function:openDetail@143 ｜ function:buildTree@155
   - constant:traceTree@169 ｜ constant:judgeEntries@171 ｜ function:saveToken@177 ｜ function:copyToken@181 ｜ function:submit@202 ｜ function:runJudge@218
 - **web/src/views/DemoCasesView.vue** — 7 符号
-  - constant:demoSteps@9 ｜ constant:groups@26 ｜ constant:emit@139 ｜ constant:instance@140 ｜ constant:router@141 ｜ function:goTab@144
+  - constant:scriptSteps@9 ｜ constant:groups@26 ｜ constant:emit@139 ｜ constant:instance@140 ｜ constant:router@141 ｜ function:goTab@144
   - function:copyAsk@150
 - **web/src/views/LogView.vue** — 14 符号
   - constant:page@6 ｜ constant:pageSize@7 ｜ constant:total@8 ｜ constant:items@9 ｜ constant:loading@10 ｜ constant:category@12
