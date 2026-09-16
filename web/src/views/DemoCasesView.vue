@@ -5,8 +5,8 @@ import { useRouter } from 'vue-router'
 
 // 数据来源：docs/08-test/调试台测试用例提示词-v1-2026-08-29.md 第五节（正式测试提示词，已核对 seed 数据）
 
-// 15 分钟演示主线（推荐顺序，A→L）
-const demoSteps: { id: string; title: string; ask: string; action?: string; write?: boolean }[] = [
+// 15 分钟操作主线（推荐顺序，A→L）
+const scriptSteps: { id: string; title: string; ask: string; action?: string; write?: boolean }[] = [
   { id: 'A1', title: '查订单', ask: '帮我查一下所有还在排队的订单' },
   { id: 'A4', title: '订单详情', ask: '查一下订单 ORD001 的完整信息' },
   { id: 'B1', title: '设备负载', ask: '现在哪些设备在运行、哪些空闲、预计什么时候释放' },
@@ -175,10 +175,10 @@ async function copyAsk(ask: string) {
       </div>
     </div>
 
-    <!-- 15 分钟演示主线 -->
-    <h2 class="section-title">15 分钟演示主线（推荐顺序）</h2>
-    <div class="demo-steps">
-      <div v-for="(s, i) in demoSteps" :key="s.id" class="demo-step">
+    <!-- 15 分钟操作主线 -->
+    <h2 class="section-title">15 分钟操作主线（推荐顺序）</h2>
+    <div class="script-steps">
+      <div v-for="(s, i) in scriptSteps" :key="s.id" class="script-step">
         <div class="step-no">{{ i + 1 }}</div>
         <el-tag :type="s.write ? 'danger' : 'info'" size="small" class="step-id">{{ s.id }}</el-tag>
         <div class="step-body">
@@ -200,7 +200,7 @@ async function copyAsk(ask: string) {
             <el-button size="small" plain :disabled="!item.ask" @click="copyAsk(item.ask)">复制</el-button>
           </div>
         </div>
-        <p class="manual-note">来源：调试台测试用例提示词 v1（docs/08-test/）。演示前建议：清缓存 → seed --reset → 起后端 → 冒烟通过。</p>
+        <p class="manual-note">来源：调试台测试用例提示词 v1（docs/08-test/）。使用前建议：清缓存 → seed --reset → 起后端 → 冒烟通过。</p>
       </el-collapse-item>
     </el-collapse>
   </div>
@@ -237,13 +237,13 @@ async function copyAsk(ask: string) {
 }
 
 /* 15 分钟主线步骤 */
-.demo-steps {
+.script-steps {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.demo-step {
+.script-step {
   display: flex;
   align-items: center;
   gap: 12px;

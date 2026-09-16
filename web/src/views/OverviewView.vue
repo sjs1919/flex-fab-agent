@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 系统介绍页（首页 tab）——纯静态展示，零 API 依赖
-// 数字来源：docs/demo/02-specs/2026-08-30-系统介绍页-design.md §7（已核对源码）
+// 数字来源：docs/02-specs/2026-08-30-系统介绍页-design.md §7（已核对源码）
 // 首页 Hero 统计：原 4 项 + 前道/上机人员
 const heroStats = [
   { label: '种子订单', value: 20, note: '模拟真实排产压力' },
@@ -38,7 +38,7 @@ const reliability = [
   { value: '≥7/10', label: '评估门禁', note: '三层评估达标才放行' },
 ]
 
-// 现场 15 分钟演示脚本入口：切到「演示」tab（DemoCasesView，提问可一键复制）
+// 现场 15 分钟操作手册入口：切到「演示」tab（DemoCasesView，提问可一键复制）
 function goManual() {
   emit('switchTab', 'manual')
 }
@@ -133,9 +133,9 @@ const emit = defineEmits<{ switchTab: [name: string] }>()
           <div class="reliability-note">{{ r.note }}</div>
         </div>
       </div>
-      <div class="demo-entry">
-        <p class="demo-entry-text">现场 15 分钟演示脚本：13 步主线，提问可一键复制到调试台。</p>
-        <el-button type="primary" plain @click="goManual">打开演示脚本</el-button>
+      <div class="script-entry">
+        <p class="script-entry-text">现场 15 分钟操作手册：13 步主线，提问可一键复制到调试台。</p>
+        <el-button type="primary" plain @click="goManual">打开操作手册</el-button>
       </div>
     </section>
 
@@ -403,7 +403,7 @@ section h2 {
   line-height: 1.5;
 }
 
-.demo-entry {
+.script-entry {
   margin-top: 16px;
   display: flex;
   align-items: center;
@@ -413,7 +413,7 @@ section h2 {
   padding: 14px 18px;
 }
 
-.demo-entry-text {
+.script-entry-text {
   color: #606266;
   font-size: 14px;
   margin: 0;

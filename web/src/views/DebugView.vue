@@ -16,7 +16,7 @@
         <span style="color: #909399; font-size: 12px">token 自动签发，仅存本机 localStorage，1h 有效</span>
       </div>
       <div style="margin-top: 8px">
-        <el-button link type="primary" @click="goDemo">查看演示脚本（测试用例提问，可一键复制）→</el-button>
+        <el-button link type="primary" @click="goManual">查看操作手册（测试用例提问，可一键复制）→</el-button>
       </div>
     </el-card>
 
@@ -115,7 +115,7 @@ const instance = getCurrentInstance()
 const router = useRouter()
 
 // 作为 tab（PortalView 内，onSwitchTab 事件监听在 props 上）→ 切到「演示」tab；深链直访 → 整页跳
-function goDemo() {
+function goManual() {
   if (instance?.props?.onSwitchTab) emit('switchTab', 'manual')
   else router.push('/portal/manual')
 }
