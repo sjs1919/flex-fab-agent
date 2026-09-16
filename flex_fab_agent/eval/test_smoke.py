@@ -3,7 +3,7 @@ def test_smoke():
     assert True
 
 
-def test_demo_package_importable():
-    """demo 包能从 agent-training 根导入（验证 conftest 路径设置）。"""
+def test_flex_fab_agent_package_importable():
+    """flex_fab_agent 包能从项目根导入（验证 conftest 路径设置）。"""
     from flex_fab_agent.eval.metrics import compute_all_metrics
     assert compute_all_metrics is not None

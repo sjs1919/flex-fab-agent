@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8")
 
-# 加 agent-training 根到 sys.path（demo 包需要父目录）
+# 加项目根到 sys.path（flex_fab_agent 包需要父目录）
 AGENT_TRAINING_ROOT = Path(__file__).resolve().parent.parent
 if str(AGENT_TRAINING_ROOT) not in sys.path:
     sys.path.insert(0, str(AGENT_TRAINING_ROOT))

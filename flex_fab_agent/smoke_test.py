@@ -1,4 +1,4 @@
-"""demo 部署冒烟测试脚本。
+"""flex_fab_agent 部署冒烟测试脚本。
 
 分层递进验证，部署完成后必跑，全部通过才进入界面验收。
 
@@ -37,7 +37,7 @@ import sys
 import time
 from pathlib import Path
 
-# 确保 demo 包可导入（与 conftest.py 同逻辑）
+# 确保 flex_fab_agent 包可导入（与 conftest.py 同逻辑）
 AGENT_TRAINING_ROOT = Path(__file__).resolve().parent.parent
 if str(AGENT_TRAINING_ROOT) not in sys.path:
     sys.path.insert(0, str(AGENT_TRAINING_ROOT))
@@ -218,7 +218,7 @@ def s2_data_layer() -> None:
             _fail("S2.1", "MySQL 迁移状态", f"失败: {e}")
     else:
         # CSV 模式：检查关键数据文件
-        data_dir = AGENT_TRAINING_ROOT / "demo" / "data"
+        data_dir = AGENT_TRAINING_ROOT / "flex_fab_agent" / "data"
         required = ["orders.csv", "customers.csv", "machines.csv", "inventory.csv", "parts.csv"]
         missing = [f for f in required if not (data_dir / f).exists()]
         if not missing:
@@ -527,7 +527,7 @@ def s11_frontend(front_url: str) -> None:
 # ============================================================
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="demo 部署冒烟测试")
+    parser = argparse.ArgumentParser(description="flex_fab_agent 部署冒烟测试")
     parser.add_argument("--base-url", default=None,
                         help="后端 API 地址（如 http://localhost:8000）；不传则进程内直调 FastAPI app")
     parser.add_argument("--skip-llm", action="store_true", help="跳过 S10 Agent 问答（不烧 token）")
@@ -540,7 +540,7 @@ def main() -> int:
     _skip_llm_mode = args.skip_llm
 
     print("=" * 60)
-    print("  demo 部署冒烟测试")
+    print("  flex_fab_agent 部署冒烟测试")
     print(f"  模式: {'HTTP ' + args.base_url if args.base_url else '进程内直调'}")
     print(f"  数据源: {get_data_source()}")
     print("=" * 60)

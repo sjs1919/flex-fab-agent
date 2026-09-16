@@ -106,12 +106,12 @@ def test_tool_span_arguments_result_attrs(monkeypatch):
                         lambda handler, args, **k: ("ok-result", True, 0))
 
     r = ToolRegistry()
-    r.register("demo_tool", "测试", {"type": "object", "properties": {}},
+    r.register("sample_tool", "测试", {"type": "object", "properties": {}},
                lambda **kw: "ok", "test")
     tracer.reset()
-    r.execute("demo_tool", {"a": "x" * 500})
+    r.execute("sample_tool", {"a": "x" * 500})
     spans = tracer.get_summary()["spans"]
-    sp = [s for s in spans if s["name"] == "tool:demo_tool"][0]
+    sp = [s for s in spans if s["name"] == "tool:sample_tool"][0]
     assert len(sp["attrs"]["arguments"]) == 200, "入参须截断到 200"
     assert sp["attrs"]["result"] == "ok-result"
     assert sp["attrs"]["tool_success"] is True
@@ -125,9 +125,9 @@ def test_tool_span_result_truncated(monkeypatch):
                         lambda handler, args, **k: ("r" * 800, True, 0))
 
     r = ToolRegistry()
-    r.register("demo_tool", "测试", {"type": "object", "properties": {}},
+    r.register("sample_tool", "测试", {"type": "object", "properties": {}},
                lambda **kw: "ok", "test")
     tracer.reset()
-    r.execute("demo_tool", {})
+    r.execute("sample_tool", {})
     sp = tracer.get_summary()["spans"][0]
     assert len(sp["attrs"]["result"]) == 200

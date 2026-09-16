@@ -1,7 +1,7 @@
 """自研 LLM-as-Judge 语义指标（不依赖 ragas 库）。
 
 设计要点：
-  - 复用 core.llm_client.call_llm，与 demo 同一调用层（主备 fallback + 缓存）。
+  - 复用 core.llm_client.call_llm，与 flex_fab_agent 同一调用层（主备 fallback + 缓存）。
   - faithfulness / answer_relevancy 两项，0-1 打分。
   - judge 失败（LLM 异常/解析失败）→ 优雅降级 0 分，不中断 eval。
 """
@@ -20,7 +20,7 @@ def _extract_context(tool_results: list[dict]) -> str:
     """从 tool_results 提取检索工具的返回作为上下文。
 
     LLM-as-Judge 的 faithfulness 需要"检索上下文"做参照。
-    当前 demo 只有 search_knowledge_base 一个 RAG 工具会返回结构化知识片段。
+    当前项目只有 search_knowledge_base 一个 RAG 工具会返回结构化知识片段。
     """
     parts = []
     for tr in tool_results:
