@@ -5,7 +5,7 @@
   - 压缩后 messages = [system] + [摘要] + [最近 N 条原始消息]
   - 摘要由 LLM 生成（自动用便宜的 provider / 小 max_tokens）
 
-阈值说明（demo 教学版用字符数近似，生产用 tiktoken 精确计数）：
+阈值说明（教学版用字符数近似，生产用 tiktoken 精确计数）：
   - 中文约 1.5 字符/token
   - 默认 8000 字符 → 约 5300 tokens（远低于模型 128K 上下文但有效控制成本）
 """

@@ -11,7 +11,7 @@ backend 由 CHECKPOINTER 环境变量选：
   none          不持久化（等价 week4 无 checkpointer）
 
 为什么不用 add_messages reducer：
-  它会把消息转成 LangChain HumanMessage/AIMessage 对象，而本 demo 全链路按 dict
+  它会把消息转成 LangChain HumanMessage/AIMessage 对象，而本项目全链路按 dict
   处理消息并直接喂 OpenAI SDK。改对象类型风险大、收益小，故保持 dict + 覆盖语义，
   多轮时显式从 checkpoint 取历史 messages 追加新问题再 invoke（见 single_agent.py）。
 """

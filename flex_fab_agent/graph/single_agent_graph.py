@@ -243,7 +243,7 @@ def build_single_agent_graph(registry: ToolRegistry, checkpointer=None):
             # 写工具自动注入 admin token（2026-08-29 修复）：graph 执行处无 token 上下文，
             # 写工具（run_scheduling/approve_schedule）在 guard 层 token=None 时会被拒（R-2），
             # 返回「鉴权拒绝」→ LLM 误读为「工具不可用」而放弃执行（G1 排产断链根因）。
-            # 与 /debug/admin-token 同机制自签（demo 本地便利），使调试台提问可正常触发写操作。
+            # 与 /debug/admin-token 同机制自签（本地便利），使调试台提问可正常触发写操作。
             token = None
             if schema and not schema.read_only:
                 # guard 期望 Token 对象（访问 .subject/.role）；issue 返回 token_id 字符串，
