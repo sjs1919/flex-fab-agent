@@ -1,4 +1,4 @@
-"""demo -- week1-4 整合的多 Agent 排产助手（分层工程化版）。
+"""flex_fab_agent -- week1-4 整合的多 Agent 排产助手（分层工程化版）。
 
 分层结构（对应 Harness 编排-权限-观测三层）：
   core/        LLM 调用基座（主备 fallback）

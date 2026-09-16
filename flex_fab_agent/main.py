@@ -1,11 +1,11 @@
-"""demo 统一入口 -- 多 Agent 排产助手。
+"""flex_fab_agent 统一入口 -- 多 Agent 排产助手。
 
 用法：
   python -m flex_fab_agent.main "今天先做哪些订单？"     # 单 Agent 模式处理查询
   python -m flex_fab_agent.main --chat                    # 多轮对话（状态持久化，重启可恢复）
   python -m flex_fab_agent.main --chat --thread <id>      # 续接指定会话
   python -m flex_fab_agent.main "..." --thread <id>       # 单次提问但恢复某会话上下文
-  python -m flex_fab_agent.main --demo                    # 跑预设场景
+  python -m flex_fab_agent.main --scenario               # 跑预设场景
   python -m flex_fab_agent.main --check                   # 地基自检（config/LLM/工具）
   python -m flex_fab_agent.main --sim                     # 启动模拟器心跳（Ctrl+C 停止，M4a）
   python -m flex_fab_agent.main --init-schedule           # 求解一轮并落库（M4a）
@@ -80,7 +80,7 @@ def main():
         return
 
     # 解析参数
-    mode = "single"       # 执行模式：single(默认) / multi(--mode multi，多 Agent) / demo(--demo，预设场景)
+    mode = "single"       # 执行模式：single(默认) / multi(--mode multi，多 Agent) / scenario(--scenario，预设场景)
     chat = False          # 是否进多轮对话 REPL（--chat 触发，优先级最高，进了即 return）
     thread_id = None      # 会话 ID：--thread <id> 续接历史上下文；None=独立单次查询（可命中语义缓存）
     positional = []       # 位置参数桶：收集非 flag token，末尾 join 成查询文本
@@ -89,8 +89,8 @@ def main():
         if args[i] == "--mode" and i + 1 < len(args):
             mode = args[i + 1]
             i += 2
-        elif args[i] == "--demo":
-            mode = "demo"
+        elif args[i] == "--scenario":
+            mode = "scenario"
             i += 1
         elif args[i] == "--chat":
             chat = True
@@ -108,7 +108,7 @@ def main():
         _chat(thread_id or f"chat-{uuid.uuid4().hex[:12]}")
         return
 
-    if mode == "demo":
+    if mode == "scenario":
         print(f"\n📋 预设场景（共 {len(FLEX_FAB_AGENT_SCENARIOS)} 个）：\n")
         for idx, s in enumerate(FLEX_FAB_AGENT_SCENARIOS, 1):
             print(f"  {idx}. {s}")
@@ -124,7 +124,7 @@ def main():
 
     query = " ".join(positional)
     if not query:
-        print('\n用法：python -m flex_fab_agent.main "你的问题"  或  --chat  或  --demo  或  --check')
+        print('\n用法：python -m flex_fab_agent.main "你的问题"  或  --chat  或  --scenario  或  --check')
         print('多轮对话：--chat [--thread <会话id>]')
         return
 

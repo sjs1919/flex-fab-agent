@@ -171,7 +171,7 @@ def call_llm(messages: list[dict], tools: list[dict] | None = None,
             }
             if p["name"] == "DeepSeek":
                 # DeepSeek V4 推理默认开 thinking，响应带 reasoning_content 且要求原样回传
-                # （graph 历史未保留该字段 → 400）。demo 以工具调用为主，关闭 thinking 更稳更快。
+                # （graph 历史未保留该字段 → 400）。flex_fab_agent 以工具调用为主，关闭 thinking 更稳更快。
                 kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
             if tools:
                 kwargs["tools"] = tools
