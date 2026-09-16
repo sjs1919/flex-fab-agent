@@ -44,7 +44,7 @@ class MCPToolClient:
             self._send_json_rpc("initialize", {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
-                "clientInfo": {"name": "demo-mcp-client", "version": "0.1.0"},
+                "clientInfo": {"name": "flex-fab-agent-mcp-client", "version": "0.1.0"},
             })
             tools_resp = self._send_json_rpc("tools/list", {})
             for t in tools_resp.get("tools", []):
